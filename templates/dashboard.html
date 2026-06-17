@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block breadcrumb %}<span>Início</span>{% endblock %}
+
+{% block content %}
+<!-- Cards de totais -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+  <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
+    {{ icon('users','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">Clientes</div>
+      <div id="tot-clientes" style="font-size:28px;font-weight:700;color:var(--azul);margin-top:2px;">—</div>
+    </div>
+  </div>
+  <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
+    {{ icon('car','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">Veículos Ativos</div>
+      <div id="tot-veiculos" style="font-size:28px;font-weight:700;color:var(--azul);margin-top:2px;">—</div>
+    </div>
+  </div>
+  <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
+    {{ icon('warning','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">IPVA Vencidos</div>
+      <div id="tot-ipva" style="font-size:28px;font-weight:700;color:var(--vermelho);margin-top:2px;">—</div>
+    </div>
+  </div>
+  <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
+    {{ icon('warning','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">Lic. Vencidos</div>
+      <div id="tot-lic" style="font-size:28px;font-weight:700;color:var(--vermelho);margin-top:2px;">—</div>
+    </div>
+  </div>
+  <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
+    {{ icon('warning','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">Multas Pendentes</div>
+      <div id="tot-multas" style="font-size:28px;font-weight:700;color:var(--amarelo);margin-top:2px;">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Vencimentos IPVA -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h2>{{ icon('calendar') }} Vencimentos de IPVA — próximos 30 dias</h2>
+    <span id="badge-ipva" style="font-size:12px;color:var(--sub);"></span>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th>Cliente</th><th>Placa</th><th>Espécie</th>
+        <th>Ano</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th>Ação</th>
+      </tr></thead>
+      <tbody id="tbody-ipva"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Vencimentos Licenciamento -->
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('file') }} Vencimentos de Licenciamento — próximos 30 dias</h2>
+    <span id="badge-lic" style="font-size:12px;color:var(--sub);"></span>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th>Cliente</th><th>Placa</th><th>Espécie</th>
+        <th>Ano</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th>Ação</th>
+      </tr></thead>
+      <tbody id="tbody-lic"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CAT = { passeio:'Passeio', carga:'Carga', reboque:'Reboque' };
+
+function diasRestantes(venc) {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const d = new Date(venc + 'T00:00:00');
+  return Math.ceil((d - hoje) / 86400000);
+}
+
+function renderLinhaVenc(r) {
+  const dias = diasRestantes(r.vencimento);
+  let badge, estilo = '';
+  if (dias < 0)      { badge = `<span class="badge badge-vencido">Vencido há ${Math.abs(dias)}d</span>`; estilo = 'background:#fff5f5'; }
+  else if (dias <= 7){ badge = `<span class="badge badge-vencido">Vence em ${dias}d</span>`;             estilo = 'background:#fff5f5'; }
+  else               { badge = `<span class="badge badge-pendente">Vence em ${dias}d</span>`;            estilo = ''; }
+
+  return `<tr style="${estilo}">
+    <td><a href="/clientes/${r.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;font-weight:600;">${r.cliente_nome}</a></td>
+    <td><strong style="font-family:monospace;">${r.placa}</strong></td>
+    <td>${CAT[r.especie] || r.especie || '—'}</td>
+    <td>${r.ano_referencia}</td>
+    <td>${fmtMoeda(r.valor)}</td>
+    <td>${fmtData(r.vencimento)}</td>
+    <td>${badge}</td>
+    <td><a class="btn btn-primary btn-sm" href="/veiculos/${r.vid}/painel">Ver</a></td>
+  </tr>`;
+}
+
+async function carregar() {
+  const res = await fetch('/api/dashboard');
+  const d = await res.json();
+
+  document.getElementById('tot-clientes').textContent = d.totais.total_clientes;
+  document.getElementById('tot-veiculos').textContent = d.totais.total_veiculos;
+  document.getElementById('tot-ipva').textContent     = d.totais.ipva_vencidos;
+  document.getElementById('tot-lic').textContent      = d.totais.lic_vencidos;
+  document.getElementById('tot-multas').textContent   = d.totais.multas_pendentes;
+
+  const tbi = document.getElementById('tbody-ipva');
+  document.getElementById('badge-ipva').textContent = d.ipva.length + ' registro(s)';
+  tbi.innerHTML = d.ipva.length
+    ? d.ipva.map(renderLinhaVenc).join('')
+    : `<tr><td colspan="8"><div class="empty-state">{{ icon('calendar','icon icon-xl') }}<p>Nenhum IPVA vencendo nos próximos 30 dias</p></div></td></tr>`;
+
+  const tbl = document.getElementById('tbody-lic');
+  document.getElementById('badge-lic').textContent = d.licenciamento.length + ' registro(s)';
+  tbl.innerHTML = d.licenciamento.length
+    ? d.licenciamento.map(renderLinhaVenc).join('')
+    : `<tr><td colspan="8"><div class="empty-state">{{ icon('file','icon icon-xl') }}<p>Nenhum licenciamento vencendo nos próximos 30 dias</p></div></td></tr>`;
+}
+
+carregar();
+</script>
+{% endblock %}
