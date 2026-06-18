@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Configurações{% endblock %}
+{% block breadcrumb %}<span>Configurações</span>{% endblock %}
+
+{% block content %}
+<div style="display:flex;flex-direction:column;gap:20px;max-width:680px;">
+
+  <!-- Senha de exclusão -->
+  <div class="card">
+    <div class="card-header">
+      <h2>{{ icon('padlock') }} Senha de exclusão</h2>
+    </div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--sub);margin-bottom:14px;">
+        Essa senha será exigida sempre que algo for excluído no sistema (clientes, veículos,
+        IPVA, licenciamento, multas ou documentos), como uma camada extra de proteção além
+        da confirmação normal.
+      </p>
+      <div id="aviso-senha-padrao" style="display:none;background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;">
+        {{ icon('warning','icon icon-sm') }} A senha ainda está no valor padrão (<strong>0000</strong>). Recomendamos trocar por uma senha própria.
+      </div>
+      <div class="row2">
+        <div class="field"><label>Senha atual</label><input id="f-senha-atual" type="password" placeholder="••••"></div>
+        <div class="field"><label>Nova senha</label><input id="f-senha-nova" type="password" placeholder="Mínimo 4 caracteres"></div>
+      </div>
+      <div style="margin-top:14px;">
+        <button class="btn btn-primary" onclick="salvarSenha()">{{ icon('save','icon icon-sm') }} Salvar nova senha</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup automático -->
+  <div class="card">
+    <div class="card-header">
+      <h2>{{ icon('folder') }} Backup automático</h2>
+    </div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--sub);margin-bottom:14px;">
+        O sistema salva automaticamente uma cópia do banco de dados na pasta <code>backups/</code>
+        a cada intervalo definido abaixo. Cópias com mais de 5 dias são removidas automaticamente.
+      </p>
+      <div class="field" style="max-width:220px;">
+        <label>Intervalo (em minutos)</label>
+        <input id="f-backup-intervalo" type="number" min="1" placeholder="30">
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="salvarIntervalo()">{{ icon('save','icon icon-sm') }} Salvar intervalo</button>
+        <button class="btn btn-outline" onclick="backupAgora()">{{ icon('folder','icon icon-sm') }} Fazer backup agora</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lista de backups -->
+  <div class="card">
+    <div class="card-header">
+      <h2>{{ icon('file') }} Backups salvos</h2>
+      <span id="badge-backups" style="font-size:12px;color:var(--sub);"></span>
+    </div>
+    <div class="tabela-wrap">
+      <table>
+        <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Criado em</th></tr></thead>
+        <tbody id="tbody-backups"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function carregarConfig() {
+  const res = await fetch('/api/configuracoes');
+  const cfg = await res.json();
+  document.getElementById('f-backup-intervalo').value = cfg.backup_intervalo_min;
+  document.getElementById('aviso-senha-padrao').style.display = cfg.senha_configurada ? 'none' : 'block';
+}
+
+async function salvarSenha() {
+  const senha_atual = document.getElementById('f-senha-atual').value;
+  const nova_senha = document.getElementById('f-senha-nova').value;
+  if (!senha_atual || !nova_senha) { toast('Preencha a senha atual e a nova senha', 'err'); return; }
+  const res = await fetch('/api/configuracoes/senha', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ senha_atual, nova_senha })
+  });
+  const d = await res.json();
+  if (!res.ok || !d.ok) { toast(d.erro || 'Erro ao salvar senha', 'err'); return; }
+  document.getElementById('f-senha-atual').value = '';
+  document.getElementById('f-senha-nova').value = '';
+  toast('Senha atualizada com sucesso!');
+  carregarConfig();
+}
+
+async function salvarIntervalo() {
+  const minutos = parseInt(document.getElementById('f-backup-intervalo').value);
+  const res = await fetch('/api/configuracoes/backup-intervalo', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ minutos })
+  });
+  const d = await res.json();
+  if (!res.ok || !d.ok) { toast(d.erro || 'Erro ao salvar intervalo', 'err'); return; }
+  toast('Intervalo de backup atualizado!');
+}
+
+async function backupAgora() {
+  const res = await fetch('/api/configuracoes/backup-agora', { method: 'POST' });
+  const d = await res.json();
+  if (d.ok) {
+    toast('Backup criado: ' + d.arquivo);
+    carregarBackups();
+  } else {
+    toast('Erro ao gerar backup', 'err');
+  }
+}
+
+async function carregarBackups() {
+  const res = await fetch('/api/configuracoes/backups');
+  const lista = await res.json();
+  document.getElementById('badge-backups').textContent = lista.length + ' arquivo(s)';
+  const tbody = document.getElementById('tbody-backups');
+  if (!lista.length) {
+    tbody.innerHTML = `<tr><td colspan="3"><div class="empty-state">{{ icon('folder','icon icon-xl') }}<p>Nenhum backup gerado ainda</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = lista.map(b => `
+    <tr>
+      <td style="font-family:monospace;font-size:13px;">${b.nome}</td>
+      <td>${b.tamanho_kb} KB</td>
+      <td>${b.criado_em}</td>
+    </tr>
+  `).join('');
+}
+
+carregarConfig();
+carregarBackups();
+</script>
+{% endblock %}

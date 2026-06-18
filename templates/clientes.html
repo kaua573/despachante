@@ -17,7 +17,7 @@
   <div class="tabela-wrap">
     <table>
       <thead><tr>
-        <th>Nome</th><th>CPF</th><th>Telefone</th><th>Email</th><th>Obs.</th><th style="min-width:230px;">Ações</th>
+        <th>Nome</th><th>CPF</th><th>Telefone</th><th>Email</th><th>Obs.</th><th style="min-width:150px;">Ações</th>
       </tr></thead>
       <tbody id="tbody"></tbody>
     </table>
@@ -151,9 +151,9 @@ async function carregar() {
       <td>${c.email||'—'}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.observacao||''}">${c.observacao||'—'}</td>
       <td>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
-          <a class="btn btn-primary btn-sm" href="/clientes/${c.id}/veiculos" style="white-space:nowrap;">{{ icon('car','icon icon-sm') }} Veículos</a>
-          <button class="btn btn-outline btn-sm" style="white-space:nowrap;" onclick="abrirModalPdf(${c.id},'${c.nome.replace(/'/g,"\\'")}')">{{ icon('file','icon icon-sm') }} PDF</button>
+        <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
+          <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
+          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${c.nome.replace(/'/g,"\\'")}')">{{ icon('file','icon icon-sm') }}</button>
           <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${JSON.stringify(c)})'>{{ icon('edit','icon icon-sm') }}</button>
           <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${c.nome.replace(/'/g,"\\'")}')">{{ icon('delete','icon icon-sm') }}</button>
         </div>
@@ -209,9 +209,11 @@ async function salvar() {
 }
 
 async function excluir(id, nome) {
-  if(!confirm(`Excluir "${nome}" e todos os seus veículos/documentos?\nEsta ação não pode ser desfeita.`))return;
-  await fetch(`/api/clientes/${id}`,{method:'DELETE'});
-  carregar(); toast('Cliente excluído.');
+  confirmarExclusao(`Excluir "${nome}" e todos os seus veículos/documentos? Esta ação não pode ser desfeita.`, async () => {
+    await fetch(`/api/clientes/${id}`,{method:'DELETE'});
+    carregar();
+    toast('Cliente excluído.');
+  });
 }
 
 // ── Documentos ──
@@ -286,10 +288,11 @@ async function salvarDocumento() {
 }
 
 async function excluirDocumento(id) {
-  if (!confirm('Excluir este documento?')) return;
-  await fetch(`/api/documentos/${id}`, { method:'DELETE' });
-  await carregarDocumentos();
-  toast('Documento excluído.');
+  confirmarExclusao('Excluir este documento?', async () => {
+    await fetch(`/api/documentos/${id}`, { method:'DELETE' });
+    await carregarDocumentos();
+    toast('Documento excluído.');
+  });
 }
 
 // ── PDF ──

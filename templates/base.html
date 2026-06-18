@@ -134,11 +134,34 @@
   <div class="nav-links">
     <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
     <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
+    <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
   </div>
   <div class="breadcrumb">{% block breadcrumb %}{% endblock %}</div>
 </nav>
 <div class="container">{% block content %}{% endblock %}</div>
 <div id="toast"></div>
+
+<!-- Modal global de senha para exclusões -->
+<div class="modal-overlay" id="modal-senha-exclusao">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <h3>{{ icon('padlock') }} Confirmar exclusão</h3>
+      <button class="btn-close" onclick="_cancelarSenhaExclusao()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="msg-senha-exclusao" style="font-size:14px;color:var(--sub);"></p>
+      <div class="field">
+        <label>Senha de exclusão</label>
+        <input id="input-senha-exclusao" type="password" placeholder="••••" onkeydown="if(event.key==='Enter') _confirmarSenhaExclusao()">
+      </div>
+      <p id="erro-senha-exclusao" style="display:none;color:var(--vermelho);font-size:13px;"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="_cancelarSenhaExclusao()">Cancelar</button>
+      <button class="btn btn-danger" onclick="_confirmarSenhaExclusao()">{{ icon('delete','icon icon-sm') }} Excluir</button>
+    </div>
+  </div>
+</div>
 <script>
 function toast(msg, tipo='ok') {
   const el=document.getElementById('toast'); el.textContent=msg;
@@ -158,6 +181,54 @@ function statusVencimento(venc,pago) {
   const d=new Date(venc+'T00:00:00');
   if(d<hoje)return'<span class="badge badge-vencido">Vencido</span>';
   return'<span class="badge badge-pendente">Pendente</span>';
+}
+
+// ── Confirmação de exclusão com senha ──
+// Uso: confirmarExclusao('Excluir o cliente "João"?', async () => { ...código de exclusão... });
+let _callbackExclusao = null;
+
+function confirmarExclusao(mensagem, callback) {
+  _callbackExclusao = callback;
+  document.getElementById('msg-senha-exclusao').textContent = mensagem;
+  document.getElementById('input-senha-exclusao').value = '';
+  document.getElementById('erro-senha-exclusao').style.display = 'none';
+  document.getElementById('modal-senha-exclusao').classList.add('open');
+  setTimeout(() => document.getElementById('input-senha-exclusao').focus(), 50);
+}
+
+function _cancelarSenhaExclusao() {
+  document.getElementById('modal-senha-exclusao').classList.remove('open');
+  _callbackExclusao = null;
+}
+
+async function _confirmarSenhaExclusao() {
+  const senha = document.getElementById('input-senha-exclusao').value;
+  const erroEl = document.getElementById('erro-senha-exclusao');
+  if (!senha) {
+    erroEl.textContent = 'Digite a senha.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  try {
+    const res = await fetch('/api/configuracoes/verificar-senha', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ senha })
+    });
+    const d = await res.json();
+    if (!res.ok || !d.ok) {
+      erroEl.textContent = d.erro || 'Senha incorreta.';
+      erroEl.style.display = 'block';
+      return;
+    }
+  } catch (e) {
+    erroEl.textContent = 'Erro ao verificar senha. Tente novamente.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  const callback = _callbackExclusao;
+  document.getElementById('modal-senha-exclusao').classList.remove('open');
+  _callbackExclusao = null;
+  if (callback) await callback();
 }
 </script>
 {% block scripts %}{% endblock %}

@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, send_from_directory
 from markupsafe import Markup
-import sqlite3, os, io, uuid
+import sqlite3, os, io, uuid, shutil, threading, time, glob
 from datetime import datetime, date, timedelta
 from werkzeug.utils import secure_filename
 from reportlab.lib.pagesizes import A4
@@ -14,7 +14,9 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.join(BASE_DIR, 'despachante.db')
 UPLOAD_DIR = os.path.join(BASE_DIR, 'static', 'uploads', 'documentos')
+BACKUP_DIR = os.path.join(BASE_DIR, 'backups')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # Helper Jinja para inserir ícones SVG inline
 def icon_svg(nome, classe='icon'):
@@ -115,6 +117,11 @@ def init_db():
             criado_em TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (cliente_id) REFERENCES clientes(id)
         );
+
+        CREATE TABLE IF NOT EXISTS configuracoes (
+            chave TEXT PRIMARY KEY,
+            valor TEXT
+        );
     ''')
     # Migrações suaves para bases já existentes
     migrations = [
@@ -129,13 +136,140 @@ def init_db():
     for ddl in migrations:
         try: c.execute(ddl)
         except: pass
+
+    # Valores padrão de configuração (só insere se ainda não existir)
+    c.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('senha_exclusao', '0000')")
+    c.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('backup_intervalo_min', '30')")
+
     conn.commit()
     conn.close()
+
+def get_config(chave, padrao=None):
+    conn = get_db()
+    row = conn.execute("SELECT valor FROM configuracoes WHERE chave=?", (chave,)).fetchone()
+    conn.close()
+    return row['valor'] if row else padrao
+
+def set_config(chave, valor):
+    conn = get_db()
+    conn.execute("INSERT INTO configuracoes (chave, valor) VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=?",
+                 (chave, str(valor), str(valor)))
+    conn.commit()
+    conn.close()
+
+# ─── BACKUP AUTOMÁTICO ───────────────────────────────────────
+_backup_event = threading.Event()  # usado para "acordar" a thread quando o intervalo mudar
+_backup_lock = threading.Lock()
+
+def fazer_backup():
+    """Copia o banco de dados atual para a pasta backups/ com timestamp no nome,
+    e remove backups com mais de 5 dias."""
+    with _backup_lock:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        if os.path.exists(DB_PATH):
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            destino = os.path.join(BACKUP_DIR, f'backup_{timestamp}.db')
+            shutil.copy2(DB_PATH, destino)
+        else:
+            destino = None
+
+        # Limpeza: remove backups com mais de 5 dias
+        limite = time.time() - (5 * 24 * 60 * 60)
+        for caminho in glob.glob(os.path.join(BACKUP_DIR, 'backup_*.db')):
+            try:
+                if os.path.getmtime(caminho) < limite:
+                    os.remove(caminho)
+            except OSError:
+                pass
+        return destino
+
+def _loop_backup():
+    while True:
+        try:
+            minutos = int(get_config('backup_intervalo_min', '30'))
+        except (ValueError, TypeError):
+            minutos = 30
+        segundos = max(60, minutos * 60)  # nunca menos que 1 minuto, por segurança
+        _backup_event.wait(timeout=segundos)
+        _backup_event.clear()
+        try:
+            fazer_backup()
+        except Exception as e:
+            print(f'[backup] erro ao fazer backup automático: {e}')
+
+def reagendar_backup():
+    """Chamado quando o intervalo é alterado nas configurações, para a thread
+    não esperar o intervalo antigo terminar antes de aplicar o novo valor."""
+    _backup_event.set()
+
+def iniciar_thread_backup():
+    t = threading.Thread(target=_loop_backup, daemon=True)
+    t.start()
 
 # ─── ÍCONES ──────────────────────────────────────────────────
 @app.route('/static/icons/<nome>')
 def icone(nome):
     return send_from_directory(os.path.join(BASE_DIR, 'static', 'icons'), nome)
+
+# ─── CONFIGURAÇÕES ───────────────────────────────────────────
+@app.route('/configuracoes')
+def pagina_configuracoes():
+    return render_template('configuracoes.html')
+
+@app.route('/api/configuracoes', methods=['GET'])
+def api_get_configuracoes():
+    return jsonify({
+        'backup_intervalo_min': get_config('backup_intervalo_min', '30'),
+        'senha_configurada': get_config('senha_exclusao', '0000') != '0000',
+    })
+
+@app.route('/api/configuracoes/backup-intervalo', methods=['POST'])
+def api_set_backup_intervalo():
+    d = request.json
+    try:
+        minutos = int(d.get('minutos'))
+        if minutos < 1: raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'erro': 'Informe um número de minutos válido (mínimo 1).'}), 400
+    set_config('backup_intervalo_min', minutos)
+    reagendar_backup()
+    return jsonify({'ok': True})
+
+@app.route('/api/configuracoes/senha', methods=['POST'])
+def api_set_senha():
+    d = request.json
+    senha_atual = d.get('senha_atual', '')
+    nova_senha = d.get('nova_senha', '')
+    if senha_atual != get_config('senha_exclusao', '0000'):
+        return jsonify({'ok': False, 'erro': 'Senha atual incorreta.'}), 403
+    if not nova_senha or len(nova_senha) < 4:
+        return jsonify({'ok': False, 'erro': 'A nova senha deve ter ao menos 4 caracteres.'}), 400
+    set_config('senha_exclusao', nova_senha)
+    return jsonify({'ok': True})
+
+@app.route('/api/configuracoes/verificar-senha', methods=['POST'])
+def api_verificar_senha():
+    d = request.json
+    senha = d.get('senha', '')
+    if senha == get_config('senha_exclusao', '0000'):
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'erro': 'Senha incorreta.'}), 403
+
+@app.route('/api/configuracoes/backups', methods=['GET'])
+def api_listar_backups():
+    arquivos = sorted(glob.glob(os.path.join(BACKUP_DIR, 'backup_*.db')), reverse=True)
+    lista = []
+    for caminho in arquivos:
+        nome = os.path.basename(caminho)
+        tamanho_kb = round(os.path.getsize(caminho) / 1024, 1)
+        mtime = datetime.fromtimestamp(os.path.getmtime(caminho)).strftime('%d/%m/%Y %H:%M:%S')
+        lista.append({'nome': nome, 'tamanho_kb': tamanho_kb, 'criado_em': mtime})
+    return jsonify(lista)
+
+@app.route('/api/configuracoes/backup-agora', methods=['POST'])
+def api_backup_agora():
+    caminho = fazer_backup()
+    return jsonify({'ok': True, 'arquivo': os.path.basename(caminho)})
 
 # ─── DASHBOARD ───────────────────────────────────────────────
 @app.route('/')
@@ -646,6 +780,12 @@ def relatorio_pdf(cid):
 
 if __name__ == '__main__':
     init_db()
+    # Com debug=True o Flask usa um reloader que recarrega o processo;
+    # WERKZEUG_RUN_MAIN só existe no processo "filho" (o que de fato atende requisições).
+    # Assim a thread de backup não é duplicada.
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+        iniciar_thread_backup()
     print("\n✅ Sistema Despachante iniciado!")
     print("🌐 Abra no navegador: http://localhost:5000\n")
+    print("💾 Backup automático ativo (rodando em segundo plano)\n")
     app.run(debug=True, port=5000)

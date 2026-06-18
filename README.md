@@ -66,7 +66,21 @@ Três abas: **IPVA**, **Licenciamento** e **Multas**, cada uma com filtro por
 status (pago/pendente) e registro de valor, vencimento, data de pagamento e
 observações.
 
+### ⚙️ Configurações
+- **Senha de exclusão**: por padrão é `0000`. É exigida sempre que algo for
+  excluído no sistema (cliente, veículo, IPVA, licenciamento, multa ou
+  documento), como camada extra de proteção além da confirmação normal.
+  Recomendamos trocar a senha padrão assim que possível, na própria aba de
+  Configurações.
+- **Backup automático**: a cada X minutos (30 por padrão, ajustável na mesma
+  tela), o sistema salva uma cópia do banco de dados na pasta `backups/`.
+  Cópias com mais de 5 dias são removidas automaticamente. Também é possível
+  forçar um backup manual a qualquer momento, e ver a lista de backups já
+  salvos.
+
 ## Banco de dados
 O arquivo `despachante.db` é criado automaticamente na mesma pasta do sistema.
 Os documentos enviados ficam em `static/uploads/documentos/`.
-Faça backup desses dois (arquivo + pasta) regularmente!
+Os backups automáticos ficam em `backups/`.
+Faça backup externo desses itens regularmente (ex: copiando a pasta toda para
+um pendrive ou nuvem), além do backup automático interno do sistema!
