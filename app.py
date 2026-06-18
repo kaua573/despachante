@@ -35,6 +35,18 @@ def icon_svg(nome, classe='icon'):
 
 app.jinja_env.globals['icon'] = icon_svg
 
+@app.context_processor
+def inject_tema():
+    """Disponibiliza o tema atual (modo + cores) em todos os templates,
+    para já renderizar com as variáveis CSS corretas (evita 'flash' de tema errado)."""
+    try:
+        modo = get_config('tema_modo', 'claro')
+        cor_chave = get_config('tema_cor', 'azul')
+    except Exception:
+        modo, cor_chave = 'claro', 'azul'
+    cor = PALETA_CORES.get(cor_chave, PALETA_CORES['azul'])
+    return {'tema_modo': modo, 'tema_cor_chave': cor_chave, 'tema_cor': cor}
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -138,8 +150,23 @@ def init_db():
         except: pass
 
     # Valores padrão de configuração (só insere se ainda não existir)
-    c.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('senha_exclusao', '0000')")
-    c.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('backup_intervalo_min', '30')")
+    defaults = {
+        'senha_exclusao': '0000',
+        'backup_intervalo_min': '30',
+        # Tema do app (interface web)
+        'tema_modo': 'claro',           # claro | escuro
+        'tema_cor': 'azul',             # azul | vermelho | verde | amarelo | roxo | laranja
+        # Personalização do relatório PDF
+        'pdf_fonte': 'moderna',         # moderna (Helvetica) | classica (Times) | tecnica (Courier)
+        'pdf_tamanho': 'medio',         # pequeno | medio | grande
+        'pdf_cor': 'azul',              # mesma paleta do tema
+        'pdf_mostrar_data_geracao': '1',
+        'pdf_espacamento': 'espacada',  # compacta | espacada
+        'pdf_ordem_blocos': 'dados_primeiro',  # dados_primeiro | veiculos_primeiro
+        'pdf_nome_escritorio': '',
+    }
+    for chave, valor in defaults.items():
+        c.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES (?,?)", (chave, valor))
 
     conn.commit()
     conn.close()
@@ -156,6 +183,28 @@ def set_config(chave, valor):
                  (chave, str(valor), str(valor)))
     conn.commit()
     conn.close()
+
+# ─── PALETA DE CORES (compartilhada entre tema web e PDF) ────
+PALETA_CORES = {
+    'azul':    {'nome': 'Azul',     'principal': '#1a4f8a', 'secundaria': '#2563ae'},
+    'vermelho':{'nome': 'Vermelho', 'principal': '#9a2424', 'secundaria': '#c0392b'},
+    'verde':   {'nome': 'Verde',    'principal': '#1a6b40', 'secundaria': '#218c52'},
+    'amarelo': {'nome': 'Amarelo',  'principal': '#92650a', 'secundaria': '#b8860b'},
+    'roxo':    {'nome': 'Roxo',     'principal': '#5b3a8a', 'secundaria': '#7448ad'},
+    'laranja': {'nome': 'Laranja',  'principal': '#a04a14', 'secundaria': '#c8631e'},
+}
+
+FONTES_PDF = {
+    'moderna': {'nome': 'Moderna (sem serifa)', 'base': 'Helvetica', 'bold': 'Helvetica-Bold'},
+    'classica': {'nome': 'Clássica (serifada)', 'base': 'Times-Roman', 'bold': 'Times-Bold'},
+    'tecnica': {'nome': 'Técnica (monoespaçada)', 'base': 'Courier', 'bold': 'Courier-Bold'},
+}
+
+TAMANHOS_PDF = {
+    'pequeno': {'nome': 'Pequeno', 'titulo': 15, 'secao': 10, 'texto': 8, 'mini': 7},
+    'medio':   {'nome': 'Médio',   'titulo': 18, 'secao': 12, 'texto': 10, 'mini': 8},
+    'grande':  {'nome': 'Grande',  'titulo': 21, 'secao': 14, 'texto': 12, 'mini': 9},
+}
 
 # ─── BACKUP AUTOMÁTICO ───────────────────────────────────────
 _backup_event = threading.Event()  # usado para "acordar" a thread quando o intervalo mudar
@@ -270,6 +319,68 @@ def api_listar_backups():
 def api_backup_agora():
     caminho = fazer_backup()
     return jsonify({'ok': True, 'arquivo': os.path.basename(caminho)})
+
+# ─── TEMA DO APP ──────────────────────────────────────────────
+@app.route('/api/configuracoes/tema', methods=['GET'])
+def api_get_tema():
+    cor = get_config('tema_cor', 'azul')
+    return jsonify({
+        'modo': get_config('tema_modo', 'claro'),
+        'cor': cor,
+        'paleta': PALETA_CORES,
+    })
+
+@app.route('/api/configuracoes/tema', methods=['POST'])
+def api_set_tema():
+    d = request.json
+    modo = d.get('modo')
+    cor = d.get('cor')
+    if modo not in ('claro', 'escuro'):
+        return jsonify({'ok': False, 'erro': 'Modo inválido.'}), 400
+    if cor not in PALETA_CORES:
+        return jsonify({'ok': False, 'erro': 'Cor inválida.'}), 400
+    set_config('tema_modo', modo)
+    set_config('tema_cor', cor)
+    return jsonify({'ok': True})
+
+# ─── CONFIGURAÇÃO DO RELATÓRIO PDF ────────────────────────────
+@app.route('/api/configuracoes/pdf', methods=['GET'])
+def api_get_config_pdf():
+    return jsonify({
+        'fonte': get_config('pdf_fonte', 'moderna'),
+        'tamanho': get_config('pdf_tamanho', 'medio'),
+        'cor': get_config('pdf_cor', 'azul'),
+        'mostrar_data_geracao': get_config('pdf_mostrar_data_geracao', '1') == '1',
+        'espacamento': get_config('pdf_espacamento', 'espacada'),
+        'ordem_blocos': get_config('pdf_ordem_blocos', 'dados_primeiro'),
+        'nome_escritorio': get_config('pdf_nome_escritorio', ''),
+        'opcoes_fonte': FONTES_PDF,
+        'opcoes_tamanho': TAMANHOS_PDF,
+        'opcoes_cor': PALETA_CORES,
+    })
+
+@app.route('/api/configuracoes/pdf', methods=['POST'])
+def api_set_config_pdf():
+    d = request.json
+    if d.get('fonte') not in FONTES_PDF:
+        return jsonify({'ok': False, 'erro': 'Fonte inválida.'}), 400
+    if d.get('tamanho') not in TAMANHOS_PDF:
+        return jsonify({'ok': False, 'erro': 'Tamanho inválido.'}), 400
+    if d.get('cor') not in PALETA_CORES:
+        return jsonify({'ok': False, 'erro': 'Cor inválida.'}), 400
+    if d.get('espacamento') not in ('compacta', 'espacada'):
+        return jsonify({'ok': False, 'erro': 'Espaçamento inválido.'}), 400
+    if d.get('ordem_blocos') not in ('dados_primeiro', 'veiculos_primeiro'):
+        return jsonify({'ok': False, 'erro': 'Ordem de blocos inválida.'}), 400
+
+    set_config('pdf_fonte', d.get('fonte'))
+    set_config('pdf_tamanho', d.get('tamanho'))
+    set_config('pdf_cor', d.get('cor'))
+    set_config('pdf_mostrar_data_geracao', '1' if d.get('mostrar_data_geracao') else '0')
+    set_config('pdf_espacamento', d.get('espacamento'))
+    set_config('pdf_ordem_blocos', d.get('ordem_blocos'))
+    set_config('pdf_nome_escritorio', d.get('nome_escritorio', ''))
+    return jsonify({'ok': True})
 
 # ─── DASHBOARD ───────────────────────────────────────────────
 @app.route('/')
@@ -623,19 +734,33 @@ def relatorio_pdf(cid):
             "SELECT * FROM licenciamento WHERE veiculo_id=? ORDER BY ano_referencia DESC", (v['id'],)).fetchall()]
     conn.close()
 
-    AZUL=colors.HexColor('#1a4f8a'); AZUL2=colors.HexColor('#2563ae')
+    # ── Configurações de personalização do PDF ──
+    cfg_fonte = FONTES_PDF.get(get_config('pdf_fonte', 'moderna'), FONTES_PDF['moderna'])
+    cfg_tam   = TAMANHOS_PDF.get(get_config('pdf_tamanho', 'medio'), TAMANHOS_PDF['medio'])
+    cfg_cor   = PALETA_CORES.get(get_config('pdf_cor', 'azul'), PALETA_CORES['azul'])
+    mostrar_data_geracao = get_config('pdf_mostrar_data_geracao', '1') == '1'
+    espacamento = get_config('pdf_espacamento', 'espacada')
+    ordem_blocos = get_config('pdf_ordem_blocos', 'dados_primeiro')
+    nome_escritorio = get_config('pdf_nome_escritorio', '')
+
+    FONTE_BASE = cfg_fonte['base']
+    FONTE_BOLD = cfg_fonte['bold']
+    PAD_TABELA = 5 if espacamento == 'compacta' else 8
+    PAD_TABELA_REGISTROS = 4 if espacamento == 'compacta' else 7
+
+    AZUL=colors.HexColor(cfg_cor['principal']); AZUL2=colors.HexColor(cfg_cor['secundaria'])
     CINZA=colors.HexColor('#f4f6fa'); CINZA2=colors.HexColor('#e8ecf2')
     VERDE=colors.HexColor('#065f46'); VERM=colors.HexColor('#991b1b')
     AMAR=colors.HexColor('#92400e'); BRANCO=colors.white
     TEXTO=colors.HexColor('#1c2333')
 
-    sTitulo = ParagraphStyle('titulo', fontName='Helvetica-Bold', fontSize=18, textColor=AZUL, spaceAfter=4)
-    sSub    = ParagraphStyle('sub', fontName='Helvetica', fontSize=10, textColor=colors.HexColor('#5a6680'), spaceAfter=12)
-    sSecao  = ParagraphStyle('secao', fontName='Helvetica-Bold', fontSize=12, textColor=AZUL2, spaceBefore=14, spaceAfter=6)
-    sLabel  = ParagraphStyle('label', fontName='Helvetica-Bold', fontSize=9, textColor=colors.HexColor('#5a6680'))
-    sValor  = ParagraphStyle('valor', fontName='Helvetica', fontSize=10, textColor=TEXTO)
-    sPlaca  = ParagraphStyle('placa', fontName='Helvetica-Bold', fontSize=13, textColor=AZUL)
-    sMini   = ParagraphStyle('mini', fontName='Helvetica', fontSize=8, textColor=colors.HexColor('#5a6680'))
+    sTitulo = ParagraphStyle('titulo', fontName=FONTE_BOLD, fontSize=cfg_tam['titulo'], textColor=AZUL, spaceAfter=4)
+    sSub    = ParagraphStyle('sub', fontName=FONTE_BASE, fontSize=cfg_tam['mini']+2, textColor=colors.HexColor('#5a6680'), spaceAfter=12)
+    sSecao  = ParagraphStyle('secao', fontName=FONTE_BOLD, fontSize=cfg_tam['secao'], textColor=AZUL2, spaceBefore=14, spaceAfter=6)
+    sLabel  = ParagraphStyle('label', fontName=FONTE_BOLD, fontSize=cfg_tam['mini']+1, textColor=colors.HexColor('#5a6680'))
+    sValor  = ParagraphStyle('valor', fontName=FONTE_BASE, fontSize=cfg_tam['texto'], textColor=TEXTO)
+    sPlaca  = ParagraphStyle('placa', fontName=FONTE_BOLD, fontSize=cfg_tam['secao']+1, textColor=AZUL)
+    sMini   = ParagraphStyle('mini', fontName=FONTE_BASE, fontSize=cfg_tam['mini'], textColor=colors.HexColor('#5a6680'))
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
@@ -660,118 +785,136 @@ def relatorio_pdf(cid):
     SITUACAO_LABEL = {'ativo':'Ativo','desativado':'Desativado','vendido':'Vendido'}
     ESPECIE_LABEL  = {'passeio':'Passeio','carga':'Carga','reboque':'Reboque'}
 
+    if nome_escritorio:
+        sEscritorio = ParagraphStyle('escritorio', fontName=FONTE_BOLD, fontSize=cfg_tam['mini']+3, textColor=AZUL2, spaceAfter=2)
+        story.append(Paragraph(nome_escritorio, sEscritorio))
     story.append(Paragraph('Relatório do Cliente', sTitulo))
-    story.append(Paragraph(f'Gerado em {datetime.now().strftime("%d/%m/%Y às %H:%M")}', sSub))
+    if mostrar_data_geracao:
+        story.append(Paragraph(f'Gerado em {datetime.now().strftime("%d/%m/%Y às %H:%M")}', sSub))
     story.append(HRFlowable(width='100%', thickness=2, color=AZUL, spaceAfter=14))
 
-    if 'dados' in incluir:
-        story.append(Paragraph('Dados do Cliente', sSecao))
-        campos = [
-            ('Nome', cliente['nome']),
-            ('CPF', cliente.get('cpf') or '—'),
-            ('Telefone', cliente.get('telefone') or '—'),
-            ('E-mail', cliente.get('email') or '—'),
-            ('Observação', cliente.get('observacao') or '—'),
-        ]
-        tdata = [[Paragraph(l, sLabel), Paragraph(str(v), sValor)] for l, v in campos]
-        t = Table(tdata, colWidths=['30%','70%'])
-        t.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,-1),CINZA),
-            ('ROWBACKGROUNDS',(0,0),(-1,-1),[CINZA,CINZA2]),
-            ('BOX',(0,0),(-1,-1),0.5,CINZA2),
-            ('INNERGRID',(0,0),(-1,-1),0.5,CINZA2),
-            ('VALIGN',(0,0),(-1,-1),'TOP'),
-            ('PADDING',(0,0),(-1,-1),8),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 10))
+    def montar_bloco_dados():
+        bloco = []
+        if 'dados' in incluir:
+            bloco.append(Paragraph('Dados do Cliente', sSecao))
+            campos = [
+                ('Nome', cliente['nome']),
+                ('CPF', cliente.get('cpf') or '—'),
+                ('Telefone', cliente.get('telefone') or '—'),
+                ('E-mail', cliente.get('email') or '—'),
+                ('Observação', cliente.get('observacao') or '—'),
+            ]
+            tdata = [[Paragraph(l, sLabel), Paragraph(str(v), sValor)] for l, v in campos]
+            t = Table(tdata, colWidths=['30%','70%'])
+            t.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,-1),CINZA),
+                ('ROWBACKGROUNDS',(0,0),(-1,-1),[CINZA,CINZA2]),
+                ('BOX',(0,0),(-1,-1),0.5,CINZA2),
+                ('INNERGRID',(0,0),(-1,-1),0.5,CINZA2),
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('PADDING',(0,0),(-1,-1),PAD_TABELA),
+            ]))
+            bloco.append(t)
+            bloco.append(Spacer(1, 10))
+        return bloco
 
-    if 'veiculos' in incluir or 'ipva' in incluir or 'licenciamento' in incluir:
-        for v in veics:
-            story.append(Spacer(1, 8))
-            story.append(HRFlowable(width='100%', thickness=1, color=CINZA2, spaceAfter=8))
+    def montar_bloco_veiculos():
+        bloco = []
+        if 'veiculos' in incluir or 'ipva' in incluir or 'licenciamento' in incluir:
+            for v in veics:
+                bloco.append(Spacer(1, 8))
+                bloco.append(HRFlowable(width='100%', thickness=1, color=CINZA2, spaceAfter=8))
 
-            especie_txt = ESPECIE_LABEL.get(v.get('especie',''), v.get('especie',''))
-            situacao_txt = SITUACAO_LABEL.get(v.get('situacao',''), v.get('situacao',''))
-            story.append(Paragraph(f"Placa: {v['placa']}  —  {especie_txt}  —  {situacao_txt}", sPlaca))
+                especie_txt = ESPECIE_LABEL.get(v.get('especie',''), v.get('especie',''))
+                situacao_txt = SITUACAO_LABEL.get(v.get('situacao',''), v.get('situacao',''))
+                bloco.append(Paragraph(f"Placa: {v['placa']}  —  {especie_txt}  —  {situacao_txt}", sPlaca))
 
-            if 'veiculos' in incluir:
-                info_campos = [
-                    ('Marca/Modelo', v.get('marca_modelo') or '—'),
-                    ('Proprietário', v.get('proprietario') or '—'),
-                    ('RENAVAM', v.get('renavam') or '—'),
-                ]
-                tdata2 = [[Paragraph(l, sLabel), Paragraph(val, sValor)] for l, val in info_campos]
-                tdata2.append([Paragraph('Observação', sLabel), Paragraph(v.get('observacao') or '—', sValor)])
-                t2 = Table(tdata2, colWidths=['30%','70%'])
-                t2.setStyle(TableStyle([
-                    ('BACKGROUND',(0,0),(-1,-1),CINZA),
-                    ('ROWBACKGROUNDS',(0,0),(-1,-1),[CINZA,CINZA2]),
-                    ('BOX',(0,0),(-1,-1),0.5,CINZA2),
-                    ('INNERGRID',(0,0),(-1,-1),0.5,CINZA2),
-                    ('VALIGN',(0,0),(-1,-1),'TOP'),
-                    ('PADDING',(0,0),(-1,-1),7),
-                ]))
-                story.append(Spacer(1,4))
-                story.append(t2)
+                if 'veiculos' in incluir:
+                    info_campos = [
+                        ('Marca/Modelo', v.get('marca_modelo') or '—'),
+                        ('Proprietário', v.get('proprietario') or '—'),
+                        ('RENAVAM', v.get('renavam') or '—'),
+                    ]
+                    tdata2 = [[Paragraph(l, sLabel), Paragraph(val, sValor)] for l, val in info_campos]
+                    tdata2.append([Paragraph('Observação', sLabel), Paragraph(v.get('observacao') or '—', sValor)])
+                    t2 = Table(tdata2, colWidths=['30%','70%'])
+                    t2.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,-1),CINZA),
+                        ('ROWBACKGROUNDS',(0,0),(-1,-1),[CINZA,CINZA2]),
+                        ('BOX',(0,0),(-1,-1),0.5,CINZA2),
+                        ('INNERGRID',(0,0),(-1,-1),0.5,CINZA2),
+                        ('VALIGN',(0,0),(-1,-1),'TOP'),
+                        ('PADDING',(0,0),(-1,-1),PAD_TABELA_REGISTROS),
+                    ]))
+                    bloco.append(Spacer(1,4))
+                    bloco.append(t2)
 
-            if 'ipva' in incluir and v['ipva_list']:
-                story.append(Spacer(1,8))
-                story.append(Paragraph('IPVA', sSecao))
-                thead = [Paragraph(h, sLabel) for h in ['Ano','Valor','Vencimento','Status','Dt. Pagamento','Obs.']]
-                trows = [thead]
-                for r in v['ipva_list']:
-                    label, tc = status_badge(r.get('vencimento'), r.get('pago'))
-                    trows.append([
-                        Paragraph(str(r['ano_referencia']), sValor),
-                        Paragraph(fmt_moeda(r.get('valor')), sValor),
-                        Paragraph(fmt_data(r.get('vencimento')), sValor),
-                        Paragraph(label, ParagraphStyle('s', fontName='Helvetica-Bold', fontSize=8, textColor=tc)),
-                        Paragraph(fmt_data(r.get('data_pagamento')), sValor),
-                        Paragraph(r.get('observacao') or '—', sMini),
-                    ])
-                ti = Table(trows, colWidths=['12%','16%','18%','14%','18%','22%'])
-                ti.setStyle(TableStyle([
-                    ('BACKGROUND',(0,0),(-1,0),AZUL),
-                    ('TEXTCOLOR',(0,0),(-1,0),BRANCO),
-                    ('ROWBACKGROUNDS',(0,1),(-1,-1),[BRANCO,CINZA]),
-                    ('BOX',(0,0),(-1,-1),0.5,CINZA2),
-                    ('INNERGRID',(0,0),(-1,-1),0.3,CINZA2),
-                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                    ('PADDING',(0,0),(-1,-1),5),
-                ]))
-                story.append(ti)
+                if 'ipva' in incluir and v['ipva_list']:
+                    bloco.append(Spacer(1,8))
+                    bloco.append(Paragraph('IPVA', sSecao))
+                    thead = [Paragraph(h, sLabel) for h in ['Ano','Valor','Vencimento','Status','Dt. Pagamento','Obs.']]
+                    trows = [thead]
+                    for r in v['ipva_list']:
+                        label, tc = status_badge(r.get('vencimento'), r.get('pago'))
+                        trows.append([
+                            Paragraph(str(r['ano_referencia']), sValor),
+                            Paragraph(fmt_moeda(r.get('valor')), sValor),
+                            Paragraph(fmt_data(r.get('vencimento')), sValor),
+                            Paragraph(label, ParagraphStyle('s', fontName=FONTE_BOLD, fontSize=cfg_tam['mini'], textColor=tc)),
+                            Paragraph(fmt_data(r.get('data_pagamento')), sValor),
+                            Paragraph(r.get('observacao') or '—', sMini),
+                        ])
+                    ti = Table(trows, colWidths=['12%','16%','18%','14%','18%','22%'])
+                    ti.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0),AZUL),
+                        ('TEXTCOLOR',(0,0),(-1,0),BRANCO),
+                        ('ROWBACKGROUNDS',(0,1),(-1,-1),[BRANCO,CINZA]),
+                        ('BOX',(0,0),(-1,-1),0.5,CINZA2),
+                        ('INNERGRID',(0,0),(-1,-1),0.3,CINZA2),
+                        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                        ('PADDING',(0,0),(-1,-1),PAD_TABELA_REGISTROS),
+                    ]))
+                    bloco.append(ti)
 
-            if 'licenciamento' in incluir and v['lic_list']:
-                story.append(Spacer(1,8))
-                story.append(Paragraph('Licenciamento', sSecao))
-                thead2 = [Paragraph(h, sLabel) for h in ['Ano','Valor','Vencimento','Status','Dt. Pagamento','Obs.']]
-                trows2 = [thead2]
-                for r in v['lic_list']:
-                    label, tc = status_badge(r.get('vencimento'), r.get('pago'))
-                    trows2.append([
-                        Paragraph(str(r['ano_referencia']), sValor),
-                        Paragraph(fmt_moeda(r.get('valor')), sValor),
-                        Paragraph(fmt_data(r.get('vencimento')), sValor),
-                        Paragraph(label, ParagraphStyle('s2', fontName='Helvetica-Bold', fontSize=8, textColor=tc)),
-                        Paragraph(fmt_data(r.get('data_pagamento')), sValor),
-                        Paragraph(r.get('observacao') or '—', sMini),
-                    ])
-                tl = Table(trows2, colWidths=['12%','16%','18%','14%','18%','22%'])
-                tl.setStyle(TableStyle([
-                    ('BACKGROUND',(0,0),(-1,0),AZUL),
-                    ('TEXTCOLOR',(0,0),(-1,0),BRANCO),
-                    ('ROWBACKGROUNDS',(0,1),(-1,-1),[BRANCO,CINZA]),
-                    ('BOX',(0,0),(-1,-1),0.5,CINZA2),
-                    ('INNERGRID',(0,0),(-1,-1),0.3,CINZA2),
-                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                    ('PADDING',(0,0),(-1,-1),5),
-                ]))
-                story.append(tl)
+                if 'licenciamento' in incluir and v['lic_list']:
+                    bloco.append(Spacer(1,8))
+                    bloco.append(Paragraph('Licenciamento', sSecao))
+                    thead2 = [Paragraph(h, sLabel) for h in ['Ano','Valor','Vencimento','Status','Dt. Pagamento','Obs.']]
+                    trows2 = [thead2]
+                    for r in v['lic_list']:
+                        label, tc = status_badge(r.get('vencimento'), r.get('pago'))
+                        trows2.append([
+                            Paragraph(str(r['ano_referencia']), sValor),
+                            Paragraph(fmt_moeda(r.get('valor')), sValor),
+                            Paragraph(fmt_data(r.get('vencimento')), sValor),
+                            Paragraph(label, ParagraphStyle('s2', fontName=FONTE_BOLD, fontSize=cfg_tam['mini'], textColor=tc)),
+                            Paragraph(fmt_data(r.get('data_pagamento')), sValor),
+                            Paragraph(r.get('observacao') or '—', sMini),
+                        ])
+                    tl = Table(trows2, colWidths=['12%','16%','18%','14%','18%','22%'])
+                    tl.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0),AZUL),
+                        ('TEXTCOLOR',(0,0),(-1,0),BRANCO),
+                        ('ROWBACKGROUNDS',(0,1),(-1,-1),[BRANCO,CINZA]),
+                        ('BOX',(0,0),(-1,-1),0.5,CINZA2),
+                        ('INNERGRID',(0,0),(-1,-1),0.3,CINZA2),
+                        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                        ('PADDING',(0,0),(-1,-1),PAD_TABELA_REGISTROS),
+                    ]))
+                    bloco.append(tl)
+        return bloco
+
+    if ordem_blocos == 'veiculos_primeiro':
+        story.extend(montar_bloco_veiculos())
+        story.extend(montar_bloco_dados())
+    else:
+        story.extend(montar_bloco_dados())
+        story.extend(montar_bloco_veiculos())
 
     story.append(Spacer(1, 20))
     story.append(HRFlowable(width='100%', thickness=1, color=CINZA2))
-    story.append(Paragraph('Sistema de Despachante', sMini))
+    rodape_txt = nome_escritorio if nome_escritorio else 'Sistema de Despachante'
+    story.append(Paragraph(rodape_txt, sMini))
 
     doc.build(story)
     buf.seek(0)
