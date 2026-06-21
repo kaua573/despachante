@@ -174,7 +174,18 @@
 </head>
 <body>
 <nav>
-  <a class="logo" href="/">{{ icon('car') }} <span>Despachante</span></a>
+  <a class="logo" href="/">
+    {% if escritorio_logo_url %}
+      <img src="{{ escritorio_logo_url }}" alt="Logo" style="height:36px;max-width:120px;object-fit:contain;border-radius:4px;">
+    {% else %}
+      {{ icon('car') }}
+    {% endif %}
+    {% if escritorio_nome %}
+      <span>{{ escritorio_nome }}</span>
+    {% elif not escritorio_logo_url %}
+      <span>Despachante</span>
+    {% endif %}
+  </a>
   <div class="nav-links">
     <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
     <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>

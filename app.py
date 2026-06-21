@@ -14,8 +14,10 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.join(BASE_DIR, 'despachante.db')
 UPLOAD_DIR = os.path.join(BASE_DIR, 'static', 'uploads', 'documentos')
+LOGO_DIR   = os.path.join(BASE_DIR, 'static', 'uploads', 'logo')
 BACKUP_DIR = os.path.join(BASE_DIR, 'backups')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(LOGO_DIR,   exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # Helper Jinja para inserir ícones SVG inline
@@ -37,15 +39,20 @@ app.jinja_env.globals['icon'] = icon_svg
 
 @app.context_processor
 def inject_tema():
-    """Disponibiliza o tema atual (modo + cores) em todos os templates,
-    para já renderizar com as variáveis CSS corretas (evita 'flash' de tema errado)."""
     try:
-        modo = get_config('tema_modo', 'claro')
+        modo      = get_config('tema_modo', 'claro')
         cor_chave = get_config('tema_cor', 'azul')
+        esc_nome  = get_config('escritorio_nome', '')
+        esc_logo  = get_config('escritorio_logo', '')
     except Exception:
-        modo, cor_chave = 'claro', 'azul'
+        modo, cor_chave, esc_nome, esc_logo = 'claro', 'azul', '', ''
     cor = PALETA_CORES.get(cor_chave, PALETA_CORES['azul'])
-    return {'tema_modo': modo, 'tema_cor_chave': cor_chave, 'tema_cor': cor}
+    logo_url = f'/static/uploads/logo/{esc_logo}' if esc_logo else ''
+    return {
+        'tema_modo': modo, 'tema_cor_chave': cor_chave, 'tema_cor': cor,
+        'escritorio_nome': esc_nome,
+        'escritorio_logo_url': logo_url,
+    }
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -154,16 +161,20 @@ def init_db():
         'senha_exclusao': '0000',
         'backup_intervalo_min': '30',
         # Tema do app (interface web)
-        'tema_modo': 'claro',           # claro | escuro
-        'tema_cor': 'azul',             # azul | vermelho | verde | amarelo | roxo | laranja
+        'tema_modo': 'claro',
+        'tema_cor': 'azul',
         # Personalização do relatório PDF
-        'pdf_fonte': 'moderna',         # moderna (Helvetica) | classica (Times) | tecnica (Courier)
-        'pdf_tamanho': 'medio',         # pequeno | medio | grande
-        'pdf_cor': 'azul',              # mesma paleta do tema
+        'pdf_fonte': 'moderna',
+        'pdf_tamanho': 'medio',
+        'pdf_cor': 'azul',
+        'pdf_cor_texto': 'escuro',      # escuro | claro | cinza
         'pdf_mostrar_data_geracao': '1',
-        'pdf_espacamento': 'espacada',  # compacta | espacada
-        'pdf_ordem_blocos': 'dados_primeiro',  # dados_primeiro | veiculos_primeiro
+        'pdf_espacamento': 'espacada',
+        'pdf_ordem_blocos': 'dados_primeiro',
         'pdf_nome_escritorio': '',
+        # Identidade do escritório (sistema + PDF)
+        'escritorio_nome': '',
+        'escritorio_logo': '',          # nome do arquivo em static/uploads/logo/
     }
     for chave, valor in defaults.items():
         c.execute("INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES (?,?)", (chave, valor))
@@ -343,6 +354,51 @@ def api_set_tema():
     set_config('tema_cor', cor)
     return jsonify({'ok': True})
 
+# ─── IDENTIDADE DO ESCRITÓRIO ────────────────────────────────
+@app.route('/api/configuracoes/escritorio', methods=['GET'])
+def api_get_escritorio():
+    nome = get_config('escritorio_nome', '')
+    logo = get_config('escritorio_logo', '')
+    return jsonify({
+        'nome': nome,
+        'logo': logo,
+        'logo_url': f'/static/uploads/logo/{logo}' if logo else '',
+    })
+
+@app.route('/api/configuracoes/escritorio', methods=['POST'])
+def api_set_escritorio():
+    # Salva nome (via JSON ou multipart)
+    nome = request.form.get('nome', request.json.get('nome', '') if request.is_json else '').strip()
+    set_config('escritorio_nome', nome)
+
+    # Logo — arquivo opcional
+    if 'logo' in request.files:
+        f = request.files['logo']
+        if f and f.filename:
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'):
+                return jsonify({'ok': False, 'erro': 'Formato não suportado. Use PNG, JPG, SVG ou GIF.'}), 400
+            # Remove logo anterior
+            logo_ant = get_config('escritorio_logo', '')
+            if logo_ant:
+                try: os.remove(os.path.join(LOGO_DIR, logo_ant))
+                except: pass
+            arquivo_nome = f'logo{ext}'
+            f.save(os.path.join(LOGO_DIR, arquivo_nome))
+            set_config('escritorio_logo', arquivo_nome)
+
+    return jsonify({'ok': True,
+                    'logo_url': f'/static/uploads/logo/{get_config("escritorio_logo","")}' if get_config('escritorio_logo','') else ''})
+
+@app.route('/api/configuracoes/escritorio/logo', methods=['DELETE'])
+def api_remover_logo():
+    logo = get_config('escritorio_logo', '')
+    if logo:
+        try: os.remove(os.path.join(LOGO_DIR, logo))
+        except: pass
+        set_config('escritorio_logo', '')
+    return jsonify({'ok': True})
+
 # ─── CONFIGURAÇÃO DO RELATÓRIO PDF ────────────────────────────
 @app.route('/api/configuracoes/pdf', methods=['GET'])
 def api_get_config_pdf():
@@ -350,6 +406,7 @@ def api_get_config_pdf():
         'fonte': get_config('pdf_fonte', 'moderna'),
         'tamanho': get_config('pdf_tamanho', 'medio'),
         'cor': get_config('pdf_cor', 'azul'),
+        'cor_texto': get_config('pdf_cor_texto', 'escuro'),
         'mostrar_data_geracao': get_config('pdf_mostrar_data_geracao', '1') == '1',
         'espacamento': get_config('pdf_espacamento', 'espacada'),
         'ordem_blocos': get_config('pdf_ordem_blocos', 'dados_primeiro'),
@@ -357,6 +414,11 @@ def api_get_config_pdf():
         'opcoes_fonte': FONTES_PDF,
         'opcoes_tamanho': TAMANHOS_PDF,
         'opcoes_cor': PALETA_CORES,
+        'opcoes_cor_texto': {
+            'escuro': 'Escuro (#1c2333) — padrão',
+            'cinza':  'Cinza (#4a5568) — suave',
+            'claro':  'Claro (#ffffff) — para fundos escuros',
+        },
     })
 
 @app.route('/api/configuracoes/pdf', methods=['POST'])
@@ -368,18 +430,21 @@ def api_set_config_pdf():
         return jsonify({'ok': False, 'erro': 'Tamanho inválido.'}), 400
     if d.get('cor') not in PALETA_CORES:
         return jsonify({'ok': False, 'erro': 'Cor inválida.'}), 400
+    if d.get('cor_texto') not in ('escuro', 'cinza', 'claro'):
+        return jsonify({'ok': False, 'erro': 'Cor do texto inválida.'}), 400
     if d.get('espacamento') not in ('compacta', 'espacada'):
         return jsonify({'ok': False, 'erro': 'Espaçamento inválido.'}), 400
     if d.get('ordem_blocos') not in ('dados_primeiro', 'veiculos_primeiro'):
         return jsonify({'ok': False, 'erro': 'Ordem de blocos inválida.'}), 400
 
-    set_config('pdf_fonte', d.get('fonte'))
-    set_config('pdf_tamanho', d.get('tamanho'))
-    set_config('pdf_cor', d.get('cor'))
-    set_config('pdf_mostrar_data_geracao', '1' if d.get('mostrar_data_geracao') else '0')
-    set_config('pdf_espacamento', d.get('espacamento'))
-    set_config('pdf_ordem_blocos', d.get('ordem_blocos'))
-    set_config('pdf_nome_escritorio', d.get('nome_escritorio', ''))
+    set_config('pdf_fonte',               d.get('fonte'))
+    set_config('pdf_tamanho',             d.get('tamanho'))
+    set_config('pdf_cor',                 d.get('cor'))
+    set_config('pdf_cor_texto',           d.get('cor_texto'))
+    set_config('pdf_mostrar_data_geracao','1' if d.get('mostrar_data_geracao') else '0')
+    set_config('pdf_espacamento',         d.get('espacamento'))
+    set_config('pdf_ordem_blocos',        d.get('ordem_blocos'))
+    set_config('pdf_nome_escritorio',     d.get('nome_escritorio', ''))
     return jsonify({'ok': True})
 
 # ─── DASHBOARD ───────────────────────────────────────────────
@@ -739,28 +804,44 @@ def relatorio_pdf(cid):
     cfg_tam   = TAMANHOS_PDF.get(get_config('pdf_tamanho', 'medio'), TAMANHOS_PDF['medio'])
     cfg_cor   = PALETA_CORES.get(get_config('pdf_cor', 'azul'), PALETA_CORES['azul'])
     mostrar_data_geracao = get_config('pdf_mostrar_data_geracao', '1') == '1'
-    espacamento = get_config('pdf_espacamento', 'espacada')
+    espacamento  = get_config('pdf_espacamento', 'espacada')
     ordem_blocos = get_config('pdf_ordem_blocos', 'dados_primeiro')
-    nome_escritorio = get_config('pdf_nome_escritorio', '')
+    # Nome e logo: usa o campo específico do PDF se preenchido, senão cai no da identidade do escritório
+    nome_escritorio = get_config('pdf_nome_escritorio','') or get_config('escritorio_nome','')
+    logo_arquivo    = get_config('escritorio_logo', '')
+    logo_path       = os.path.join(LOGO_DIR, logo_arquivo) if logo_arquivo else ''
+    cor_texto_cfg   = get_config('pdf_cor_texto', 'escuro')
 
     FONTE_BASE = cfg_fonte['base']
     FONTE_BOLD = cfg_fonte['bold']
-    PAD_TABELA = 5 if espacamento == 'compacta' else 8
+    PAD_TABELA           = 5 if espacamento == 'compacta' else 8
     PAD_TABELA_REGISTROS = 4 if espacamento == 'compacta' else 7
 
-    AZUL=colors.HexColor(cfg_cor['principal']); AZUL2=colors.HexColor(cfg_cor['secundaria'])
-    CINZA=colors.HexColor('#f4f6fa'); CINZA2=colors.HexColor('#e8ecf2')
-    VERDE=colors.HexColor('#065f46'); VERM=colors.HexColor('#991b1b')
-    AMAR=colors.HexColor('#92400e'); BRANCO=colors.white
-    TEXTO=colors.HexColor('#1c2333')
+    COR_PRINCIPAL = colors.HexColor(cfg_cor['principal'])
+    COR_SECUND    = colors.HexColor(cfg_cor['secundaria'])
+    CINZA  = colors.HexColor('#f4f6fa')
+    CINZA2 = colors.HexColor('#e8ecf2')
+    VERDE  = colors.HexColor('#065f46')
+    VERM   = colors.HexColor('#991b1b')
+    AMAR   = colors.HexColor('#92400e')
+    BRANCO = colors.white
 
-    sTitulo = ParagraphStyle('titulo', fontName=FONTE_BOLD, fontSize=cfg_tam['titulo'], textColor=AZUL, spaceAfter=4)
-    sSub    = ParagraphStyle('sub', fontName=FONTE_BASE, fontSize=cfg_tam['mini']+2, textColor=colors.HexColor('#5a6680'), spaceAfter=12)
-    sSecao  = ParagraphStyle('secao', fontName=FONTE_BOLD, fontSize=cfg_tam['secao'], textColor=AZUL2, spaceBefore=14, spaceAfter=6)
-    sLabel  = ParagraphStyle('label', fontName=FONTE_BOLD, fontSize=cfg_tam['mini']+1, textColor=colors.HexColor('#5a6680'))
-    sValor  = ParagraphStyle('valor', fontName=FONTE_BASE, fontSize=cfg_tam['texto'], textColor=TEXTO)
-    sPlaca  = ParagraphStyle('placa', fontName=FONTE_BOLD, fontSize=cfg_tam['secao']+1, textColor=AZUL)
-    sMini   = ParagraphStyle('mini', fontName=FONTE_BASE, fontSize=cfg_tam['mini'], textColor=colors.HexColor('#5a6680'))
+    # Cor do texto configurável
+    _mapa_cor_texto = {
+        'escuro': '#1c2333',
+        'cinza':  '#4a5568',
+        'claro':  '#ffffff',
+    }
+    TEXTO = colors.HexColor(_mapa_cor_texto.get(cor_texto_cfg, '#1c2333'))
+
+    sTitulo = ParagraphStyle('titulo', fontName=FONTE_BOLD, fontSize=cfg_tam['titulo'], textColor=COR_PRINCIPAL, spaceAfter=4)
+    sSub    = ParagraphStyle('sub',    fontName=FONTE_BASE, fontSize=cfg_tam['mini']+2, textColor=colors.HexColor('#5a6680'), spaceAfter=12)
+    sSecao  = ParagraphStyle('secao',  fontName=FONTE_BOLD, fontSize=cfg_tam['secao'],  textColor=COR_SECUND, spaceBefore=14, spaceAfter=6)
+    sLabel  = ParagraphStyle('label',  fontName=FONTE_BOLD, fontSize=cfg_tam['mini']+1, textColor=colors.HexColor('#5a6680'))
+    sValor  = ParagraphStyle('valor',  fontName=FONTE_BASE, fontSize=cfg_tam['texto'],  textColor=TEXTO)
+    sPlaca  = ParagraphStyle('placa',  fontName=FONTE_BOLD, fontSize=cfg_tam['secao']+1,textColor=COR_PRINCIPAL)
+    sMini   = ParagraphStyle('mini',   fontName=FONTE_BASE, fontSize=cfg_tam['mini'],   textColor=colors.HexColor('#5a6680'))
+    sEscrit = ParagraphStyle('escrit', fontName=FONTE_BOLD, fontSize=cfg_tam['mini']+3, textColor=COR_SECUND, spaceAfter=2)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
@@ -785,13 +866,23 @@ def relatorio_pdf(cid):
     SITUACAO_LABEL = {'ativo':'Ativo','desativado':'Desativado','vendido':'Vendido'}
     ESPECIE_LABEL  = {'passeio':'Passeio','carga':'Carga','reboque':'Reboque'}
 
+    # ── Cabeçalho: logo + nome + título ──
+    from reportlab.platypus import Image as RLImage
+    if logo_path and os.path.exists(logo_path):
+        try:
+            img = RLImage(logo_path, width=4*cm, height=2*cm)
+            img.hAlign = 'LEFT'
+            story.append(img)
+            story.append(Spacer(1, 4))
+        except Exception:
+            pass
+
     if nome_escritorio:
-        sEscritorio = ParagraphStyle('escritorio', fontName=FONTE_BOLD, fontSize=cfg_tam['mini']+3, textColor=AZUL2, spaceAfter=2)
-        story.append(Paragraph(nome_escritorio, sEscritorio))
+        story.append(Paragraph(nome_escritorio, sEscrit))
     story.append(Paragraph('Relatório do Cliente', sTitulo))
     if mostrar_data_geracao:
         story.append(Paragraph(f'Gerado em {datetime.now().strftime("%d/%m/%Y às %H:%M")}', sSub))
-    story.append(HRFlowable(width='100%', thickness=2, color=AZUL, spaceAfter=14))
+    story.append(HRFlowable(width='100%', thickness=2, color=COR_PRINCIPAL, spaceAfter=14))
 
     def montar_bloco_dados():
         bloco = []
@@ -866,7 +957,7 @@ def relatorio_pdf(cid):
                         ])
                     ti = Table(trows, colWidths=['12%','16%','18%','14%','18%','22%'])
                     ti.setStyle(TableStyle([
-                        ('BACKGROUND',(0,0),(-1,0),AZUL),
+                        ('BACKGROUND',(0,0),(-1,0),COR_PRINCIPAL),
                         ('TEXTCOLOR',(0,0),(-1,0),BRANCO),
                         ('ROWBACKGROUNDS',(0,1),(-1,-1),[BRANCO,CINZA]),
                         ('BOX',(0,0),(-1,-1),0.5,CINZA2),
@@ -893,7 +984,7 @@ def relatorio_pdf(cid):
                         ])
                     tl = Table(trows2, colWidths=['12%','16%','18%','14%','18%','22%'])
                     tl.setStyle(TableStyle([
-                        ('BACKGROUND',(0,0),(-1,0),AZUL),
+                        ('BACKGROUND',(0,0),(-1,0),COR_PRINCIPAL),
                         ('TEXTCOLOR',(0,0),(-1,0),BRANCO),
                         ('ROWBACKGROUNDS',(0,1),(-1,-1),[BRANCO,CINZA]),
                         ('BOX',(0,0),(-1,-1),0.5,CINZA2),
@@ -915,7 +1006,6 @@ def relatorio_pdf(cid):
     story.append(HRFlowable(width='100%', thickness=1, color=CINZA2))
     rodape_txt = nome_escritorio if nome_escritorio else 'Sistema de Despachante'
     story.append(Paragraph(rodape_txt, sMini))
-
     doc.build(story)
     buf.seek(0)
     nome_arquivo = f"relatorio_{cliente['nome'].replace(' ','_')}.pdf"
