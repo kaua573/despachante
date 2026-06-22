@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Visualizar Relatório{% endblock %}
+{% block breadcrumb %}
+  <a href="/relatorios">Relatórios</a><span class="sep">›</span><span>Visualizar</span>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('file') }} Resultado do relatório</h2>
+    <a href="/relatorios" class="btn btn-ghost btn-sm">← Voltar à configuração</a>
+  </div>
+  <div id="conteudo" style="padding:20px;">
+    <div class="empty-state"><p>Carregando...</p></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CONFIG = {{ config | tojson }};
+
+async function carregar() {
+  if (!CONFIG || !CONFIG.tipo) {
+    document.getElementById('conteudo').innerHTML = '<div class="empty-state"><p>Configuração inválida. <a href="/relatorios">Voltar</a></p></div>';
+    return;
+  }
+
+  const resultado = await apiFetch('/api/relatorios/dados', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(CONFIG)
+  });
+
+  const el = document.getElementById('conteudo');
+  if (!resultado) { el.innerHTML = '<div class="empty-state"><p>Erro ao carregar dados.</p></div>'; return; }
+
+  const totalRegistros = resultado.agrupado
+    ? Object.values(resultado.grupos).reduce((s, g) => s + g.length, 0)
+    : resultado.dados.length;
+
+  if (totalRegistros === 0) {
+    el.innerHTML = '<div class="empty-state"><p>Nenhum registro encontrado.</p></div>';
+    return;
+  }
+
+  // Determina campos visíveis a partir do tipo
+  const campos = CONFIG.campos_visiveis || [];
+  if (!campos.length) {
+    el.innerHTML = '<div class="empty-state"><p>Nenhum campo selecionado. <a href="/relatorios">Voltar</a></p></div>';
+    return;
+  }
+
+  let html = `<p style="font-size:13px;color:var(--sub);margin-bottom:16px;">${totalRegistros} registro(s) encontrado(s)</p>`;
+
+  if (resultado.agrupado) {
+    for (const [grupo, linhas] of Object.entries(resultado.grupos)) {
+      html += `<div style="font-size:13px;font-weight:700;color:var(--azul2);margin:12px 0 6px;text-transform:uppercase;">${grupo}</div>`;
+      html += renderTabela(linhas, campos, resultado.totais_por_grupo?.[grupo]);
+    }
+  } else {
+    html += renderTabela(resultado.dados, campos, resultado.totais);
+  }
+
+  el.innerHTML = `<div class="tabela-wrap">${html}</div>`;
+}
+
+function renderTabela(dados, campos, totais) {
+  const cabecalho = campos.map(c => `<th>${c.label}</th>`).join('');
+  const linhas = dados.map(linha => {
+    const cols = campos.map(c => {
+      let val = linha[c.id] ?? '—';
+      if (c.id === 'valor') val = fmtMoeda(val === '—' ? null : val);
+      else if (['vencimento','data_pagamento','data_infracao'].includes(c.id)) val = fmtData(String(val));
+      else if (c.id === 'status_pag') {
+        const badge = val === 'Pago' ? 'pago' : val === 'Vencido' ? 'vencido' : 'pendente';
+        val = `<span class="badge badge-${badge}">${val}</span>`;
+      }
+      return `<td>${val}</td>`;
+    }).join('');
+    return `<tr>${cols}</tr>`;
+  }).join('');
+
+  let linhaTotais = '';
+  if (CONFIG.mostrar_totais && totais) {
+    const cols = campos.map(c => {
+      if (c.id === 'valor') return `<td><strong>${fmtMoeda(totais.total_valor)}</strong></td>`;
+      if (c.id === 'cliente_nome') return `<td><strong>${totais.total_registros} registros</strong></td>`;
+      return '<td>—</td>';
+    }).join('');
+    linhaTotais = `<tr style="background:var(--cinza2);">${cols}</tr>`;
+  }
+
+  return `<table><thead><tr>${cabecalho}</tr></thead><tbody>${linhas}${linhaTotais}</tbody></table>`;
+}
+
+carregar();
+</script>
+{% endblock %}

@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+{% block title %}Relatórios{% endblock %}
+{% block breadcrumb %}<span>Relatórios</span>{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start;">
+
+  <!-- Painel de configuração -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <!-- Templates salvos -->
+    <div class="card">
+      <div class="card-header">
+        <h2>{{ icon('folder') }} Templates salvos</h2>
+        <button class="btn btn-outline btn-sm" onclick="salvarTemplate()">{{ icon('save','icon icon-sm') }} Salvar atual</button>
+      </div>
+      <div id="lista-templates" style="padding:12px 16px;display:flex;flex-direction:column;gap:6px;min-height:48px;">
+        <span style="color:var(--sub);font-size:13px;">Carregando...</span>
+      </div>
+    </div>
+
+    <!-- Tipo -->
+    <div class="card">
+      <div class="card-header"><h2>{{ icon('file') }} Tipo de relatório</h2></div>
+      <div class="card-body" style="gap:10px;display:flex;flex-direction:column;">
+        <div class="field">
+          <label>Domínio</label>
+          <select id="cfg-tipo" onchange="onTipoChange()">
+            <option value="ipva">IPVA</option>
+            <option value="licenciamento">Licenciamento</option>
+            <option value="multas">Multas</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card">
+      <div class="card-header"><h2>{{ icon('find') }} Filtros</h2></div>
+      <div class="card-body" style="gap:12px;display:flex;flex-direction:column;">
+        <div class="row2">
+          <div class="field"><label>Data início</label><input id="cfg-data-inicio" type="date"></div>
+          <div class="field"><label>Data fim</label><input id="cfg-data-fim" type="date"></div>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="cfg-status">
+            <option value="">Todos</option>
+            <option value="pago">Pago</option>
+            <option value="pendente">Pendente</option>
+            <option value="vencido">Vencido</option>
+          </select>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Placa</label><input id="cfg-placa" placeholder="Parte da placa..."></div>
+          <div class="field"><label>Cliente</label><input id="cfg-cliente" placeholder="Parte do nome..."></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agrupamento e ordenação -->
+    <div class="card">
+      <div class="card-header"><h2>{{ icon('dashboard') }} Agrupamento e ordenação</h2></div>
+      <div class="card-body" style="gap:12px;display:flex;flex-direction:column;">
+        <div class="field">
+          <label>Agrupar por</label>
+          <select id="cfg-agrupar">
+            <option value="nenhum">Sem agrupamento</option>
+            <option value="cliente_nome">Cliente</option>
+            <option value="placa">Placa</option>
+            <option value="status_pag">Status</option>
+            <option value="especie">Espécie</option>
+          </select>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Ordenar por</label>
+            <select id="cfg-ordenar">
+              <option value="vencimento">Vencimento</option>
+              <option value="cliente_nome">Cliente</option>
+              <option value="placa">Placa</option>
+              <option value="valor">Valor</option>
+              <option value="status_pag">Status</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Direção</label>
+            <select id="cfg-direcao">
+              <option value="asc">Crescente (A→Z)</option>
+              <option value="desc">Decrescente (Z→A)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Opções de exibição -->
+    <div class="card">
+      <div class="card-header"><h2>{{ icon('view') }} Exibição</h2></div>
+      <div class="card-body">
+        <div class="check-group">
+          <label class="check-item"><input type="checkbox" id="cfg-totais" checked> Exibir linha de totais</label>
+          <label class="check-item"><input type="checkbox" id="cfg-resumo"> Bloco de resumo executivo</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botões de ação -->
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-primary" onclick="visualizar()" style="width:100%;justify-content:center;">{{ icon('view','icon icon-sm') }} Visualizar na tela</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button class="btn btn-outline" onclick="exportar('pdf')" style="justify-content:center;">{{ icon('dowload','icon icon-sm') }} PDF</button>
+        <button class="btn btn-outline" onclick="exportar('excel')" style="justify-content:center;">{{ icon('dowload','icon icon-sm') }} Excel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel direito: campos e prévia -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <!-- Seleção de campos -->
+    <div class="card">
+      <div class="card-header">
+        <h2>{{ icon('edit') }} Campos do relatório</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="marcarTodos(true)">Todos</button>
+          <button class="btn btn-ghost btn-sm" onclick="marcarTodos(false)">Nenhum</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <p style="font-size:12px;color:var(--sub);margin-bottom:12px;">Arraste para reordenar. Desmarque para ocultar.</p>
+        <div id="lista-campos" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+    </div>
+
+    <!-- Área de prévia -->
+    <div class="card">
+      <div class="card-header">
+        <h2>{{ icon('dashboard') }} Prévia dos dados</h2>
+        <span id="badge-registros" style="font-size:12px;color:var(--sub);"></span>
+      </div>
+      <div id="area-previa" style="padding:16px;">
+        <div class="empty-state"><p>Configure os filtros e clique em "Visualizar na tela"</p></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Modal salvar template -->
+<div class="modal-overlay" id="modal-template">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>{{ icon('save') }} Salvar template</h3>
+      <button class="btn-close" onclick="fecharModalTemplate()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Nome do template *</label><input id="f-template-nome" placeholder="Ex: IPVA vencidos 2026"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalTemplate()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarSalvarTemplate()">Salvar</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Estado global da configuração atual
+let camposDisponiveis = [];
+let camposAtivos = [];   // [{id, label, visivel}] na ordem drag
+let templateIdAtual = null;
+
+// ── Inicialização ─────────────────────────────────────────────────────────────
+async function init() {
+  await onTipoChange();
+  await carregarTemplates();
+}
+
+async function onTipoChange() {
+  const tipo = document.getElementById('cfg-tipo').value;
+  const campos = await apiFetch(`/api/relatorios/campos/${tipo}`);
+  if (!campos) return;
+  camposDisponiveis = campos;
+  camposAtivos = campos.map(c => ({ ...c, visivel: true }));
+  renderCampos();
+}
+
+// ── Renderização dos campos com drag-and-drop ─────────────────────────────────
+function renderCampos() {
+  const lista = document.getElementById('lista-campos');
+  lista.innerHTML = '';
+  camposAtivos.forEach((campo, idx) => {
+    const div = document.createElement('div');
+    div.className = 'campo-drag';
+    div.dataset.idx = idx;
+    div.draggable = true;
+    div.innerHTML = `
+      <span class="drag-handle" title="Arrastar para reordenar">⠿</span>
+      <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer;margin:0;">
+        <input type="checkbox" ${campo.visivel ? 'checked' : ''} onchange="toggleCampo(${idx})" style="accent-color:var(--azul2);width:15px;height:15px;">
+        <span style="font-size:14px;font-weight:${campo.visivel ? '500' : '400'};color:${campo.visivel ? 'var(--texto)' : 'var(--sub)'};">${campo.label}</span>
+      </label>
+    `;
+    // Drag events
+    div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', idx); div.classList.add('dragging'); });
+    div.addEventListener('dragend', () => div.classList.remove('dragging'));
+    div.addEventListener('dragover', e => { e.preventDefault(); div.classList.add('drag-over'); });
+    div.addEventListener('dragleave', () => div.classList.remove('drag-over'));
+    div.addEventListener('drop', e => {
+      e.preventDefault();
+      div.classList.remove('drag-over');
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+      const toIdx = parseInt(div.dataset.idx);
+      if (fromIdx !== toIdx) {
+        const [moved] = camposAtivos.splice(fromIdx, 1);
+        camposAtivos.splice(toIdx, 0, moved);
+        renderCampos();
+      }
+    });
+    lista.appendChild(div);
+  });
+}
+
+function toggleCampo(idx) {
+  camposAtivos[idx].visivel = !camposAtivos[idx].visivel;
+  renderCampos();
+}
+
+function marcarTodos(visivel) {
+  camposAtivos.forEach(c => c.visivel = visivel);
+  renderCampos();
+}
+
+// ── Construção da configuração atual ─────────────────────────────────────────
+function obterConfig() {
+  return {
+    tipo:           document.getElementById('cfg-tipo').value,
+    filtros: {
+      data_inicio:  document.getElementById('cfg-data-inicio').value || null,
+      data_fim:     document.getElementById('cfg-data-fim').value || null,
+      status:       document.getElementById('cfg-status').value || null,
+      placa:        document.getElementById('cfg-placa').value.trim() || null,
+      cliente_nome: document.getElementById('cfg-cliente').value.trim() || null,
+    },
+    agrupar_por:    document.getElementById('cfg-agrupar').value,
+    ordenar_por:    document.getElementById('cfg-ordenar').value,
+    ordem_direcao:  document.getElementById('cfg-direcao').value,
+    mostrar_totais: document.getElementById('cfg-totais').checked,
+    mostrar_resumo: document.getElementById('cfg-resumo').checked,
+  };
+}
+
+function obterCamposVisiveis() {
+  return camposAtivos.filter(c => c.visivel).map(c => ({ id: c.id, label: c.label }));
+}
+
+// ── Visualização na tela ──────────────────────────────────────────────────────
+async function visualizar() {
+  const config = obterConfig();
+  const camposVisiveis = obterCamposVisiveis();
+  if (!camposVisiveis.length) { toast('Selecione ao menos um campo.', 'err'); return; }
+
+  const area = document.getElementById('area-previa');
+  area.innerHTML = '<div class="empty-state"><p>Carregando...</p></div>';
+
+  const resultado = await apiFetch('/api/relatorios/dados', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(config)
+  });
+  if (!resultado) { area.innerHTML = '<div class="empty-state"><p>Erro ao buscar dados.</p></div>'; return; }
+
+  const totalRegistros = resultado.agrupado
+    ? Object.values(resultado.grupos).reduce((s, g) => s + g.length, 0)
+    : resultado.dados.length;
+
+  document.getElementById('badge-registros').textContent = `${totalRegistros} registro(s)`;
+
+  if (totalRegistros === 0) {
+    area.innerHTML = '<div class="empty-state"><p>Nenhum registro encontrado com os filtros aplicados.</p></div>';
+    return;
+  }
+
+  let html = '';
+
+  // Bloco de resumo executivo
+  if (config.mostrar_resumo && resultado.totais_geral) {
+    const t = resultado.totais_geral;
+    html += `<div style="background:var(--cinza1);border:1px solid var(--cinza2);border-radius:8px;padding:14px 18px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;">
+      <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Registros</div><div style="font-size:20px;font-weight:700;color:var(--azul);">${t.total_registros}</div></div>
+      <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Valor total</div><div style="font-size:20px;font-weight:700;color:var(--azul);">${fmtMoeda(t.total_valor)}</div></div>
+      <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Pagos</div><div style="font-size:20px;font-weight:700;color:var(--verde);">${t.total_pago}</div></div>
+      <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Pendentes</div><div style="font-size:20px;font-weight:700;color:var(--amarelo);">${t.total_pendente}</div></div>
+      <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Vencidos</div><div style="font-size:20px;font-weight:700;color:var(--vermelho);">${t.total_vencido}</div></div>
+    </div>`;
+  }
+
+  if (resultado.agrupado) {
+    for (const [grupo, linhas] of Object.entries(resultado.grupos)) {
+      html += `<div style="font-size:13px;font-weight:700;color:var(--azul2);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.4px;">${grupo}</div>`;
+      html += renderTabelaPrevia(linhas, camposVisiveis, config, resultado.totais_por_grupo?.[grupo]);
+    }
+  } else {
+    html += renderTabelaPrevia(resultado.dados, camposVisiveis, config, resultado.totais);
+  }
+
+  area.innerHTML = `<div class="tabela-wrap">${html}</div>`;
+}
+
+function renderTabelaPrevia(dados, campos, config, totais) {
+  const cabecalho = campos.map(c => `<th>${c.label}</th>`).join('');
+  const linhas = dados.map(linha => {
+    const cols = campos.map(c => {
+      let val = linha[c.id] ?? '—';
+      if (c.id === 'valor') val = fmtMoeda(val === '—' ? null : val);
+      else if (['vencimento','data_pagamento','data_infracao'].includes(c.id)) val = fmtData(val);
+      else if (c.id === 'status_pag') {
+        const badge = val === 'Pago' ? 'pago' : val === 'Vencido' ? 'vencido' : 'pendente';
+        val = `<span class="badge badge-${badge}">${val}</span>`;
+      }
+      return `<td>${val}</td>`;
+    }).join('');
+    return `<tr>${cols}</tr>`;
+  }).join('');
+
+  let linhaTotais = '';
+  if (config.mostrar_totais && totais) {
+    const cols = campos.map(c => {
+      if (c.id === 'valor') return `<td><strong>${fmtMoeda(totais.total_valor)}</strong></td>`;
+      if (c.id === 'cliente_nome') return `<td><strong>${totais.total_registros} registros</strong></td>`;
+      return '<td>—</td>';
+    }).join('');
+    linhaTotais = `<tr style="background:var(--cinza2);">${cols}</tr>`;
+  }
+
+  return `<table><thead><tr>${cabecalho}</tr></thead><tbody>${linhas}${linhaTotais}</tbody></table>`;
+}
+
+// ── Exportação ────────────────────────────────────────────────────────────────
+async function exportar(formato) {
+  const config = obterConfig();
+  const camposVisiveis = obterCamposVisiveis();
+  if (!camposVisiveis.length) { toast('Selecione ao menos um campo.', 'err'); return; }
+
+  toast(`Gerando ${formato.toUpperCase()}...`);
+  try {
+    const res = await fetch(`/api/relatorios/exportar/${formato}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ config, campos_visiveis: camposVisiveis })
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast(d.erro || `Erro ao gerar ${formato.toUpperCase()}`, 'err');
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio_${config.tipo}.${formato === 'excel' ? 'xlsx' : 'pdf'}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`${formato.toUpperCase()} baixado!`);
+  } catch(e) {
+    toast('Erro de conexão', 'err');
+  }
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+async function carregarTemplates() {
+  const lista = await apiFetch('/api/relatorios/templates');
+  if (!lista) return;
+  const el = document.getElementById('lista-templates');
+  if (!lista.length) {
+    el.innerHTML = '<span style="color:var(--sub);font-size:13px;">Nenhum template salvo.</span>';
+    return;
+  }
+  el.innerHTML = lista.map(t => `
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="btn btn-ghost btn-sm" style="flex:1;justify-content:flex-start;text-align:left;" onclick="carregarTemplate(${t.id})">${t.nome}</button>
+      <button class="btn btn-danger btn-sm btn-icon" onclick="excluirTemplate(${t.id},'${t.nome.replace(/'/g,"\\'")}')">{{ icon('delete','icon icon-sm') }}</button>
+    </div>
+  `).join('');
+}
+
+async function carregarTemplate(id) {
+  const t = await apiFetch(`/api/relatorios/templates/${id}`);
+  if (!t) return;
+  templateIdAtual = t.id;
+  const cfg = JSON.parse(t.config_json);
+  aplicarConfig(cfg);
+  toast(`Template "${t.nome}" carregado.`);
+}
+
+function aplicarConfig(cfg) {
+  document.getElementById('cfg-tipo').value = cfg.tipo || 'ipva';
+  onTipoChange().then(() => {
+    if (cfg.filtros) {
+      document.getElementById('cfg-data-inicio').value = cfg.filtros.data_inicio || '';
+      document.getElementById('cfg-data-fim').value    = cfg.filtros.data_fim    || '';
+      document.getElementById('cfg-status').value      = cfg.filtros.status      || '';
+      document.getElementById('cfg-placa').value       = cfg.filtros.placa       || '';
+      document.getElementById('cfg-cliente').value     = cfg.filtros.cliente_nome || '';
+    }
+    document.getElementById('cfg-agrupar').value  = cfg.agrupar_por   || 'nenhum';
+    document.getElementById('cfg-ordenar').value  = cfg.ordenar_por   || 'vencimento';
+    document.getElementById('cfg-direcao').value  = cfg.ordem_direcao || 'asc';
+    document.getElementById('cfg-totais').checked  = cfg.mostrar_totais !== false;
+    document.getElementById('cfg-resumo').checked  = !!cfg.mostrar_resumo;
+  });
+}
+
+function salvarTemplate() {
+  document.getElementById('f-template-nome').value = '';
+  document.getElementById('modal-template').classList.add('open');
+  setTimeout(() => document.getElementById('f-template-nome').focus(), 50);
+}
+
+function fecharModalTemplate() { document.getElementById('modal-template').classList.remove('open'); }
+
+async function confirmarSalvarTemplate() {
+  const nome = document.getElementById('f-template-nome').value.trim();
+  if (!nome) { toast('Informe um nome para o template.', 'err'); return; }
+  const config = obterConfig();
+  const d = await apiFetch('/api/relatorios/templates', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ nome, config, id: templateIdAtual })
+  });
+  if (!d) return;
+  fecharModalTemplate();
+  await carregarTemplates();
+  toast(`Template "${d.nome}" salvo!`);
+}
+
+async function excluirTemplate(id, nome) {
+  confirmarExclusao(`Excluir template "${nome}"?`, async () => {
+    const d = await apiFetch(`/api/relatorios/templates/${id}`, { method: 'DELETE' });
+    if (!d) return;
+    templateIdAtual = null;
+    await carregarTemplates();
+    toast('Template excluído.');
+  });
+}
+
+init();
+</script>
+{% endblock %}

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-tema="{{ tema_modo }}" data-cor="{{ tema_cor_chave }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Despachante — {% block title %}{% endblock %}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root, html[data-tema="claro"] {
+    --azul:{{ tema_cor.principal }}; --azul2:{{ tema_cor.secundaria }};
+    --cinza1:#f4f6fa; --cinza2:#e8ecf2; --cinza3:#c8d0dc;
+    --texto:#1c2333; --sub:#5a6680; --verde:#1a7a4a;
+    --vermelho:#b91c1c; --amarelo:#b45309; --branco:#ffffff;
+    --card-bg:#ffffff; --body-bg:#f4f6fa;
+    --sombra:0 2px 8px rgba(0,0,0,.10);
+  }
+
+  html[data-tema="escuro"] {
+    --azul:{{ tema_cor.secundaria }}; --azul2:{{ tema_cor.secundaria }};
+    --cinza1:#0f1420; --cinza2:#232a3b; --cinza3:#3a4358;
+    --texto:#e7eaf0; --sub:#9aa4ba; --verde:#34c97f;
+    --vermelho:#f3685f; --amarelo:#e0a836; --branco:#1a2030;
+    --card-bg:#171d2b; --body-bg:#0b0e16;
+    --sombra:0 2px 10px rgba(0,0,0,.45);
+  }
+
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--body-bg); color:var(--texto); min-height:100vh; transition:background .2s,color .2s; }
+
+  nav { background:var(--azul); padding:0 28px; display:flex; align-items:center; gap:20px; height:56px; box-shadow:0 2px 6px rgba(0,0,0,.25); }
+  nav .logo { font-weight:700; font-size:17px; color:#fff; letter-spacing:.4px; display:flex; align-items:center; gap:8px; text-decoration:none; white-space:nowrap; }
+  nav .logo span { opacity:.7; font-weight:400; }
+  nav .nav-links { display:flex; gap:4px; }
+  nav .nav-links a { color:rgba(255,255,255,.8); text-decoration:none; font-size:14px; padding:6px 12px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:7px; }
+  nav .nav-links a:hover { background:rgba(255,255,255,.15); color:#fff; }
+  nav .nav-links a.ativa { background:rgba(255,255,255,.2); color:#fff; font-weight:600; }
+  nav .breadcrumb { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,.7); font-size:13px; margin-left:auto; }
+  nav .breadcrumb a { color:rgba(255,255,255,.85); text-decoration:none; }
+  nav .breadcrumb a:hover { color:#fff; text-decoration:underline; }
+  nav .breadcrumb .sep { opacity:.5; }
+
+  .container { max-width:1150px; margin:0 auto; padding:24px 20px; }
+
+  .card { background:var(--card-bg); border-radius:10px; box-shadow:var(--sombra); overflow:hidden; }
+  .card-header { padding:14px 20px; border-bottom:1px solid var(--cinza2); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .card-header h2 { font-size:15px; font-weight:600; color:var(--azul); }
+  .card-body { padding:20px; }
+
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:7px 16px; border-radius:6px; font-size:14px; font-weight:500; cursor:pointer; border:none; transition:filter .15s,transform .1s; text-decoration:none; white-space:nowrap; }
+  .btn:active { transform:scale(.97); }
+  .btn-primary  { background:var(--azul2); color:#fff; } .btn-primary:hover  { filter:brightness(1.1); }
+  .btn-success  { background:var(--verde); color:#fff; } .btn-success:hover  { filter:brightness(1.1); }
+  .btn-danger   { background:var(--vermelho); color:#fff; } .btn-danger:hover  { filter:brightness(1.1); }
+  .btn-ghost    { background:var(--cinza2); color:var(--texto); } .btn-ghost:hover { background:var(--cinza3); }
+  .btn-outline  { background:transparent; color:var(--azul2); border:1.5px solid var(--azul2); } .btn-outline:hover { background:var(--cinza1); }
+  .btn-sm       { padding:4px 10px; font-size:12px; }
+  .btn-icon     { padding:5px 8px; }
+
+  .search-box { display:flex; align-items:center; background:var(--cinza1); border:1px solid var(--cinza3); border-radius:7px; overflow:hidden; }
+  .search-box input { border:none; background:transparent; padding:7px 12px; font-size:14px; color:var(--texto); outline:none; width:220px; }
+  .search-box input::placeholder { color:var(--sub); }
+
+  .tabela-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  thead th { background:var(--cinza1); color:var(--sub); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; padding:10px 14px; text-align:left; border-bottom:1px solid var(--cinza2); white-space:nowrap; }
+  tbody tr { border-bottom:1px solid var(--cinza2); transition:background .1s; }
+  tbody tr:hover { background:var(--cinza1); }
+  tbody tr:last-child { border-bottom:none; }
+  td { padding:10px 14px; vertical-align:middle; }
+
+  .badge { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap; }
+  html[data-tema="claro"] .badge-pago     { background:#d1fae5; color:#065f46; }
+  html[data-tema="claro"] .badge-pendente { background:#fef3c7; color:#92400e; }
+  html[data-tema="claro"] .badge-vencido  { background:#fee2e2; color:#991b1b; }
+  html[data-tema="claro"] .badge-ativo    { background:#dbeafe; color:#1e40af; }
+  html[data-tema="claro"] .badge-inativo  { background:#f3f4f6; color:#6b7280; }
+  html[data-tema="escuro"] .badge-pago     { background:#0f3d29; color:#34c97f; }
+  html[data-tema="escuro"] .badge-pendente { background:#3d2f0a; color:#e0a836; }
+  html[data-tema="escuro"] .badge-vencido  { background:#3d1815; color:#f3685f; }
+  html[data-tema="escuro"] .badge-ativo    { background:#16243d; color:#6fa8e8; }
+  html[data-tema="escuro"] .badge-inativo  { background:#262d3d; color:#9aa4ba; }
+
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--card-bg); border-radius:12px; width:100%; max-width:500px; box-shadow:0 20px 60px rgba(0,0,0,.25); animation:slideUp .2s ease; }
+  @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .modal-header { padding:16px 20px; border-bottom:1px solid var(--cinza2); display:flex; justify-content:space-between; align-items:center; }
+  .modal-header h3 { font-size:15px; font-weight:600; color:var(--azul); }
+  .modal-body { padding:20px; display:flex; flex-direction:column; gap:13px; max-height:70vh; overflow-y:auto; }
+  .modal-footer { padding:12px 20px; border-top:1px solid var(--cinza2); display:flex; justify-content:flex-end; gap:8px; }
+  .btn-close { background:none; border:none; cursor:pointer; color:var(--sub); font-size:20px; line-height:1; padding:2px 6px; border-radius:4px; }
+  .btn-close:hover { background:var(--cinza2); }
+
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .field label { font-size:12px; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:.4px; }
+  .field input,.field select,.field textarea { border:1px solid var(--cinza3); border-radius:6px; padding:8px 10px; font-size:14px; color:var(--texto); background:var(--card-bg); outline:none; font-family:inherit; transition:border-color .15s; }
+  .field input:focus,.field select:focus,.field textarea:focus { border-color:var(--azul2); box-shadow:0 0 0 3px rgba(37,99,174,.12); }
+  .field textarea { resize:vertical; min-height:60px; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+
+  .empty-state { text-align:center; padding:36px 20px; color:var(--sub); }
+  .empty-state p { font-size:14px; margin-top:8px; }
+
+  #toast { position:fixed; bottom:24px; right:24px; background:var(--texto); color:var(--card-bg); padding:12px 20px; border-radius:8px; font-size:14px; box-shadow:0 4px 16px rgba(0,0,0,.25); transform:translateY(80px); opacity:0; transition:all .3s; z-index:9999; }
+  #toast.show { transform:translateY(0); opacity:1; }
+  #toast.ok  { background:var(--verde); color:#fff; }
+  #toast.err { background:var(--vermelho); color:#fff; }
+
+  .check-group { display:flex; flex-direction:column; gap:8px; }
+  .check-item { display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; }
+  .check-item input[type=checkbox] { width:16px; height:16px; cursor:pointer; accent-color:var(--azul2); }
+
+  .icon { width:18px; height:18px; display:inline-block; vertical-align:middle; flex-shrink:0; }
+  .icon-sm { width:14px; height:14px; }
+  .icon-lg { width:28px; height:28px; }
+  .icon-xl { width:40px; height:40px; }
+  .btn .icon { width:15px; height:15px; }
+  nav .logo .icon { width:22px; height:22px; color:#fff; }
+  nav .nav-links .icon { width:16px; height:16px; }
+
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--cinza3); margin-bottom:0; }
+  .tab-btn { padding:10px 18px; border:none; background:none; cursor:pointer; font-size:14px; font-weight:600; border-bottom:3px solid transparent; color:var(--sub); transition:.15s; margin-bottom:-2px; display:flex; align-items:center; gap:7px; }
+  .tab-btn:hover { color:var(--azul2); }
+  .tab-btn.ativa { color:var(--azul); border-bottom-color:var(--azul); }
+  .tab-panel { border-radius:0 10px 10px 10px; }
+
+  .select-filtro { border:1px solid var(--cinza3); border-radius:6px; padding:6px 10px; font-size:13px; color:var(--texto); background:var(--card-bg); cursor:pointer; }
+
+  .file-drop { border:2px dashed var(--cinza3); border-radius:8px; padding:18px; text-align:center; cursor:pointer; transition:.15s; color:var(--sub); font-size:13px; }
+  .file-drop:hover { border-color:var(--azul2); background:var(--cinza1); }
+
+  .swatch-group { display:flex; gap:10px; flex-wrap:wrap; }
+  .swatch { width:38px; height:38px; border-radius:50%; cursor:pointer; border:3px solid transparent; transition:.15s; position:relative; flex-shrink:0; }
+  .swatch:hover { transform:scale(1.08); }
+  .swatch.selecionada { border-color:var(--texto); }
+  .swatch.selecionada::after { content:'✓'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:15px; text-shadow:0 1px 2px rgba(0,0,0,.4); }
+
+  .modo-toggle { display:flex; gap:10px; }
+  .modo-card { flex:1; border:2px solid var(--cinza3); border-radius:10px; padding:14px; cursor:pointer; text-align:center; transition:.15s; max-width:160px; }
+  .modo-card:hover { border-color:var(--azul2); }
+  .modo-card.selecionado { border-color:var(--azul2); background:var(--cinza1); }
+
+  /* ── Drag-and-drop de campos do relatório ── */
+  .campo-drag { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--cinza1); border:1px solid var(--cinza2); border-radius:8px; cursor:grab; transition:.15s; }
+  .campo-drag:hover { border-color:var(--azul2); background:var(--card-bg); }
+  .campo-drag.dragging { opacity:.4; }
+  .campo-drag.drag-over { border-color:var(--azul2); background:var(--cinza2); }
+  .drag-handle { color:var(--sub); cursor:grab; font-size:16px; }
+</style>
+</head>
+<body>
+<nav>
+  <a class="logo" href="/">
+    {% if escritorio_logo_url %}
+      <img src="{{ escritorio_logo_url }}" alt="Logo" style="height:36px;max-width:120px;object-fit:contain;border-radius:4px;">
+    {% else %}
+      {{ icon('car') }}
+    {% endif %}
+    {% if escritorio_nome %}
+      <span>{{ escritorio_nome }}</span>
+    {% elif not escritorio_logo_url %}
+      <span>Despachante</span>
+    {% endif %}
+  </a>
+  <div class="nav-links">
+    <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
+    <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
+    <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
+    <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
+  </div>
+  <div class="breadcrumb">{% block breadcrumb %}{% endblock %}</div>
+</nav>
+<div class="container">{% block content %}{% endblock %}</div>
+<div id="toast"></div>
+
+<!-- Modal global de senha para exclusões -->
+<div class="modal-overlay" id="modal-senha-exclusao">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <h3>{{ icon('padlock') }} Confirmar exclusão</h3>
+      <button class="btn-close" onclick="_cancelarSenhaExclusao()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="msg-senha-exclusao" style="font-size:14px;color:var(--sub);"></p>
+      <div class="field">
+        <label>Senha de exclusão</label>
+        <input id="input-senha-exclusao" type="password" placeholder="••••" onkeydown="if(event.key==='Enter') _confirmarSenhaExclusao()">
+      </div>
+      <p id="erro-senha-exclusao" style="display:none;color:var(--vermelho);font-size:13px;"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="_cancelarSenhaExclusao()">Cancelar</button>
+      <button class="btn btn-danger" onclick="_confirmarSenhaExclusao()">{{ icon('delete','icon icon-sm') }} Excluir</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Utilitários globais ──────────────────────────────────────────────────────
+function toast(msg, tipo='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + tipo;
+  setTimeout(() => el.className = '', 3200);
+}
+
+function fmtData(d) {
+  if (!d) return '—';
+  const parts = d.split('-');
+  if (parts.length !== 3) return d;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function fmtMoeda(v) {
+  if (v == null || v === '') return '—';
+  return 'R$ ' + Number(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function statusVencimento(venc, pago) {
+  if (pago) return '<span class="badge badge-pago">Pago</span>';
+  if (!venc) return '<span class="badge badge-pendente">Pendente</span>';
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const d = new Date(venc + 'T00:00:00');
+  if (d < hoje) return '<span class="badge badge-vencido">Vencido</span>';
+  return '<span class="badge badge-pendente">Pendente</span>';
+}
+
+// ── Requisições com tratamento de erro padronizado ───────────────────────────
+async function apiFetch(url, opcoes = {}) {
+  try {
+    const res = await fetch(url, opcoes);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data.erro || data.error || `Erro ${res.status}`;
+      toast(msg, 'err');
+      return null;
+    }
+    return data;
+  } catch (e) {
+    toast('Erro de conexão. Tente novamente.', 'err');
+    return null;
+  }
+}
+
+// ── Confirmação de exclusão com senha ────────────────────────────────────────
+let _callbackExclusao = null;
+
+function confirmarExclusao(mensagem, callback) {
+  _callbackExclusao = callback;
+  document.getElementById('msg-senha-exclusao').textContent = mensagem;
+  document.getElementById('input-senha-exclusao').value = '';
+  document.getElementById('erro-senha-exclusao').style.display = 'none';
+  document.getElementById('modal-senha-exclusao').classList.add('open');
+  setTimeout(() => document.getElementById('input-senha-exclusao').focus(), 50);
+}
+
+function _cancelarSenhaExclusao() {
+  document.getElementById('modal-senha-exclusao').classList.remove('open');
+  _callbackExclusao = null;
+}
+
+async function _confirmarSenhaExclusao() {
+  const senha = document.getElementById('input-senha-exclusao').value;
+  const erroEl = document.getElementById('erro-senha-exclusao');
+  if (!senha) {
+    erroEl.textContent = 'Digite a senha.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  const data = await apiFetch('/api/configuracoes/verificar-senha', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ senha })
+  });
+  if (!data) {
+    erroEl.textContent = 'Senha incorreta.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  const callback = _callbackExclusao;
+  document.getElementById('modal-senha-exclusao').classList.remove('open');
+  _callbackExclusao = null;
+  if (callback) await callback();
+}
+
+function fmtDataHora(dt) {
+  if (!dt) return '—';
+  const [datePart, timePart] = dt.split(' ');
+  const [y, m, d] = datePart.split('-');
+  return `${d}/${m}/${y}${timePart ? ' ' + timePart.substring(0,5) : ''}`;
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

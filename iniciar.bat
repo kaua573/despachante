@@ -5,5 +5,5 @@ echo    Sistema Despachante - Iniciando...
 echo  =====================================
 echo.
 cd /d "%~dp0"
-python app.py
+python run.py
 pause
