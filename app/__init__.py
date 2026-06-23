@@ -42,6 +42,18 @@ def _registrar_helpers_jinja(app: Flask) -> None:
 
     app.jinja_env.globals["icon"] = icon_svg
 
+    # ── Filtros de formatação para exibição nos templates ──
+    from app.services.validacao_service import formatar_cpf, formatar_telefone, normalizar_placa
+
+    app.jinja_env.filters["formatar_cpf"] = formatar_cpf
+    app.jinja_env.filters["formatar_telefone"] = formatar_telefone
+
+    def formatar_placa_exibicao(placa: str) -> str:
+        """Exibe placa sem hífen (padrão armazenado); Mercosul sem separador."""
+        return normalizar_placa(placa)
+
+    app.jinja_env.filters["formatar_placa"] = formatar_placa_exibicao
+
     @app.context_processor
     def inject_tema():
         from app.services.configuracao_service import ConfiguracaoService
@@ -73,6 +85,7 @@ def _registrar_blueprints(app: Flask) -> None:
     from app.routes.painel import bp as painel_bp
     from app.routes.configuracoes import bp as config_bp
     from app.routes.relatorios import bp as relatorios_bp
+    from app.routes.ipva import bp as ipva_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(clientes_bp)
@@ -80,6 +93,7 @@ def _registrar_blueprints(app: Flask) -> None:
     app.register_blueprint(painel_bp)
     app.register_blueprint(config_bp)
     app.register_blueprint(relatorios_bp)
+    app.register_blueprint(ipva_bp)
 
 
 def _iniciar_backup_automatico(app: Flask) -> None:

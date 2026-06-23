@@ -1,6 +1,7 @@
 from app.models.cliente import Cliente
 from app.models.veiculo import Veiculo
 from app.models.ipva import Ipva
+from app.models.ipva_parcela import IpvaParcela
 from app.models.licenciamento import Licenciamento
 from app.models.multa import Multa
 from app.models.documento import Documento
@@ -11,6 +12,7 @@ __all__ = [
     "Cliente",
     "Veiculo",
     "Ipva",
+    "IpvaParcela",
     "Licenciamento",
     "Multa",
     "Documento",

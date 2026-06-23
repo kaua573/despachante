@@ -3,6 +3,8 @@
 {% block breadcrumb %}<span>Clientes</span>{% endblock %}
 
 {% block content %}
+<!-- Inputmask para máscaras de CPF e telefone -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/inputmask.min.js"></script>
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('users') }} Clientes cadastrados</h2>
@@ -38,10 +40,22 @@
     <div class="modal-body" id="painel-tab-dados">
       <div class="field"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
       <div class="row2">
-        <div class="field"><label>CPF *</label><input id="f-cpf" placeholder="000.000.000-00"></div>
-        <div class="field"><label>Telefone *</label><input id="f-tel" placeholder="(18) 99999-9999"></div>
+        <div class="field">
+          <label>CPF *</label>
+          <input id="f-cpf" placeholder="000.000.000-00" data-inputmask="'mask': '999.999.999-99'">
+          <span id="erro-cpf" style="color:var(--vermelho);font-size:12px;display:none;">CPF inválido.</span>
+        </div>
+        <div class="field">
+          <label>Telefone *</label>
+          <input id="f-tel" placeholder="(00) 00000-0000" data-inputmask="'mask': ['(99) 9999-9999','(99) 99999-9999']">
+          <span id="erro-tel" style="color:var(--vermelho);font-size:12px;display:none;">Telefone inválido.</span>
+        </div>
       </div>
-      <div class="field"><label>Email *</label><input id="f-email" type="email" placeholder="email@exemplo.com"></div>
+      <div class="field">
+        <label>Email *</label>
+        <input id="f-email" type="email" placeholder="email@exemplo.com">
+        <span id="erro-email" style="color:var(--vermelho);font-size:12px;display:none;">E-mail inválido.</span>
+      </div>
       <div class="field"><label>Observação</label><textarea id="f-obs" placeholder="Anotações sobre o cliente..."></textarea></div>
     </div>
     <div class="modal-body" id="painel-tab-docs" style="display:none;">
@@ -127,6 +141,42 @@ const CATEGORIAS_DOC = {
   contrato:'Contrato', procuracao:'Procuração', outro:'Outro'
 };
 
+// ── Máscaras e validação frontend ────────────────────────────────────────────
+function iniciarMascaras() {
+  if (typeof Inputmask === 'undefined') return;
+  Inputmask({ mask: '999.999.999-99' }).mask(document.getElementById('f-cpf'));
+  Inputmask({ mask: ['(99) 9999-9999','(99) 99999-9999'], keepStatic: false })
+    .mask(document.getElementById('f-tel'));
+}
+
+// Valida CPF matematicamente no frontend (espelho do backend)
+function validarCpfFrontend(cpf) {
+  const d = cpf.replace(/\D/g,'');
+  if (d.length !== 11 || /^(.)\1+$/.test(d)) return false;
+  const calc = (n) => {
+    let s = 0;
+    for (let i = 0; i < n - 1; i++) s += parseInt(d[i]) * (n - i);
+    const r = s % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return parseInt(d[9]) === calc(10) && parseInt(d[10]) === calc(11);
+}
+
+function validarEmailFrontend(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+}
+
+function mostrarErro(id, msg, mostrar) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = mostrar ? '' : 'none';
+  const input = el.previousElementSibling;
+  if (input && input.tagName === 'INPUT') {
+    input.style.borderColor = mostrar ? 'var(--vermelho)' : '';
+  }
+}
+
 async function carregar() {
   const busca = document.getElementById('busca').value;
   const dados = await apiFetch('/api/clientes?busca=' + encodeURIComponent(busca));
@@ -166,24 +216,36 @@ function abrirModal() {
   editId = null;
   document.getElementById('modal-titulo').textContent = 'Novo cliente';
   ['f-nome','f-cpf','f-tel','f-email','f-obs'].forEach(id => document.getElementById(id).value = '');
+  ['erro-cpf','erro-tel','erro-email'].forEach(id => mostrarErro(id, '', false));
   document.getElementById('tab-doc-btn').style.display = 'none';
   mudarTabModal('dados');
   document.getElementById('modal').classList.add('open');
+  setTimeout(iniciarMascaras, 50);
 }
 
 async function editar(c) {
   editId = c.id;
   document.getElementById('modal-titulo').textContent = 'Editar cliente';
   document.getElementById('f-nome').value  = c.nome||'';
-  document.getElementById('f-cpf').value   = c.cpf||'';
-  document.getElementById('f-tel').value   = c.telefone||'';
+  // Exibe CPF e telefone formatados na edição
+  document.getElementById('f-cpf').value   = c.cpf ? c.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
+  document.getElementById('f-tel').value   = c.telefone ? formatarTelExibicao(c.telefone) : '';
   document.getElementById('f-email').value = c.email||'';
   document.getElementById('f-obs').value   = c.observacao||'';
+  ['erro-cpf','erro-tel','erro-email'].forEach(id => mostrarErro(id, '', false));
   document.getElementById('tab-doc-btn').style.display = '';
   docClienteId = c.id;
   await carregarDocumentos();
   mudarTabModal('dados');
   document.getElementById('modal').classList.add('open');
+  setTimeout(iniciarMascaras, 50);
+}
+
+function formatarTelExibicao(tel) {
+  const d = tel.replace(/\D/g,'');
+  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return tel;
 }
 
 function fecharModal() { document.getElementById('modal').classList.remove('open'); }
@@ -193,11 +255,30 @@ async function salvar() {
   const cpf   = document.getElementById('f-cpf').value.trim();
   const tel   = document.getElementById('f-tel').value.trim();
   const email = document.getElementById('f-email').value.trim();
-  if (!nome || !cpf || !tel || !email) { toast('Preencha nome, CPF, telefone e email', 'err'); return; }
-  const payload = { nome, cpf, telefone:tel, email, observacao:document.getElementById('f-obs').value.trim() };
-  const url = editId ? `/api/clientes/${editId}` : '/api/clientes';
+
+  // Limpa erros anteriores
+  ['erro-cpf','erro-tel','erro-email'].forEach(id => mostrarErro(id, '', false));
+
+  let invalido = false;
+  if (!nome) { toast('Nome é obrigatório.', 'err'); return; }
+  if (!validarCpfFrontend(cpf)) {
+    mostrarErro('erro-cpf', 'CPF inválido.', true);
+    invalido = true;
+  }
+  if (tel.replace(/\D/g,'').length < 10) {
+    mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
+    invalido = true;
+  }
+  if (!validarEmailFrontend(email)) {
+    mostrarErro('erro-email', 'E-mail inválido.', true);
+    invalido = true;
+  }
+  if (invalido) return;
+
+  const payload = { nome, cpf, telefone: tel, email, observacao: document.getElementById('f-obs').value.trim() };
+  const url    = editId ? `/api/clientes/${editId}` : '/api/clientes';
   const method = editId ? 'PUT' : 'POST';
-  const data = await apiFetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  const data   = await apiFetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   if (!data) return;
   fecharModal();
   carregar();

@@ -6,6 +6,9 @@
 {% endblock %}
 
 {% block content %}
+<!-- Inputmask via CDN para máscaras de placa -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/inputmask.min.js"></script>
+
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('car') }} Veículos de <em>{{ cliente.nome }}</em></h2>
@@ -38,12 +41,31 @@
     </div>
     <div class="modal-body">
       <div class="row2">
-        <div class="field"><label>Placa *</label><input id="f-placa" placeholder="ABC1D23" style="text-transform:uppercase;font-family:monospace;font-size:15px;font-weight:700;"></div>
+        <div class="field">
+          <label>Placa *</label>
+          <input id="f-placa" placeholder="ABC1D23 ou ABC-1234"
+                 style="text-transform:uppercase;font-family:monospace;font-size:15px;font-weight:700;"
+                 oninput="validarPlacaInput(this)">
+          <span id="erro-placa" style="color:var(--vermelho);font-size:12px;display:none;">Formato inválido. Use ABC1D23 ou ABC-1234.</span>
+        </div>
         <div class="field"><label>RENAVAM *</label><input id="f-renavam" placeholder="00000000000"></div>
       </div>
       <div class="row2">
         <div class="field"><label>Marca/Modelo *</label><input id="f-marca" placeholder="Chevrolet Onix"></div>
-        <div class="field"><label>Proprietário *</label><input id="f-prop" placeholder="Nome no documento do veículo"></div>
+        <div class="field">
+          <label>Proprietário *</label>
+          <!-- No modo "novo": select populado com proprietários do cliente + opção livre -->
+          <div id="prop-wrap-select" style="display:flex;gap:6px;align-items:center;">
+            <select id="f-prop-select" style="flex:1;" onchange="onPropSelect()">
+              <option value="">Carregando...</option>
+            </select>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="alternarPropDigitado()" title="Digitar manualmente">✏️</button>
+          </div>
+          <input id="f-prop-input" placeholder="Nome no documento do veículo" style="display:none;">
+          <span id="aviso-sem-prop" style="color:var(--amarelo);font-size:12px;display:none;">
+            Nenhum proprietário cadastrado para este cliente ainda. Digite o nome abaixo.
+          </span>
+        </div>
       </div>
       <div class="row2">
         <div class="field"><label>Espécie *</label>
@@ -75,6 +97,7 @@
 <script>
 const CLIENTE_ID = {{ cliente.id }};
 let editId = null;
+let modoInputManual = false;
 const ESPECIE = { passeio:'Passeio', carga:'Carga', reboque:'Reboque' };
 const SITUACAO_BADGE = {
   ativo:      '<span class="badge badge-ativo">Ativo</span>',
@@ -82,6 +105,67 @@ const SITUACAO_BADGE = {
   vendido:    '<span class="badge badge-vencido">Vendido</span>',
 };
 
+// ── Validação de placa em tempo real ─────────────────────────────────────────
+const RE_PLACA_MERCOSUL = /^[A-Z]{3}\d[A-Z]\d{2}$/;
+const RE_PLACA_ANTIGA   = /^[A-Z]{3}-?\d{4}$/;
+
+function validarPlacaInput(el) {
+  const val = el.value.toUpperCase().trim();
+  const ok = RE_PLACA_MERCOSUL.test(val) || RE_PLACA_ANTIGA.test(val);
+  document.getElementById('erro-placa').style.display = val.length >= 7 && !ok ? '' : 'none';
+  el.style.borderColor = val.length >= 7 && !ok ? 'var(--vermelho)' : '';
+}
+
+// ── Proprietário dinâmico ─────────────────────────────────────────────────────
+async function carregarProprietarios() {
+  const sel = document.getElementById('f-prop-select');
+  const aviso = document.getElementById('aviso-sem-prop');
+  const wrapSelect = document.getElementById('prop-wrap-select');
+
+  const lista = await apiFetch(`/api/clientes/${CLIENTE_ID}/proprietarios`);
+  if (!lista) return;
+
+  if (lista.length === 0) {
+    // Nenhum proprietário cadastrado: vai direto para input manual
+    aviso.style.display = '';
+    wrapSelect.style.display = 'none';
+    document.getElementById('f-prop-input').style.display = '';
+    modoInputManual = true;
+    return;
+  }
+
+  aviso.style.display = 'none';
+  wrapSelect.style.display = 'flex';
+  document.getElementById('f-prop-input').style.display = 'none';
+  modoInputManual = false;
+
+  sel.innerHTML = '<option value="">Selecione ou adicione novo...</option>'
+    + lista.map(p => `<option value="${p}">${p}</option>`).join('')
+    + '<option value="__novo__">+ Digitar novo proprietário...</option>';
+}
+
+function onPropSelect() {
+  if (document.getElementById('f-prop-select').value === '__novo__') {
+    alternarPropDigitado(true);
+  }
+}
+
+function alternarPropDigitado(forcar = false) {
+  const input = document.getElementById('f-prop-input');
+  const select = document.getElementById('f-prop-select');
+  modoInputManual = forcar || !modoInputManual;
+  input.style.display = modoInputManual ? '' : 'none';
+  select.style.display = modoInputManual ? 'none' : '';
+  if (modoInputManual) input.focus();
+}
+
+function obterProprietario() {
+  if (modoInputManual) return document.getElementById('f-prop-input').value.trim();
+  const val = document.getElementById('f-prop-select').value;
+  return val === '__novo__' ? '' : val;
+}
+
+// ── Tabela de veículos ────────────────────────────────────────────────────────
 async function carregar() {
   const dados = await apiFetch(`/api/clientes/${CLIENTE_ID}/veiculos`);
   if (!dados) return;
@@ -112,12 +196,16 @@ async function carregar() {
   `).join('');
 }
 
-function abrirModal() {
+// ── Modal ─────────────────────────────────────────────────────────────────────
+async function abrirModal() {
   editId = null;
   document.getElementById('modal-titulo').textContent = 'Novo veículo';
-  ['f-placa','f-renavam','f-marca','f-prop','f-obs'].forEach(id => document.getElementById(id).value = '');
+  ['f-placa','f-renavam','f-marca','f-prop-input','f-obs'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-especie').value = 'passeio';
   document.getElementById('f-situacao').value = 'ativo';
+  document.getElementById('erro-placa').style.display = 'none';
+  document.getElementById('f-placa').style.borderColor = '';
+  await carregarProprietarios();
   document.getElementById('modal').classList.add('open');
 }
 
@@ -127,10 +215,16 @@ function editar(v) {
   document.getElementById('f-placa').value    = v.placa||'';
   document.getElementById('f-renavam').value  = v.renavam||'';
   document.getElementById('f-marca').value    = v.marca_modelo||'';
-  document.getElementById('f-prop').value     = v.proprietario||'';
   document.getElementById('f-especie').value  = v.especie||'passeio';
   document.getElementById('f-situacao').value = v.situacao||'ativo';
   document.getElementById('f-obs').value      = v.observacao||'';
+  document.getElementById('erro-placa').style.display = 'none';
+  // Na edição mostramos o input livre com o valor atual
+  document.getElementById('prop-wrap-select').style.display = 'none';
+  document.getElementById('f-prop-input').style.display = '';
+  document.getElementById('f-prop-input').value = v.proprietario||'';
+  document.getElementById('aviso-sem-prop').style.display = 'none';
+  modoInputManual = true;
   document.getElementById('modal').classList.add('open');
 }
 
@@ -140,15 +234,31 @@ async function salvar() {
   const placa = document.getElementById('f-placa').value.trim().toUpperCase();
   const renavam = document.getElementById('f-renavam').value.trim();
   const marca = document.getElementById('f-marca').value.trim();
-  const prop = document.getElementById('f-prop').value.trim();
-  if (!placa || !renavam || !marca || !prop) { toast('Preencha placa, RENAVAM, marca/modelo e proprietário', 'err'); return; }
-  const payload = { cliente_id:CLIENTE_ID, placa, renavam, marca_modelo:marca, proprietario:prop,
-    especie:document.getElementById('f-especie').value, situacao:document.getElementById('f-situacao').value,
-    observacao:document.getElementById('f-obs').value.trim() };
+  const prop = obterProprietario();
+
+  if (!placa) { toast('Placa é obrigatória.', 'err'); return; }
+  if (!(RE_PLACA_MERCOSUL.test(placa) || RE_PLACA_ANTIGA.test(placa.replace('-','')))) {
+    toast('Placa inválida. Use ABC1D23 ou ABC-1234.', 'err'); return;
+  }
+  if (!renavam || !marca || !prop) {
+    toast('Preencha RENAVAM, marca/modelo e proprietário.', 'err'); return;
+  }
+
+  const payload = {
+    cliente_id: CLIENTE_ID, placa, renavam, marca_modelo: marca, proprietario: prop,
+    especie:    document.getElementById('f-especie').value,
+    situacao:   document.getElementById('f-situacao').value,
+    observacao: document.getElementById('f-obs').value.trim(),
+  };
   const url = editId ? `/api/veiculos/${editId}` : '/api/veiculos';
-  const data = await apiFetch(url, { method:editId?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  const data = await apiFetch(url, {
+    method: editId ? 'PUT' : 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+  });
   if (!data) return;
-  fecharModal(); carregar();
+  fecharModal();
+  carregar();
   toast(editId ? 'Veículo atualizado!' : 'Veículo cadastrado!');
 }
 
@@ -156,7 +266,8 @@ async function excluir(id, placa) {
   confirmarExclusao(`Excluir veículo "${placa}" e todos os seus registros?`, async () => {
     const data = await apiFetch(`/api/veiculos/${id}`, { method:'DELETE' });
     if (!data) return;
-    carregar(); toast('Veículo excluído.');
+    carregar();
+    toast('Veículo excluído.');
   });
 }
 

@@ -1,7 +1,11 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from app import db
 from app.models.cliente import Cliente
+from app.models.veiculo import Veiculo
 from app.services.veiculo_service import VeiculoService
+from app.services.validacao_service import (
+    validar_campos_veiculo, normalizar_placa,
+)
 
 bp = Blueprint("veiculos", __name__)
 
@@ -20,6 +24,36 @@ def veiculos(cid):
     return render_template("veiculos.html", cliente=cliente.to_dict())
 
 
+# ── API — Proprietários por cliente ─────────────────────────────────────────
+# Retorna a lista distinta de proprietários já cadastrados nos veículos
+# desse cliente. Não há tabela separada — os valores vêm do campo de texto
+# livre Veiculo.proprietario, filtrados pelo cliente informado.
+
+@bp.route("/api/clientes/<int:cid>/proprietarios", methods=["GET"])
+def api_proprietarios_por_cliente(cid):
+    """
+    Lista proprietários únicos vinculados aos veículos do cliente.
+    Usado pelo formulário de novo veículo para popular o select dinâmico.
+    """
+    cliente = db.session.get(Cliente, cid)
+    if not cliente:
+        return jsonify({"ok": False, "erro": "Cliente não encontrado."}), 404
+
+    rows = (
+        db.session.query(Veiculo.proprietario)
+        .filter(
+            Veiculo.cliente_id == cid,
+            Veiculo.proprietario != None,
+            Veiculo.proprietario != "",
+        )
+        .distinct()
+        .order_by(Veiculo.proprietario)
+        .all()
+    )
+    proprietarios = [r[0] for r in rows if r[0]]
+    return jsonify(proprietarios)
+
+
 # ── API — Veículos ───────────────────────────────────────────────────────────
 
 @bp.route("/api/clientes/<int:cid>/veiculos", methods=["GET"])
@@ -31,7 +65,7 @@ def api_listar_veiculos(cid):
 @bp.route("/api/veiculos", methods=["POST"])
 def api_criar_veiculo():
     dados = request.get_json(silent=True) or {}
-    erro = _validar_veiculo(dados)
+    erro = _validar_e_normalizar(dados)
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
     _svc().criar(dados)
@@ -41,7 +75,7 @@ def api_criar_veiculo():
 @bp.route("/api/veiculos/<int:vid>", methods=["PUT"])
 def api_editar_veiculo(vid):
     dados = request.get_json(silent=True) or {}
-    erro = _validar_veiculo(dados)
+    erro = _validar_e_normalizar(dados)
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
     ok, msg = _svc().atualizar(vid, dados)
@@ -157,10 +191,17 @@ def api_deletar_multa(mid):
     return jsonify({"ok": True})
 
 
-# ── Validação ────────────────────────────────────────────────────────────────
+# ── Validação e normalização ─────────────────────────────────────────────────
 
-def _validar_veiculo(dados: dict) -> str:
-    for campo in ("placa", "renavam", "marca_modelo", "proprietario"):
-        if not dados.get(campo, "").strip():
-            return f"Campo obrigatório ausente: {campo}."
+def _validar_e_normalizar(dados: dict) -> str:
+    """
+    Valida campos do veículo com validacao_service e normaliza
+    a placa para armazenamento (sem hífen, maiúsculas).
+    Retorna mensagem de erro ou string vazia.
+    """
+    erro = validar_campos_veiculo(dados)
+    if erro:
+        return erro
+    # Normaliza placa antes de persistir
+    dados["placa"] = normalizar_placa(dados.get("placa", ""))
     return ""

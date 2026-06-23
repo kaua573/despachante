@@ -13,6 +13,15 @@ class Ipva(db.Model):
     data_pagamento = db.Column(db.String(10))
     observacao = db.Column(db.Text)
 
+    # Parcelas do IPVA (opcional — só existem se o usuário parcelar)
+    parcelas = db.relationship(
+        "IpvaParcela",
+        backref="ipva",
+        lazy=True,
+        cascade="all, delete-orphan",
+        order_by="IpvaParcela.numero",
+    )
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -23,4 +32,5 @@ class Ipva(db.Model):
             "pago": bool(self.pago),
             "data_pagamento": self.data_pagamento or "",
             "observacao": self.observacao or "",
+            "num_parcelas": len(self.parcelas),
         }

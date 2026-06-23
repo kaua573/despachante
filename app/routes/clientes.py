@@ -2,6 +2,9 @@ from flask import Blueprint, render_template, request, jsonify, send_file, curre
 from app import db
 from app.services.cliente_service import ClienteService
 from app.services.pdf_cliente_service import PdfClienteService
+from app.services.validacao_service import (
+    validar_campos_cliente, normalizar_cpf, normalizar_telefone,
+)
 
 bp = Blueprint("clientes", __name__)
 
@@ -37,9 +40,10 @@ def api_obter_cliente(cid):
 @bp.route("/api/clientes", methods=["POST"])
 def api_criar_cliente():
     dados = request.get_json(silent=True) or {}
-    erro = _validar_campos_cliente(dados)
+    erro = validar_campos_cliente(dados)
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
+    _normalizar_cliente(dados)
     _svc().criar(dados)
     return jsonify({"ok": True})
 
@@ -47,9 +51,10 @@ def api_criar_cliente():
 @bp.route("/api/clientes/<int:cid>", methods=["PUT"])
 def api_editar_cliente(cid):
     dados = request.get_json(silent=True) or {}
-    erro = _validar_campos_cliente(dados)
+    erro = validar_campos_cliente(dados)
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
+    _normalizar_cliente(dados)
     ok, msg = _svc().atualizar(cid, dados)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
@@ -75,10 +80,10 @@ def api_listar_documentos(cid):
 @bp.route("/api/documentos", methods=["POST"])
 def api_criar_documento():
     dados = {
-        "nome":          request.form.get("nome", "").strip(),
+        "nome":           request.form.get("nome", "").strip(),
         "data_documento": request.form.get("data_documento", "").strip(),
-        "categoria":     request.form.get("categoria", "").strip(),
-        "observacao":    request.form.get("observacao", "").strip(),
+        "categoria":      request.form.get("categoria", "").strip(),
+        "observacao":     request.form.get("observacao", "").strip(),
     }
     cliente_id = request.form.get("cliente_id")
     if not cliente_id or not dados["nome"] or not dados["data_documento"] or not dados["categoria"]:
@@ -119,11 +124,14 @@ def relatorio_cliente_pdf(cid):
     )
 
 
-# ── Validação ────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _validar_campos_cliente(dados: dict) -> str:
-    """Retorna mensagem de erro se algum campo obrigatório estiver ausente."""
-    for campo in ("nome", "cpf", "telefone", "email"):
-        if not dados.get(campo, "").strip():
-            return f"Campo obrigatório ausente: {campo}."
-    return ""
+def _normalizar_cliente(dados: dict) -> None:
+    """
+    Normaliza CPF e telefone para armazenamento sem máscara.
+    Modifica o dict in-place antes de persistir.
+    """
+    if dados.get("cpf"):
+        dados["cpf"] = normalizar_cpf(dados["cpf"])
+    if dados.get("telefone"):
+        dados["telefone"] = normalizar_telefone(dados["telefone"])

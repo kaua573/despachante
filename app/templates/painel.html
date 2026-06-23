@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Painel — {{ veiculo.placa }}{% endblock %}
+
 {% block breadcrumb %}
   <a href="/clientes">Clientes</a><span class="sep">›</span>
   <a href="/clientes/{{ veiculo.cliente_id }}/veiculos">{{ veiculo.cliente_nome }}</a>
@@ -7,6 +8,7 @@
 {% endblock %}
 
 {% block content %}
+<!-- Cabeçalho do veículo -->
 <div class="card" style="margin-bottom:20px;">
   <div class="card-body" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
     {{ icon('car','icon icon-xl') }}
@@ -23,7 +25,7 @@
         {% if veiculo.renavam %} · RENAVAM: {{ veiculo.renavam }}{% endif %}
       </div>
       <div style="color:var(--sub);font-size:13px;margin-top:2px;">
-        Cliente responsável: <strong>{{ veiculo.cliente_nome }}</strong>
+        Responsável: <strong>{{ veiculo.cliente_nome }}</strong>
         {% if veiculo.proprietario %} · Proprietário no documento: <strong>{{ veiculo.proprietario }}</strong>{% endif %}
       </div>
       {% if veiculo.observacao %}<div style="color:var(--sub);font-size:13px;margin-top:2px;">Obs: {{ veiculo.observacao }}</div>{% endif %}
@@ -31,36 +33,46 @@
   </div>
 </div>
 
+<!-- Abas -->
 <div class="tabs">
-  <button class="tab-btn ativa" data-aba="ipva" onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA</button>
-  <button class="tab-btn" data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento</button>
-  <button class="tab-btn" data-aba="multas" onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas</button>
+  <button class="tab-btn ativa" data-aba="ipva"          onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA</button>
+  <button class="tab-btn"       data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento</button>
+  <button class="tab-btn"       data-aba="multas"        onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas</button>
 </div>
 
+<!-- ── Painel IPVA ─────────────────────────────────────────────────────────── -->
 <div id="painel-ipva" class="card tab-panel">
   <div class="card-header">
     <h2>{{ icon('calendar') }} IPVA</h2>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <select id="filtro-ipva-status" onchange="carregarIpva()" class="select-filtro">
-        <option value="">Todos</option><option value="pago">Pagos</option><option value="pendente">Pendentes/Vencidos</option>
+        <option value="">Todos</option>
+        <option value="pago">Pagos</option>
+        <option value="pendente">Pendentes/Vencidos</option>
       </select>
       <button class="btn btn-primary" onclick="abrirModal('ipva')">+ Adicionar</button>
     </div>
   </div>
   <div class="tabela-wrap">
     <table>
-      <thead><tr><th>Ano</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Pagamento</th><th>Obs.</th><th>Ações</th></tr></thead>
+      <thead><tr>
+        <th>Ano</th><th>Valor</th><th>Vencimento</th><th>Status</th>
+        <th>Parcelas</th><th>Pagamento</th><th>Obs.</th><th>Ações</th>
+      </tr></thead>
       <tbody id="tbody-ipva"></tbody>
     </table>
   </div>
 </div>
 
+<!-- ── Painel Licenciamento ───────────────────────────────────────────────── -->
 <div id="painel-licenciamento" class="card tab-panel" style="display:none;">
   <div class="card-header">
     <h2>{{ icon('file') }} Licenciamento</h2>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <select id="filtro-lic-status" onchange="carregarLicenciamento()" class="select-filtro">
-        <option value="">Todos</option><option value="pago">Pagos</option><option value="pendente">Pendentes/Vencidos</option>
+        <option value="">Todos</option>
+        <option value="pago">Pagos</option>
+        <option value="pendente">Pendentes/Vencidos</option>
       </select>
       <button class="btn btn-primary" onclick="abrirModal('licenciamento')">+ Adicionar</button>
     </div>
@@ -73,24 +85,71 @@
   </div>
 </div>
 
+<!-- ── Painel Multas ──────────────────────────────────────────────────────── -->
 <div id="painel-multas" class="card tab-panel" style="display:none;">
   <div class="card-header">
     <h2>{{ icon('warning') }} Multas</h2>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <select id="filtro-multa-status" onchange="carregarMultas()" class="select-filtro">
-        <option value="">Todas</option><option value="pago">Pagas</option><option value="pendente">Pendentes/Vencidas</option>
+        <option value="">Todas</option>
+        <option value="pago">Pagas</option>
+        <option value="pendente">Pendentes/Vencidas</option>
       </select>
       <button class="btn btn-primary" onclick="abrirModal('multas')">+ Adicionar</button>
     </div>
   </div>
   <div class="tabela-wrap">
     <table>
-      <thead><tr><th>Auto Infração</th><th>Data Infração</th><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Pagamento</th><th>Ações</th></tr></thead>
+      <thead><tr><th>Auto</th><th>Data Infração</th><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Pagamento</th><th>Ações</th></tr></thead>
       <tbody id="tbody-multas"></tbody>
     </table>
   </div>
 </div>
 
+<!-- ── Modal de parcelas do IPVA ─────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-parcelas">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header">
+      <h3>{{ icon('calendar') }} Parcelas do IPVA — <span id="parcelas-titulo"></span></h3>
+      <button class="btn-close" onclick="fecharModalParcelas()">✕</button>
+    </div>
+    <div class="modal-body" style="gap:16px;">
+      <!-- Seção de configuração de parcelamento -->
+      <div style="background:var(--cinza1);border:1px solid var(--cinza2);border-radius:8px;padding:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Configurar parcelamento</div>
+        <div class="row2">
+          <div class="field">
+            <label>Número de parcelas</label>
+            <select id="parc-num">
+              <option value="1">1× (pagamento único)</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+              <option value="5">5×</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Vencimento da 1ª parcela</label>
+            <input id="parc-data" type="date">
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-primary btn-sm" onclick="gerarParcelas()">{{ icon('save','icon icon-sm') }} Gerar parcelas</button>
+          <span id="parc-aviso" style="font-size:12px;color:var(--sub);"></span>
+        </div>
+      </div>
+      <!-- Tabela de parcelas existentes -->
+      <div id="area-parcelas">
+        <div class="empty-state"><p>Nenhuma parcela configurada.</p></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalParcelas()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal genérico (IPVA / licenciamento / multas) ────────────────────── -->
 <div class="modal-overlay" id="modal">
   <div class="modal">
     <div class="modal-header">
@@ -110,7 +169,9 @@
 <script>
 const VID = {{ veiculo.id }};
 let abaAtual = 'ipva', modalTipo = '', editId = null;
+let parcelasIpvaId = null;  // ID do IPVA cujas parcelas estão abertas no modal
 
+// ── Abas ──────────────────────────────────────────────────────────────────────
 function mudarAba(aba) {
   abaAtual = aba;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
@@ -127,20 +188,14 @@ function filtrarStatus(dados, filtro) {
   return filtro === 'pago' ? dados.filter(r => r.pago) : dados.filter(r => !r.pago);
 }
 
-function linhaIpvaLic(r) {
-  return `<tr>
-    <td><strong>${r.ano_referencia}</strong></td>
-    <td>${fmtMoeda(r.valor)}</td>
-    <td>${fmtData(r.vencimento)}</td>
-    <td>${statusVencimento(r.vencimento, r.pago)}</td>
-    <td>${fmtData(r.data_pagamento)}</td>
-    <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
-    <td><div style="display:flex;gap:5px;">
-      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("${modalTipo||'ipva'}",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
-      <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('${modalTipo||'ipva'}',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
-    </div></td>
-  </tr>`;
-}
+// ── IPVA ──────────────────────────────────────────────────────────────────────
+const STATUS_PARCELA_BADGE = {
+  quitado:           '<span class="badge badge-pago">Quitado</span>',
+  parcialmente_pago: '<span class="badge badge-pendente">Parcial</span>',
+  vencido:           '<span class="badge badge-vencido">Vencido</span>',
+  pendente:          '<span class="badge badge-pendente">Pendente</span>',
+  sem_parcelas:      '',
+};
 
 async function carregarIpva() {
   modalTipo = 'ipva';
@@ -148,20 +203,60 @@ async function carregarIpva() {
   if (!all) return;
   const dados = filtrarStatus(all, document.getElementById('filtro-ipva-status').value);
   const tbody = document.getElementById('tbody-ipva');
-  tbody.innerHTML = dados.length ? dados.map(linhaIpvaLic).join('') :
-    `<tr><td colspan="7"><div class="empty-state"><p>Nenhum registro de IPVA</p></div></td></tr>`;
+  if (!dados.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhum registro de IPVA</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = dados.map(r => `
+    <tr>
+      <td><strong>${r.ano_referencia}</strong></td>
+      <td>${fmtMoeda(r.valor)}</td>
+      <td>${fmtData(r.vencimento)}</td>
+      <td>${statusVencimento(r.vencimento, r.pago)}</td>
+      <td>
+        ${r.num_parcelas > 0
+          ? `<button class="btn btn-ghost btn-sm" onclick="abrirModalParcelas(${r.id},${r.ano_referencia})">${r.num_parcelas}× parcela(s)</button>`
+          : `<button class="btn btn-outline btn-sm" onclick="abrirModalParcelas(${r.id},${r.ano_referencia})">Parcelar</button>`
+        }
+      </td>
+      <td>${fmtData(r.data_pagamento)}</td>
+      <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
+      <td><div style="display:flex;gap:5px;">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("ipva",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('ipva',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
+      </div></td>
+    </tr>
+  `).join('');
 }
 
+// ── Licenciamento ─────────────────────────────────────────────────────────────
 async function carregarLicenciamento() {
   modalTipo = 'licenciamento';
   const all = await apiFetch(`/api/veiculos/${VID}/licenciamento`);
   if (!all) return;
   const dados = filtrarStatus(all, document.getElementById('filtro-lic-status').value);
   const tbody = document.getElementById('tbody-licenciamento');
-  tbody.innerHTML = dados.length ? dados.map(linhaIpvaLic).join('') :
-    `<tr><td colspan="7"><div class="empty-state"><p>Nenhum registro de licenciamento</p></div></td></tr>`;
+  if (!dados.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>Nenhum registro de licenciamento</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = dados.map(r => `
+    <tr>
+      <td><strong>${r.ano_referencia}</strong></td>
+      <td>${fmtMoeda(r.valor)}</td>
+      <td>${fmtData(r.vencimento)}</td>
+      <td>${statusVencimento(r.vencimento, r.pago)}</td>
+      <td>${fmtData(r.data_pagamento)}</td>
+      <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
+      <td><div style="display:flex;gap:5px;">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("licenciamento",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('licenciamento',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
+      </div></td>
+    </tr>
+  `).join('');
 }
 
+// ── Multas ────────────────────────────────────────────────────────────────────
 async function carregarMultas() {
   modalTipo = 'multas';
   const all = await apiFetch(`/api/veiculos/${VID}/multas`);
@@ -172,52 +267,178 @@ async function carregarMultas() {
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhuma multa cadastrada</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = dados.map(r => `<tr>
-    <td style="font-family:monospace;">${r.auto_infracao||'—'}</td>
-    <td>${fmtData(r.data_infracao)}</td>
-    <td>${r.descricao||'—'}</td>
-    <td>${fmtMoeda(r.valor)}</td>
-    <td>${fmtData(r.vencimento)}</td>
-    <td>${statusVencimento(r.vencimento, r.pago)}</td>
-    <td>${fmtData(r.data_pagamento)}</td>
-    <td><div style="display:flex;gap:5px;">
-      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("multas",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
-      <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('multas',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
-    </div></td>
-  </tr>`).join('');
+  tbody.innerHTML = dados.map(r => `
+    <tr>
+      <td style="font-family:monospace;">${r.auto_infracao||'—'}</td>
+      <td>${fmtData(r.data_infracao)}</td>
+      <td>${r.descricao||'—'}</td>
+      <td>${fmtMoeda(r.valor)}</td>
+      <td>${fmtData(r.vencimento)}</td>
+      <td>${statusVencimento(r.vencimento, r.pago)}</td>
+      <td>${fmtData(r.data_pagamento)}</td>
+      <td><div style="display:flex;gap:5px;">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("multas",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('multas',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
+      </div></td>
+    </tr>
+  `).join('');
 }
 
+// ── Modal de parcelas ─────────────────────────────────────────────────────────
+async function abrirModalParcelas(ipvaId, ano) {
+  parcelasIpvaId = ipvaId;
+  document.getElementById('parcelas-titulo').textContent = `Ano ${ano}`;
+  // Pré-preenche data com hoje para comodidade
+  document.getElementById('parc-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('parc-aviso').textContent = '';
+  document.getElementById('modal-parcelas').classList.add('open');
+  await renderizarParcelas(ipvaId);
+}
+
+function fecharModalParcelas() {
+  document.getElementById('modal-parcelas').classList.remove('open');
+  parcelasIpvaId = null;
+  carregarIpva();  // Recarrega para refletir alterações de status
+}
+
+async function renderizarParcelas(ipvaId) {
+  const area = document.getElementById('area-parcelas');
+  const resultado = await apiFetch(`/api/ipva/${ipvaId}/parcelas`);
+  if (!resultado || !resultado.parcelas.length) {
+    area.innerHTML = '<div class="empty-state"><p>Nenhuma parcela configurada. Use o formulário acima.</p></div>';
+    return;
+  }
+
+  const STATUS_BADGE_PARCELA = {
+    pendente: '<span class="badge badge-pendente">Pendente</span>',
+    vencido:  '<span class="badge badge-vencido">Vencido</span>',
+    pago:     '<span class="badge badge-pago">Pago</span>',
+  };
+
+  const linhas = resultado.parcelas.map(p => `
+    <tr>
+      <td><strong>${p.numero}ª</strong></td>
+      <td>${fmtData(p.vencimento)}</td>
+      <td>${fmtMoeda(p.valor)}</td>
+      <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
+      <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
+      <td>
+        ${p.status !== 'pago'
+          ? `<button class="btn btn-success btn-sm" onclick="quitarParcela(${p.id})">✓ Quitar</button>`
+          : '—'
+        }
+      </td>
+    </tr>
+  `).join('');
+
+  area.innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Quitado em</th><th>Ação</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+  `;
+}
+
+async function gerarParcelas() {
+  const numParcelas = parseInt(document.getElementById('parc-num').value);
+  const dataPrimeira = document.getElementById('parc-data').value;
+  const aviso = document.getElementById('parc-aviso');
+
+  if (!dataPrimeira) { aviso.textContent = 'Informe a data da primeira parcela.'; return; }
+
+  // Busca o valor do IPVA para passar ao endpoint
+  const ipvas = await apiFetch(`/api/veiculos/${VID}/ipva`);
+  const ipva = ipvas?.find(i => i.id === parcelasIpvaId);
+  if (!ipva?.valor) { aviso.textContent = 'O IPVA precisa ter um valor cadastrado para parcelar.'; return; }
+
+  aviso.textContent = 'Gerando...';
+  const data = await apiFetch(`/api/ipva/${parcelasIpvaId}/parcelas/gerar`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ num_parcelas: numParcelas, valor_total: ipva.valor, data_primeira: dataPrimeira }),
+  });
+  if (!data) { aviso.textContent = ''; return; }
+  aviso.textContent = '';
+  toast('Parcelas geradas!');
+  await renderizarParcelas(parcelasIpvaId);
+}
+
+async function quitarParcela(parcelaId) {
+  const data = await apiFetch(`/api/ipva/parcelas/${parcelaId}/quitar`, { method: 'POST' });
+  if (!data) return;
+  toast('Parcela quitada!');
+  await renderizarParcelas(parcelasIpvaId);
+}
+
+// ── Modal genérico (IPVA / lic / multas) ──────────────────────────────────────
 const FORMS = {
-  ipva: r => `<div class="row2">
-    <div class="field"><label>Ano referência *</label><input id="f-ano" type="number" value="${r?.ano_referencia||new Date().getFullYear()}"></div>
-    <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" value="${r?.valor||''}"></div>
-  </div><div class="row2">
-    <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
-    <div class="field"><label>Status</label><select id="f-pago"><option value="0" ${!r?.pago?'selected':''}>Pendente</option><option value="1" ${r?.pago?'selected':''}>Pago</option></select></div>
-  </div>
-  <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
-  <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`,
-
-  licenciamento: r => FORMS.ipva(r),
-
-  multas: r => `<div class="row2">
-    <div class="field"><label>Auto de Infração</label><input id="f-auto" value="${r?.auto_infracao||''}"></div>
-    <div class="field"><label>Data da Infração</label><input id="f-dtinf" type="date" value="${r?.data_infracao||''}"></div>
-  </div>
-  <div class="field"><label>Descrição</label><input id="f-desc" value="${r?.descricao||''}"></div>
-  <div class="row2">
-    <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" value="${r?.valor||''}"></div>
-    <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
-  </div><div class="row2">
-    <div class="field"><label>Status</label><select id="f-pago"><option value="0" ${!r?.pago?'selected':''}>Pendente</option><option value="1" ${r?.pago?'selected':''}>Pago</option></select></div>
+  ipva: r => `
+    <div class="row2">
+      <div class="field"><label>Ano referência *</label>
+        <input id="f-ano" type="number" value="${r?.ano_referencia||new Date().getFullYear()}" min="2000" max="2099">
+      </div>
+      <div class="field"><label>Valor (R$)</label>
+        <input id="f-valor" type="number" step="0.01" value="${r?.valor||''}" placeholder="0,00">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-pago">
+          <option value="0" ${!r?.pago?'selected':''}>Pendente</option>
+          <option value="1" ${r?.pago?'selected':''}>Pago</option>
+        </select>
+      </div>
+    </div>
     <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
-  </div>
-  <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`
+    <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`,
+
+  licenciamento: r => `
+    <div class="row2">
+      <div class="field"><label>Ano referência *</label>
+        <input id="f-ano" type="number" value="${r?.ano_referencia||new Date().getFullYear()}" min="2000" max="2099">
+      </div>
+      <div class="field"><label>Valor (R$)</label>
+        <input id="f-valor" type="number" step="0.01" value="${r?.valor||''}" placeholder="0,00">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-pago">
+          <option value="0" ${!r?.pago?'selected':''}>Pendente</option>
+          <option value="1" ${r?.pago?'selected':''}>Pago</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
+    <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`,
+
+  multas: r => `
+    <div class="row2">
+      <div class="field"><label>Auto de Infração</label><input id="f-auto" value="${r?.auto_infracao||''}" placeholder="Nº do auto"></div>
+      <div class="field"><label>Data da Infração</label><input id="f-dtinf" type="date" value="${r?.data_infracao||''}"></div>
+    </div>
+    <div class="field"><label>Descrição</label><input id="f-desc" value="${r?.descricao||''}" placeholder="Ex: Excesso de velocidade"></div>
+    <div class="row2">
+      <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" value="${r?.valor||''}" placeholder="0,00"></div>
+      <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Status</label>
+        <select id="f-pago">
+          <option value="0" ${!r?.pago?'selected':''}>Pendente</option>
+          <option value="1" ${r?.pago?'selected':''}>Pago</option>
+        </select>
+      </div>
+      <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
+    </div>
+    <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`,
 };
 
-const TITULOS = { ipva:'IPVA', licenciamento:'Licenciamento', multas:'Multa' };
+const TITULOS = { ipva: 'IPVA', licenciamento: 'Licenciamento', multas: 'Multa' };
 
-function abrirModal(tipo, dados=null) {
+function abrirModal(tipo, dados = null) {
   modalTipo = tipo;
   editId = dados?.id || null;
   document.getElementById('modal-titulo').textContent = (editId ? 'Editar ' : 'Adicionar ') + TITULOS[tipo];
@@ -232,38 +453,46 @@ function getVal(id) { const el = document.getElementById(id); return el ? el.val
 
 async function salvar() {
   const tipo = modalTipo;
-  const payload = { veiculo_id:VID, valor:getVal('f-valor')||null, vencimento:getVal('f-venc')||null,
-    pago:parseInt(getVal('f-pago')||'0'), data_pagamento:getVal('f-dtpag')||null, observacao:getVal('f-obs') };
+  const payload = {
+    veiculo_id:      VID,
+    valor:           getVal('f-valor') || null,
+    vencimento:      getVal('f-venc') || null,
+    pago:            parseInt(getVal('f-pago') || '0'),
+    data_pagamento:  getVal('f-dtpag') || null,
+    observacao:      getVal('f-obs'),
+  };
   if (tipo === 'multas') {
     payload.auto_infracao = getVal('f-auto');
-    payload.data_infracao = getVal('f-dtinf')||null;
-    payload.descricao = getVal('f-desc');
+    payload.data_infracao = getVal('f-dtinf') || null;
+    payload.descricao     = getVal('f-desc');
   } else {
     const ano = getVal('f-ano');
-    if (!ano) { toast('Informe o ano de referência', 'err'); return; }
+    if (!ano) { toast('Informe o ano de referência.', 'err'); return; }
     payload.ano_referencia = ano;
   }
-  const url = editId ? `/api/${tipo}/${editId}` : `/api/${tipo}`;
-  const data = await apiFetch(url, { method:editId?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  const url    = editId ? `/api/${tipo}/${editId}` : `/api/${tipo}`;
+  const method = editId ? 'PUT' : 'POST';
+  const data   = await apiFetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   if (!data) return;
   fecharModal();
-  if (tipo==='ipva')          carregarIpva();
-  if (tipo==='licenciamento') carregarLicenciamento();
-  if (tipo==='multas')        carregarMultas();
+  if (tipo === 'ipva')          carregarIpva();
+  if (tipo === 'licenciamento') carregarLicenciamento();
+  if (tipo === 'multas')        carregarMultas();
   toast(editId ? 'Registro atualizado!' : 'Registro adicionado!');
 }
 
 async function excluir(tipo, id) {
   confirmarExclusao('Excluir este registro?', async () => {
-    const data = await apiFetch(`/api/${tipo}/${id}`, { method:'DELETE' });
+    const data = await apiFetch(`/api/${tipo}/${id}`, { method: 'DELETE' });
     if (!data) return;
-    if (tipo==='ipva')          carregarIpva();
-    if (tipo==='licenciamento') carregarLicenciamento();
-    if (tipo==='multas')        carregarMultas();
+    if (tipo === 'ipva')          carregarIpva();
+    if (tipo === 'licenciamento') carregarLicenciamento();
+    if (tipo === 'multas')        carregarMultas();
     toast('Registro excluído.');
   });
 }
 
+// Carrega a aba inicial
 carregarIpva();
 </script>
 {% endblock %}
