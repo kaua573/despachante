@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -26,55 +27,55 @@ from app.models.veiculo import Veiculo
 # ── Definição de campos disponíveis por domínio ───────────────────────────
 
 CAMPOS_IPVA = [
-    {"id": "cliente_nome",    "label": "Cliente"},
-    {"id": "placa",           "label": "Placa"},
-    {"id": "proprietario",    "label": "Proprietário"},
-    {"id": "marca_modelo",    "label": "Marca/Modelo"},
-    {"id": "especie",         "label": "Espécie"},
-    {"id": "situacao",        "label": "Situação do Veículo"},
-    {"id": "ano_referencia",  "label": "Ano Referência"},
-    {"id": "valor",           "label": "Valor"},
-    {"id": "vencimento",      "label": "Vencimento"},
-    {"id": "status_pag",      "label": "Status"},
-    {"id": "data_pagamento",  "label": "Data Pagamento"},
-    {"id": "observacao",      "label": "Observação"},
+    {"id": "cliente_nome",   "label": "Cliente"},
+    {"id": "placa",          "label": "Placa"},
+    {"id": "proprietario",   "label": "Proprietário"},
+    {"id": "marca_modelo",   "label": "Marca/Modelo"},
+    {"id": "especie",        "label": "Espécie"},
+    {"id": "situacao",       "label": "Situação do Veículo"},
+    {"id": "ano_referencia", "label": "Ano Referência"},
+    {"id": "valor",          "label": "Valor"},
+    {"id": "vencimento",     "label": "Vencimento"},
+    {"id": "status_pag",     "label": "Status"},
+    {"id": "data_pagamento", "label": "Data Pagamento"},
+    {"id": "observacao",     "label": "Observação"},
 ]
 
 CAMPOS_LICENCIAMENTO = [
-    {"id": "cliente_nome",    "label": "Cliente"},
-    {"id": "placa",           "label": "Placa"},
-    {"id": "proprietario",    "label": "Proprietário"},
-    {"id": "marca_modelo",    "label": "Marca/Modelo"},
-    {"id": "especie",         "label": "Espécie"},
-    {"id": "situacao",        "label": "Situação do Veículo"},
-    {"id": "ano_referencia",  "label": "Ano Referência"},
-    {"id": "valor",           "label": "Valor"},
-    {"id": "vencimento",      "label": "Vencimento"},
-    {"id": "status_pag",      "label": "Status"},
-    {"id": "data_pagamento",  "label": "Data Pagamento"},
-    {"id": "observacao",      "label": "Observação"},
+    {"id": "cliente_nome",   "label": "Cliente"},
+    {"id": "placa",          "label": "Placa"},
+    {"id": "proprietario",   "label": "Proprietário"},
+    {"id": "marca_modelo",   "label": "Marca/Modelo"},
+    {"id": "especie",        "label": "Espécie"},
+    {"id": "situacao",       "label": "Situação do Veículo"},
+    {"id": "ano_referencia", "label": "Ano Referência"},
+    {"id": "valor",          "label": "Valor"},
+    {"id": "vencimento",     "label": "Vencimento"},
+    {"id": "status_pag",     "label": "Status"},
+    {"id": "data_pagamento", "label": "Data Pagamento"},
+    {"id": "observacao",     "label": "Observação"},
 ]
 
 CAMPOS_MULTAS = [
-    {"id": "cliente_nome",    "label": "Cliente"},
-    {"id": "placa",           "label": "Placa"},
-    {"id": "proprietario",    "label": "Proprietário"},
-    {"id": "marca_modelo",    "label": "Marca/Modelo"},
-    {"id": "especie",         "label": "Espécie"},
-    {"id": "auto_infracao",   "label": "Auto de Infração"},
-    {"id": "data_infracao",   "label": "Data da Infração"},
-    {"id": "descricao",       "label": "Descrição"},
-    {"id": "valor",           "label": "Valor"},
-    {"id": "vencimento",      "label": "Vencimento"},
-    {"id": "status_pag",      "label": "Status"},
-    {"id": "data_pagamento",  "label": "Data Pagamento"},
-    {"id": "observacao",      "label": "Observação"},
+    {"id": "cliente_nome",   "label": "Cliente"},
+    {"id": "placa",          "label": "Placa"},
+    {"id": "proprietario",   "label": "Proprietário"},
+    {"id": "marca_modelo",   "label": "Marca/Modelo"},
+    {"id": "especie",        "label": "Espécie"},
+    {"id": "auto_infracao",  "label": "Auto de Infração"},
+    {"id": "data_infracao",  "label": "Data da Infração"},
+    {"id": "descricao",      "label": "Descrição"},
+    {"id": "valor",          "label": "Valor"},
+    {"id": "vencimento",     "label": "Vencimento"},
+    {"id": "status_pag",     "label": "Status"},
+    {"id": "data_pagamento", "label": "Data Pagamento"},
+    {"id": "observacao",     "label": "Observação"},
 ]
 
 CAMPOS_POR_TIPO = {
-    "ipva": CAMPOS_IPVA,
+    "ipva":          CAMPOS_IPVA,
     "licenciamento": CAMPOS_LICENCIAMENTO,
-    "multas": CAMPOS_MULTAS,
+    "multas":        CAMPOS_MULTAS,
 }
 
 
@@ -118,19 +119,18 @@ class RelatorioService:
     def buscar_dados(self, config: dict) -> list[dict]:
         """
         Executa a query de acordo com a configuração passada.
-        Retorna lista de dicionários com os dados brutos (todos os campos),
-        sem filtrar por campos visíveis — isso é feito na renderização.
+        Retorna todos os campos — a filtragem de colunas visíveis é feita na renderização.
         """
-        tipo = config.get("tipo", "ipva")
-        filtros = config.get("filtros", {})
-        ordenar_por = config.get("ordenar_por", "vencimento")
-        ordem_direcao = config.get("ordem_direcao", "asc")
+        tipo           = config.get("tipo", "ipva")
+        filtros        = config.get("filtros", {})
+        ordenar_por    = config.get("ordenar_por", "vencimento")
+        ordem_direcao  = config.get("ordem_direcao", "asc")
 
         if tipo == "ipva":
             return self._buscar_ipva(filtros, ordenar_por, ordem_direcao)
-        elif tipo == "licenciamento":
+        if tipo == "licenciamento":
             return self._buscar_licenciamento(filtros, ordenar_por, ordem_direcao)
-        elif tipo == "multas":
+        if tipo == "multas":
             return self._buscar_multas(filtros, ordenar_por, ordem_direcao)
         return []
 
@@ -165,7 +165,6 @@ class RelatorioService:
         return [self._montar_linha_multa(r, v, c) for r, v, c in q.all()]
 
     def _aplicar_filtros_comuns(self, q, modelo, filtros: dict):
-        """Aplica filtros de data, status, placa e cliente — comuns a IPVA e licenciamento."""
         if filtros.get("data_inicio"):
             q = q.filter(modelo.vencimento >= filtros["data_inicio"])
         if filtros.get("data_fim"):
@@ -200,16 +199,14 @@ class RelatorioService:
         return q
 
     def _aplicar_ordenacao(self, q, modelo, veiculo_model, cliente_model, campo: str, direcao: str):
-        """Mapeia nome de campo para coluna SQLAlchemy e aplica ordenação."""
         mapa = {
-            "cliente_nome":   cliente_model.nome,
-            "placa":          veiculo_model.placa,
-            "proprietario":   veiculo_model.proprietario,
-            "vencimento":     modelo.vencimento,
-            "valor":          modelo.valor,
-            "status_pag":     modelo.pago,
+            "cliente_nome":  cliente_model.nome,
+            "placa":         veiculo_model.placa,
+            "proprietario":  veiculo_model.proprietario,
+            "vencimento":    modelo.vencimento,
+            "valor":         modelo.valor,
+            "status_pag":    modelo.pago,
         }
-        # Campos específicos por tipo
         if hasattr(modelo, "ano_referencia"):
             mapa["ano_referencia"] = modelo.ano_referencia
         if hasattr(modelo, "data_infracao"):
@@ -281,7 +278,7 @@ class RelatorioService:
 
     @staticmethod
     def agrupar(dados: list[dict], campo_grupo: str) -> dict[str, list[dict]]:
-        """Agrupa lista de dicts por valor de um campo. Retorna OrderedDict implícito."""
+        """Agrupa lista de dicts por valor de um campo."""
         grupos: dict[str, list[dict]] = {}
         for linha in dados:
             chave = str(linha.get(campo_grupo, "—") or "—")
@@ -292,21 +289,20 @@ class RelatorioService:
 
     @staticmethod
     def calcular_totais(dados: list[dict]) -> dict:
-        total_valor = sum(float(r.get("valor") or 0) for r in dados)
-        total_registros = len(dados)
-        total_pago = sum(1 for r in dados if r.get("status_pag") == "Pago")
+        total_valor    = sum(float(r.get("valor") or 0) for r in dados)
+        total_pago     = sum(1 for r in dados if r.get("status_pag") == "Pago")
         total_pendente = sum(1 for r in dados if r.get("status_pag") == "Pendente")
-        total_vencido = sum(1 for r in dados if r.get("status_pag") == "Vencido")
-        valor_pago = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") == "Pago")
+        total_vencido  = sum(1 for r in dados if r.get("status_pag") == "Vencido")
+        valor_pago     = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") == "Pago")
         valor_pendente = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") != "Pago")
         return {
-            "total_registros": total_registros,
-            "total_valor": total_valor,
-            "total_pago": total_pago,
-            "total_pendente": total_pendente,
-            "total_vencido": total_vencido,
-            "valor_pago": valor_pago,
-            "valor_pendente": valor_pendente,
+            "total_registros": len(dados),
+            "total_valor":     total_valor,
+            "total_pago":      total_pago,
+            "total_pendente":  total_pendente,
+            "total_vencido":   total_vencido,
+            "valor_pago":      valor_pago,
+            "valor_pendente":  valor_pendente,
         }
 
     # ── Exportação PDF ──────────────────────────────────────────────────────
@@ -325,7 +321,7 @@ class RelatorioService:
             dados: linhas do relatório
             campos_visiveis: lista de {id, label} na ordem desejada
             config: configuração do relatório (tipo, filtros, agrupamento etc.)
-            cfg_pdf: configurações visuais do PDF (fonte, cor, etc.)
+            cfg_pdf: configurações visuais (fonte, cor, nome_escritorio, logo_dir, logo_arquivo)
         """
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib import colors as rl_colors
@@ -333,37 +329,35 @@ class RelatorioService:
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.platypus import (
             SimpleDocTemplate, Paragraph, Spacer, Table,
-            TableStyle, HRFlowable, KeepTogether,
+            TableStyle, HRFlowable, Image as RLImage,
         )
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
         from app.services.configuracao_service import FONTES_PDF, TAMANHOS_PDF, PALETA_CORES
 
-        # Resolve configurações visuais
-        fonte = FONTES_PDF.get(cfg_pdf.get("fonte", "moderna"), FONTES_PDF["moderna"])
-        tam = TAMANHOS_PDF.get(cfg_pdf.get("tamanho", "medio"), TAMANHOS_PDF["medio"])
-        cor_chave = cfg_pdf.get("cor", "azul")
-        paleta = PALETA_CORES.get(cor_chave, PALETA_CORES["azul"])
-        mostrar_data = cfg_pdf.get("mostrar_data_geracao", True)
+        fonte   = FONTES_PDF.get(cfg_pdf.get("fonte", "moderna"), FONTES_PDF["moderna"])
+        tam     = TAMANHOS_PDF.get(cfg_pdf.get("tamanho", "medio"), TAMANHOS_PDF["medio"])
+        paleta  = PALETA_CORES.get(cfg_pdf.get("cor", "azul"), PALETA_CORES["azul"])
+        mostrar_data    = cfg_pdf.get("mostrar_data_geracao", True)
         nome_escritorio = cfg_pdf.get("nome_escritorio", "")
+        logo_dir        = cfg_pdf.get("logo_dir", "")
+        logo_arquivo    = cfg_pdf.get("logo_arquivo", "")
 
         COR_PRINCIPAL = rl_colors.HexColor(paleta["principal"])
-        COR_SECUND = rl_colors.HexColor(paleta["secundaria"])
+        COR_SECUND    = rl_colors.HexColor(paleta["secundaria"])
         CINZA1 = rl_colors.HexColor("#f4f6fa")
         CINZA2 = rl_colors.HexColor("#e8ecf2")
         BRANCO = rl_colors.white
-
         FONTE_BASE = fonte["base"]
         FONTE_BOLD = fonte["bold"]
 
-        sTitulo = ParagraphStyle("titulo", fontName=FONTE_BOLD, fontSize=tam["titulo"], textColor=COR_PRINCIPAL, spaceAfter=4)
-        sSub    = ParagraphStyle("sub",    fontName=FONTE_BASE, fontSize=tam["mini"] + 1, textColor=rl_colors.HexColor("#5a6680"), spaceAfter=10)
-        sSecao  = ParagraphStyle("secao",  fontName=FONTE_BOLD, fontSize=tam["secao"],  textColor=COR_SECUND, spaceBefore=12, spaceAfter=4)
+        sTitulo = ParagraphStyle("titulo", fontName=FONTE_BOLD, fontSize=tam["titulo"],    textColor=COR_PRINCIPAL, spaceAfter=4)
+        sSub    = ParagraphStyle("sub",    fontName=FONTE_BASE, fontSize=tam["mini"] + 1,  textColor=rl_colors.HexColor("#5a6680"), spaceAfter=10)
+        sSecao  = ParagraphStyle("secao",  fontName=FONTE_BOLD, fontSize=tam["secao"],     textColor=COR_SECUND, spaceBefore=12, spaceAfter=4)
         sCell   = ParagraphStyle("cell",   fontName=FONTE_BASE, fontSize=tam["texto"] - 1, textColor=rl_colors.HexColor("#1c2333"))
-        sHead   = ParagraphStyle("head",   fontName=FONTE_BOLD, fontSize=tam["mini"],   textColor=BRANCO)
+        sHead   = ParagraphStyle("head",   fontName=FONTE_BOLD, fontSize=tam["mini"],      textColor=BRANCO)
         sTotal  = ParagraphStyle("total",  fontName=FONTE_BOLD, fontSize=tam["texto"] - 1, textColor=COR_PRINCIPAL)
-        sRodape = ParagraphStyle("rodape", fontName=FONTE_BASE, fontSize=tam["mini"],   textColor=rl_colors.HexColor("#9aa4ba"))
+        sRodape = ParagraphStyle("rodape", fontName=FONTE_BASE, fontSize=tam["mini"],      textColor=rl_colors.HexColor("#9aa4ba"))
+        sEscrit = ParagraphStyle("escrit", fontName=FONTE_BOLD, fontSize=tam["mini"] + 3,  textColor=COR_SECUND, spaceAfter=2)
 
-        # Usa landscape se houver muitas colunas
         pagesize = landscape(A4) if len(campos_visiveis) > 6 else A4
 
         buf = io.BytesIO()
@@ -372,45 +366,79 @@ class RelatorioService:
             leftMargin=1.5 * cm, rightMargin=1.5 * cm,
             topMargin=2 * cm, bottomMargin=2 * cm,
         )
-
         story = []
 
-        # Cabeçalho
-        if nome_escritorio:
-            story.append(Paragraph(nome_escritorio, ParagraphStyle(
-                "escrit", fontName=FONTE_BOLD, fontSize=tam["mini"] + 3, textColor=COR_SECUND, spaceAfter=2
-            )))
-        tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(config.get("tipo", "ipva"), "Relatório")
+        # ── Cabeçalho: logo + nome do escritório lado a lado ──────────────
+        # A logo é dimensionada proporcionalmente com altura máxima de 60px (≈ 2.12cm).
+        logo_path = os.path.join(logo_dir, logo_arquivo) if logo_dir and logo_arquivo else ""
+        if logo_path and os.path.exists(logo_path):
+            try:
+                logo_img = RLImage(logo_path)
+                # Calcula largura proporcional mantendo altura em 2cm
+                altura_alvo = 2 * cm
+                razao = altura_alvo / logo_img.imageHeight
+                largura_calc = logo_img.imageWidth * razao
+                # Limita largura máxima a 6cm para não ocupar todo o cabeçalho
+                largura_final = min(largura_calc, 6 * cm)
+                altura_final  = largura_final / (logo_img.imageWidth / logo_img.imageHeight)
+
+                if nome_escritorio:
+                    # Logo e nome do escritório em tabela de 2 colunas para alinhamento
+                    logo_cell  = RLImage(logo_path, width=largura_final, height=altura_final)
+                    nome_cell  = Paragraph(nome_escritorio, sEscrit)
+                    cabec_tbl  = Table([[logo_cell, nome_cell]], colWidths=[largura_final + 0.4 * cm, None])
+                    cabec_tbl.setStyle(TableStyle([
+                        ("VALIGN",  (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                        ("TOPPADDING",   (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING",(0, 0), (-1, -1), 0),
+                    ]))
+                    story.append(cabec_tbl)
+                else:
+                    logo_img_sized       = RLImage(logo_path, width=largura_final, height=altura_final)
+                    logo_img_sized.hAlign = "LEFT"
+                    story.append(logo_img_sized)
+                story.append(Spacer(1, 6))
+            except Exception:
+                # Falha silenciosa — logo quebrada não deve impedir o relatório
+                if nome_escritorio:
+                    story.append(Paragraph(nome_escritorio, sEscrit))
+        elif nome_escritorio:
+            story.append(Paragraph(nome_escritorio, sEscrit))
+
+        tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(
+            config.get("tipo", "ipva"), "Relatório"
+        )
         story.append(Paragraph(f"Relatório — {tipo_label}", sTitulo))
         if mostrar_data:
             story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}", sSub))
         story.append(HRFlowable(width="100%", thickness=2, color=COR_PRINCIPAL, spaceAfter=12))
 
-        # Resumo executivo (opcional)
+        # ── Resumo executivo (opcional) ────────────────────────────────────
         if config.get("mostrar_resumo"):
             totais = self.calcular_totais(dados)
             story.append(Paragraph("Resumo Executivo", sSecao))
             resumo_data = [
                 [Paragraph("Total de registros", sHead), Paragraph(str(totais["total_registros"]), sTotal)],
-                [Paragraph("Valor total", sHead), Paragraph(self._fmt_moeda(totais["total_valor"]), sTotal)],
-                [Paragraph("Pagos", sHead), Paragraph(f"{totais['total_pago']} ({self._fmt_moeda(totais['valor_pago'])})", sTotal)],
-                [Paragraph("Pendentes", sHead), Paragraph(f"{totais['total_pendente']}", sTotal)],
-                [Paragraph("Vencidos", sHead), Paragraph(f"{totais['total_vencido']} ({self._fmt_moeda(totais['valor_pendente'])})", sTotal)],
+                [Paragraph("Valor total",         sHead), Paragraph(self._fmt_moeda(totais["total_valor"]),  sTotal)],
+                [Paragraph("Pagos",               sHead), Paragraph(f"{totais['total_pago']} ({self._fmt_moeda(totais['valor_pago'])})", sTotal)],
+                [Paragraph("Pendentes",           sHead), Paragraph(str(totais["total_pendente"]), sTotal)],
+                [Paragraph("Vencidos",            sHead), Paragraph(f"{totais['total_vencido']} ({self._fmt_moeda(totais['valor_pendente'])})", sTotal)],
             ]
             t_resumo = Table(resumo_data, colWidths=["40%", "60%"])
             t_resumo.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (0, -1), COR_PRINCIPAL),
-                ("BACKGROUND", (1, 0), (1, -1), CINZA1),
-                ("ROWBACKGROUNDS", (1, 0), (1, -1), [CINZA1, CINZA2]),
-                ("BOX", (0, 0), (-1, -1), 0.5, CINZA2),
-                ("INNERGRID", (0, 0), (-1, -1), 0.3, CINZA2),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("PADDING", (0, 0), (-1, -1), 7),
+                ("BACKGROUND",   (0, 0), (0, -1), COR_PRINCIPAL),
+                ("ROWBACKGROUNDS",(1, 0),(1, -1), [CINZA1, CINZA2]),
+                ("BOX",          (0, 0), (-1, -1), 0.5, CINZA2),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, CINZA2),
+                ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+                ("PADDING",      (0, 0), (-1, -1), 7),
             ]))
             story.append(t_resumo)
             story.append(Spacer(1, 14))
 
-        # Tabela de dados (com ou sem agrupamento)
+        # ── Tabela de dados ────────────────────────────────────────────────
         campo_grupo = config.get("agrupar_por", "")
         if campo_grupo and campo_grupo != "nenhum":
             grupos = self.agrupar(dados, campo_grupo)
@@ -421,7 +449,7 @@ class RelatorioService:
         else:
             story.extend(self._montar_tabela_pdf(dados, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config))
 
-        # Rodapé
+        # ── Rodapé ────────────────────────────────────────────────────────
         story.append(Spacer(1, 16))
         story.append(HRFlowable(width="100%", thickness=1, color=CINZA2))
         story.append(Paragraph(nome_escritorio or "Sistema de Despachante", sRodape))
@@ -431,13 +459,14 @@ class RelatorioService:
         return buf.read()
 
     def _montar_tabela_pdf(self, dados, campos_visiveis, sHead, sCell, cor_principal, cinza1, cinza2, branco, config):
-        from reportlab.platypus import Table, TableStyle, Spacer, Paragraph
+        from reportlab.platypus import Table, TableStyle, Paragraph
 
         if not dados:
             return [Paragraph("Nenhum registro encontrado.", sCell)]
 
         cabecalho = [Paragraph(c["label"], sHead) for c in campos_visiveis]
-        linhas = [cabecalho]
+        linhas    = [cabecalho]
+
         for linha in dados:
             row = []
             for campo in campos_visiveis:
@@ -449,33 +478,30 @@ class RelatorioService:
                 row.append(Paragraph(str(val) if val is not None else "—", sCell))
             linhas.append(row)
 
-        # Linha de totais
+        # Linha de totais (destaque visual)
         if config.get("mostrar_totais") and dados:
-            totais = self.calcular_totais(dados)
-            linha_total = ["—"] * len(campos_visiveis)
-            ids = [c["id"] for c in campos_visiveis]
+            totais     = self.calcular_totais(dados)
+            linha_tot  = ["—"] * len(campos_visiveis)
+            ids        = [c["id"] for c in campos_visiveis]
             if "valor" in ids:
-                linha_total[ids.index("valor")] = self._fmt_moeda(totais["total_valor"])
+                linha_tot[ids.index("valor")] = self._fmt_moeda(totais["total_valor"])
             if "cliente_nome" in ids:
-                linha_total[ids.index("cliente_nome")] = f"Total: {totais['total_registros']} registros"
-            linhas.append([Paragraph(v, sHead) for v in linha_total])
+                linha_tot[ids.index("cliente_nome")] = f"Total: {totais['total_registros']} registros"
+            linhas.append([Paragraph(v, sHead) for v in linha_tot])
 
-        # Largura proporcional das colunas
-        n = len(campos_visiveis)
+        n     = len(campos_visiveis)
         col_w = [f"{100 / n:.1f}%"] * n
-
-        t = Table(linhas, colWidths=col_w, repeatRows=1)
+        t     = Table(linhas, colWidths=col_w, repeatRows=1)
         estilos = [
-            ("BACKGROUND", (0, 0), (-1, 0), cor_principal),
-            ("TEXTCOLOR", (0, 0), (-1, 0), branco),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [branco, cinza1]),
-            ("BOX", (0, 0), (-1, -1), 0.5, cinza2),
-            ("INNERGRID", (0, 0), (-1, -1), 0.3, cinza2),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("PADDING", (0, 0), (-1, -1), 6),
+            ("BACKGROUND",    (0, 0), (-1, 0), cor_principal),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), branco),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [branco, cinza1]),
+            ("BOX",           (0, 0), (-1, -1), 0.5, cinza2),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.3, cinza2),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("PADDING",       (0, 0), (-1, -1), 6),
         ]
         if config.get("mostrar_totais") and dados:
-            # Destaca última linha como totais
             estilos.append(("BACKGROUND", (0, -1), (-1, -1), cor_principal))
         t.setStyle(TableStyle(estilos))
         return [t]
@@ -490,13 +516,14 @@ class RelatorioService:
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(config.get("tipo", "ipva"), "Relatório")
+        tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(
+            config.get("tipo", "ipva"), "Relatório"
+        )
         ws.title = tipo_label
 
-        # Estilo do cabeçalho
         fill_header = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
         font_header = Font(bold=True, color="FFFFFF", size=11)
-        fill_alt = PatternFill(start_color="F4F6FA", end_color="F4F6FA", fill_type="solid")
+        fill_alt    = PatternFill(start_color="F4F6FA", end_color="F4F6FA", fill_type="solid")
         borda = Border(
             left=Side(style="thin", color="C8D0DC"),
             right=Side(style="thin", color="C8D0DC"),
@@ -504,15 +531,13 @@ class RelatorioService:
             bottom=Side(style="thin", color="C8D0DC"),
         )
 
-        # Cabeçalho
         for col_idx, campo in enumerate(campos_visiveis, start=1):
-            cell = ws.cell(row=1, column=col_idx, value=campo["label"])
-            cell.font = font_header
-            cell.fill = fill_header
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = borda
+            cell            = ws.cell(row=1, column=col_idx, value=campo["label"])
+            cell.font       = font_header
+            cell.fill       = fill_header
+            cell.alignment  = Alignment(horizontal="center", vertical="center")
+            cell.border     = borda
 
-        # Dados
         for row_idx, linha in enumerate(dados, start=2):
             fill_row = fill_alt if row_idx % 2 == 0 else None
             for col_idx, campo in enumerate(campos_visiveis, start=1):
@@ -524,31 +549,29 @@ class RelatorioService:
                         val = ""
                 elif campo["id"] in ("vencimento", "data_pagamento", "data_infracao"):
                     val = self._fmt_data(str(val)) if val else ""
-                cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else "")
+                cell           = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else "")
                 if fill_row:
-                    cell.fill = fill_row
-                cell.border = borda
+                    cell.fill  = fill_row
+                cell.border    = borda
                 cell.alignment = Alignment(vertical="center")
 
-        # Linha de totais
         if config.get("mostrar_totais") and dados:
-            totais = self.calcular_totais(dados)
-            linha_total_idx = len(dados) + 2
-            ids = [c["id"] for c in campos_visiveis]
-            fill_total = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
+            totais         = self.calcular_totais(dados)
+            linha_tot_idx  = len(dados) + 2
+            ids            = [c["id"] for c in campos_visiveis]
+            fill_total     = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
             for col_idx, campo in enumerate(campos_visiveis, start=1):
                 val = ""
                 if campo["id"] == "valor":
                     val = totais["total_valor"]
                 elif campo["id"] == "cliente_nome":
                     val = f"TOTAL: {totais['total_registros']} registros"
-                cell = ws.cell(row=linha_total_idx, column=col_idx, value=val)
-                cell.font = Font(bold=True, color="FFFFFF", size=11)
-                cell.fill = fill_total
-                cell.border = borda
+                cell           = ws.cell(row=linha_tot_idx, column=col_idx, value=val)
+                cell.font      = Font(bold=True, color="FFFFFF", size=11)
+                cell.fill      = fill_total
+                cell.border    = borda
                 cell.alignment = Alignment(vertical="center")
 
-        # Ajusta largura das colunas
         for col_idx, campo in enumerate(campos_visiveis, start=1):
             max_len = max(
                 len(str(campo["label"])),

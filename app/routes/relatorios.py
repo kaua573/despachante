@@ -1,6 +1,8 @@
 import io
 import json
+
 from flask import Blueprint, render_template, request, jsonify, send_file, current_app
+
 from app import db
 from app.services.relatorio_service import RelatorioService, CAMPOS_POR_TIPO
 from app.services.configuracao_service import ConfiguracaoService
@@ -47,27 +49,25 @@ def api_dados():
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
 
-    svc = _svc()
+    svc   = _svc()
     dados = svc.buscar_dados(config)
 
-    # Agrupamento (retorna dict se agrupado, lista se não)
     campo_grupo = config.get("agrupar_por", "")
     if campo_grupo and campo_grupo != "nenhum":
         grupos = svc.agrupar(dados, campo_grupo)
-        totais_por_grupo = {k: svc.calcular_totais(v) for k, v in grupos.items()}
         return jsonify({
-            "ok": True,
-            "agrupado": True,
-            "grupos": {k: v for k, v in grupos.items()},
-            "totais_por_grupo": totais_por_grupo,
-            "totais_geral": svc.calcular_totais(dados),
+            "ok":              True,
+            "agrupado":        True,
+            "grupos":          {k: v for k, v in grupos.items()},
+            "totais_por_grupo":{k: svc.calcular_totais(v) for k, v in grupos.items()},
+            "totais_geral":    svc.calcular_totais(dados),
         })
 
     return jsonify({
-        "ok": True,
-        "agrupado": False,
-        "dados": dados,
-        "totais": svc.calcular_totais(dados),
+        "ok":      True,
+        "agrupado":False,
+        "dados":   dados,
+        "totais":  svc.calcular_totais(dados),
     })
 
 
@@ -75,8 +75,8 @@ def api_dados():
 
 @bp.route("/api/relatorios/exportar/pdf", methods=["POST"])
 def api_exportar_pdf():
-    payload = request.get_json(silent=True) or {}
-    config = payload.get("config", {})
+    payload         = request.get_json(silent=True) or {}
+    config          = payload.get("config", {})
     campos_visiveis = payload.get("campos_visiveis", [])
 
     erro = _validar_config(config)
@@ -85,27 +85,31 @@ def api_exportar_pdf():
     if not campos_visiveis:
         return jsonify({"ok": False, "erro": "Selecione ao menos um campo."}), 400
 
-    svc = _svc()
-    dados = svc.buscar_dados(config)
-
+    svc     = _svc()
+    dados   = svc.buscar_dados(config)
     cfg_svc = ConfiguracaoService(db.session)
+
     cfg_pdf = {
         "fonte":               cfg_svc.get("pdf_fonte", "moderna"),
         "tamanho":             cfg_svc.get("pdf_tamanho", "medio"),
         "cor":                 cfg_svc.get("pdf_cor", "azul"),
-        "mostrar_data_geracao": cfg_svc.get("pdf_mostrar_data_geracao", "1") == "1",
+        "mostrar_data_geracao":cfg_svc.get("pdf_mostrar_data_geracao", "1") == "1",
         "nome_escritorio":     cfg_svc.get("pdf_nome_escritorio") or cfg_svc.get("escritorio_nome", ""),
+        # Logo — necessário para montar o cabeçalho com imagem
+        "logo_dir":            current_app.config["LOGO_DIR"],
+        "logo_arquivo":        cfg_svc.get("escritorio_logo", ""),
     }
 
-    pdf_bytes = svc.gerar_pdf(dados, campos_visiveis, config, cfg_pdf)
-    tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(config.get("tipo", "ipva"), "relatorio")
-    nome_arquivo = f"relatorio_{tipo_label}.pdf"
+    pdf_bytes   = svc.gerar_pdf(dados, campos_visiveis, config, cfg_pdf)
+    tipo_label  = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(
+        config.get("tipo", "ipva"), "relatorio"
+    )
 
     return send_file(
         io.BytesIO(pdf_bytes),
         mimetype="application/pdf",
         as_attachment=True,
-        download_name=nome_arquivo,
+        download_name=f"relatorio_{tipo_label}.pdf",
     )
 
 
@@ -113,8 +117,8 @@ def api_exportar_pdf():
 
 @bp.route("/api/relatorios/exportar/excel", methods=["POST"])
 def api_exportar_excel():
-    payload = request.get_json(silent=True) or {}
-    config = payload.get("config", {})
+    payload         = request.get_json(silent=True) or {}
+    config          = payload.get("config", {})
     campos_visiveis = payload.get("campos_visiveis", [])
 
     erro = _validar_config(config)
@@ -123,10 +127,12 @@ def api_exportar_excel():
     if not campos_visiveis:
         return jsonify({"ok": False, "erro": "Selecione ao menos um campo."}), 400
 
-    svc = _svc()
-    dados = svc.buscar_dados(config)
+    svc         = _svc()
+    dados       = svc.buscar_dados(config)
     excel_bytes = svc.gerar_excel(dados, campos_visiveis, config)
-    tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(config.get("tipo", "ipva"), "relatorio")
+    tipo_label  = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(
+        config.get("tipo", "ipva"), "relatorio"
+    )
 
     return send_file(
         io.BytesIO(excel_bytes),
@@ -140,16 +146,15 @@ def api_exportar_excel():
 
 @bp.route("/api/relatorios/templates", methods=["GET"])
 def api_listar_templates():
-    templates = _svc().listar_templates()
-    return jsonify([t.to_dict() for t in templates])
+    return jsonify([t.to_dict() for t in _svc().listar_templates()])
 
 
 @bp.route("/api/relatorios/templates", methods=["POST"])
 def api_salvar_template():
-    dados = request.get_json(silent=True) or {}
-    nome = dados.get("nome", "").strip()
-    config = dados.get("config", {})
-    template_id = dados.get("id")
+    dados      = request.get_json(silent=True) or {}
+    nome       = dados.get("nome", "").strip()
+    config     = dados.get("config", {})
+    template_id= dados.get("id")
 
     if not nome:
         return jsonify({"ok": False, "erro": "Nome do template é obrigatório."}), 400

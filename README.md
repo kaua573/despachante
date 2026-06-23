@@ -1,86 +1,195 @@
 # Sistema de Despachante
 
-## Como usar
-
-### Requisitos
-- Python 3.8 ou superior instalado
-- Bibliotecas: Flask, reportlab
-
-Instalar dependências:
-```
-pip install flask reportlab
-```
-
-### Iniciar o sistema
-
-**Windows:** Clique duas vezes em `iniciar.bat`
-
-**Linux/Mac:**
-```
-python app.py
-```
-
-### Acessar
-Após iniciar, abra o navegador em: **http://localhost:5000**
+Sistema de gestão para despachante veicular. Controla clientes, veículos, IPVA, licenciamento, multas e documentos, com relatórios configuráveis exportáveis em PDF e Excel.
 
 ---
 
-## Popular com dados de teste (opcional)
+## Requisitos
 
-Para testar o sistema com dados fictícios variados (clientes, veículos em todas
-as situações, IPVA/licenciamento pagos/pendentes/vencidos, multas e documentos):
+- Python 3.8 ou superior
+- pip
+- Sistema operacional: Windows, Linux ou macOS
+
+---
+
+## Instalação
+
+```bash
+# 1. Clone o repositório
+git clone <url-do-repositorio>
+cd despachante
+
+# 2. Crie e ative o ambiente virtual
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# Linux / macOS
+source .venv/bin/activate
+
+# 3. Instale as dependências
+pip install -r requirements.txt
+```
+
+---
+
+## Configuração
+
+Copie o arquivo de exemplo e ajuste conforme necessário:
+
+```bash
+cp .env.example .env
+```
+
+Variáveis disponíveis em `.env.example`:
 
 ```
+SECRET_KEY=        # Chave secreta do Flask. Troque em produção.
+DATABASE_URL=      # Opcional. Padrão: SQLite local (despachante.db).
+                   # Para PostgreSQL: postgresql://user:senha@host/banco
+FLASK_ENV=         # development | production. Padrão: development.
+```
+
+Em desenvolvimento, nenhuma variável é obrigatória — o sistema sobe com os valores padrão.
+
+---
+
+## Banco de dados
+
+```bash
+# Cria as tabelas (primeira execução)
+python run.py
+
+# Se estiver usando Flask-Migrate para migrações incrementais:
+flask db upgrade
+```
+
+O arquivo `despachante.db` é criado automaticamente na raiz do projeto.
+
+**Nota sobre migrações:** qualquer alteração de schema deve ser aplicada via `flask db upgrade`, nunca manualmente em produção. A migration `migrations/add_tipo_pagamento_ipva.py` adiciona a coluna `tipo_pagamento` na tabela `ipva` — aplique-a se estiver atualizando um banco existente:
+
+```bash
+flask db upgrade
+```
+
+---
+
+## Popular com dados de teste
+
+```bash
 python seed.py
 ```
 
-⚠️ Atenção: isso **apaga todos os dados atuais** e substitui por dados de simulação.
+⚠️ Apaga **todos** os dados existentes antes de inserir. Cobre todos os cenários do sistema:
+
+- Clientes pessoa física e jurídica, inclusive um cliente sem veículos
+- Veículos com placas Mercosul e padrão antigo, nas espécies passeio / carga / reboque
+- IPVA: à vista pago, pendente e vencido; parcelado em 2×, 3×, 4× e 5× em diferentes estados
+- Licenciamento: pago, pendente, vencido, próximo do vencimento
+- Multas: 5 órgãos autuadores, pagas com e sem desconto, pendentes e vencidas
+- Documentos em categorias variadas
 
 ---
 
-## O que o sistema faz
+## Executar
 
-### 🏠 Tela inicial (Dashboard)
-- Totais de clientes, veículos ativos, IPVA/licenciamento vencidos e multas pendentes
-- Lista de vencimentos de **IPVA** e **Licenciamento** dos próximos 30 dias, com indicação visual de quanto falta (ou há quanto tempo venceu)
+**Windows:**
+```
+iniciar.bat
+```
 
-### 👥 Clientes
-Campos: nome, telefone, CPF e email (obrigatórios) e observação (opcional).
-Cada cliente tem uma aba de **documentos anexados**, com nome, data, categoria,
-observação e upload de arquivo (a data de cadastro é automática).
+**Linux / macOS:**
+```bash
+python run.py
+```
 
-Botão **PDF** gera um relatório do cliente, com opção de escolher o que incluir:
-dados do cliente, informações dos veículos, IPVA e/ou licenciamento.
+Acesse em: **http://localhost:5000**
 
-### 🚗 Veículos (por cliente)
-Campos: placa, RENAVAM, proprietário, marca/modelo, espécie (passeio, carga,
-reboque) e situação (ativo, desativado, vendido) — todos obrigatórios, mais
-observação (opcional).
+---
 
-O campo **proprietário** é o nome que consta no documento do veículo, podendo
-ser diferente do cliente responsável pelo cadastro (ex: veículo no nome do
-cônjuge, filho ou empresa, mas controlado por este cliente no sistema).
+## Estrutura de pastas
 
-### 📋 Painel do veículo
-Três abas: **IPVA**, **Licenciamento** e **Multas**, cada uma com filtro por
-status (pago/pendente) e registro de valor, vencimento, data de pagamento e
-observações.
+```
+despachante/
+├── app/
+│   ├── models/          # Modelos SQLAlchemy (uma classe por arquivo)
+│   ├── routes/          # Blueprints Flask — só roteamento e validação de entrada
+│   ├── services/        # Toda a lógica de negócio
+│   ├── templates/       # Jinja2; herança a partir de base.html
+│   └── static/
+│       ├── icons/       # SVGs usados via helper Jinja icon()
+│       └── uploads/
+│           ├── documentos/  # Arquivos enviados pelos usuários
+│           └── logo/        # Logo do escritório
+├── backups/             # Backups automáticos do banco (.db com timestamp)
+├── migrations/          # Scripts Alembic de migração de schema
+├── config.py            # Configurações por ambiente (dev / prod)
+├── run.py               # Ponto de entrada da aplicação
+├── seed.py              # Popula o banco com dados de teste
+├── requirements.txt
+└── .env.example
+```
 
-### ⚙️ Configurações
-- **Senha de exclusão**: por padrão é `0000`. É exigida sempre que algo for
-  excluído no sistema (cliente, veículo, IPVA, licenciamento, multa ou
-  documento), como camada extra de proteção além da confirmação normal.
-  Recomendamos trocar a senha padrão assim que possível, na própria aba de
-  Configurações.
-- **Backup automático**: a cada X minutos (30 por padrão, ajustável na mesma
-  tela), o sistema salva uma cópia do banco de dados na pasta `backups/`.
-  Cópias com mais de 5 dias são removidas automaticamente. Também é possível
-  forçar um backup manual a qualquer momento, e ver a lista de backups já
-  salvos.
+---
 
-## Banco de dados
-O arquivo `despachante.db` é criado automaticamente na mesma pasta do sistema.
-Os documentos enviados ficam em `static/uploads/documentos/`.
-Os backups automáticos ficam em `backups/`.
-Faça backup externo desses itens regularmente (ex: copiando a pasta toda para
-um pendrive ou nuvem), além do backup automático interno do sistema!
+## Módulos do sistema
+
+### Dashboard
+Totais de clientes, veículos ativos, IPVA/licenciamento vencidos e multas pendentes. Lista vencimentos dos próximos 30 dias com indicação visual de urgência.
+
+### Clientes
+Cadastro com CPF validado, telefone e e-mail. Cada cliente tem uma aba de documentos anexados (PDF, imagens, Word, Excel) com categoria e data. Geração de relatório PDF individual com seleção de seções.
+
+### Veículos
+Vinculados a um cliente. Suporta proprietário diferente do cliente (veículo no nome do cônjuge, empresa etc.). Situações: ativo, desativado, vendido. Espécies: passeio, carga, reboque.
+
+### IPVA
+Registro por ano de referência. Dois modos de pagamento:
+- **À vista** — quitação única via botão no painel
+- **Parcelado** — até 5 parcelas mensais, quitadas individualmente; a quitação total fica bloqueada enquanto o modo for parcelado
+
+### Licenciamento
+Registro por ano de referência com vencimento, valor e status de pagamento.
+
+### Multas
+Registro com auto de infração, órgão autuador, data, descrição, valor e vencimento.
+
+### Relatórios
+Relatórios configuráveis para IPVA, licenciamento e multas. Filtros por data, status, placa e cliente. Agrupamento por qualquer campo. Campos reordenáveis por drag-and-drop. Exportação em PDF e Excel. Templates de configuração salvos no banco.
+
+### Configurações
+- Senha de exclusão (padrão `0000` — troque imediatamente)
+- Backup automático a cada X minutos com retenção de 5 dias
+- Tema claro/escuro com 6 opções de cor
+- Identidade do escritório (nome + logo — aparecem na navegação, favicon e PDFs)
+- Personalização de PDFs (fonte, tamanho, cor, espaçamento)
+
+---
+
+## Backup
+
+O sistema faz backup automático do `despachante.db` na pasta `backups/` no intervalo configurado (padrão: 30 minutos). Backups com mais de 5 dias são removidos automaticamente.
+
+**Recomendação:** copie periodicamente a pasta inteira para um pendrive ou serviço de nuvem. O backup interno não substitui cópia externa.
+
+---
+
+## Comandos úteis
+
+```bash
+# Iniciar em modo desenvolvimento
+python run.py
+
+# Aplicar migrações pendentes
+flask db upgrade
+
+# Criar nova migration após alterar um model
+flask db migrate -m "descricao da mudanca"
+
+# Shell interativo com contexto da aplicação
+flask shell
+
+# Popular banco com dados de teste (apaga dados existentes)
+python seed.py
+```

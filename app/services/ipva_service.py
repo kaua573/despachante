@@ -1,11 +1,14 @@
 """
-Serviço de parcelamento de IPVA.
-Separado do VeiculoService porque a lógica de parcelas é complexa o suficiente
-para merecer sua própria unidade de responsabilidade.
+Serviço de parcelamento e quitação de IPVA.
+
+Regras de negócio:
+- tipo_pagamento='avista'    → quitar o registro inteiro de uma vez via quitar_avista()
+- tipo_pagamento='parcelado' → somente quitar parcela a parcela via quitar_parcela()
+- A troca de modo (avista ↔ parcelado) ao gerar/remover parcelas é controlada aqui.
 """
 from __future__ import annotations
 
-import math
+import calendar
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -26,7 +29,7 @@ class IpvaService:
     # ── Parcelas ──────────────────────────────────────────────────────────────
 
     def listar_parcelas(self, ipva_id: int) -> list[IpvaParcela]:
-        """Retorna parcelas com status atualizado antes de retornar."""
+        """Retorna parcelas com status de vencimento atualizado antes de retornar."""
         self._atualizar_status_vencidos(ipva_id)
         return (
             self._session.query(IpvaParcela)
@@ -43,20 +46,12 @@ class IpvaService:
         data_primeira: str,
     ) -> tuple[bool, str]:
         """
-        Gera (ou regenera) as parcelas de um IPVA.
+        Gera (ou regenera) as parcelas de um IPVA e marca o registro como 'parcelado'.
 
-        - Divide o valor igualmente; centavos do arredondamento vão na última parcela.
-        - Vencimentos são mensais a partir de data_primeira.
         - Remove parcelas existentes antes de criar as novas (regeneração segura).
-
-        Args:
-            ipva_id: ID do registro de IPVA pai.
-            num_parcelas: de 1 a MAX_PARCELAS.
-            valor_total: valor total do IPVA em reais.
-            data_primeira: ISO YYYY-MM-DD da primeira parcela.
-
-        Returns:
-            (True, "") em sucesso, (False, mensagem) em erro.
+        - Divide o valor igualmente; centavos de arredondamento vão na última parcela.
+        - Vencimentos são mensais a partir de data_primeira.
+        - Muda tipo_pagamento para 'parcelado' e limpa pago/data_pagamento do pai.
         """
         if not 1 <= num_parcelas <= self.MAX_PARCELAS:
             return False, f"Número de parcelas deve ser entre 1 e {self.MAX_PARCELAS}."
@@ -78,21 +73,24 @@ class IpvaService:
 
         total = Decimal(str(valor_total))
         valor_parcela = (total / num_parcelas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        # Diferença de centavos vai na última parcela
         soma_parcelas = valor_parcela * (num_parcelas - 1)
-        valor_ultima = total - soma_parcelas
+        valor_ultima = total - soma_parcelas  # absorve diferença de centavos
 
         for i in range(num_parcelas):
             venc = self._avancar_meses(data_base, i)
             valor = valor_ultima if i == num_parcelas - 1 else valor_parcela
-            parcela = IpvaParcela(
+            self._session.add(IpvaParcela(
                 ipva_id=ipva_id,
                 numero=i + 1,
                 valor=valor,
                 vencimento=venc.isoformat(),
                 status="pendente",
-            )
-            self._session.add(parcela)
+            ))
+
+        # Marca o IPVA como parcelado e limpa estado de quitação anterior
+        ipva.tipo_pagamento = "parcelado"
+        ipva.pago = False
+        ipva.data_pagamento = None
 
         self._session.commit()
         return True, ""
@@ -100,7 +98,7 @@ class IpvaService:
     def quitar_parcela(self, parcela_id: int) -> tuple[bool, str]:
         """
         Marca uma parcela como paga e registra a data de quitação.
-        Se todas as parcelas do IPVA ficarem pagas, sincroniza ipva.pago = True.
+        Se todas as parcelas ficarem pagas, sincroniza ipva.pago = True.
         """
         parcela = self._session.get(IpvaParcela, parcela_id)
         if not parcela:
@@ -112,15 +110,51 @@ class IpvaService:
         parcela.pago_em = date.today().isoformat()
         self._session.flush()
 
-        # Sincroniza o status do IPVA pai
         self._sincronizar_status_ipva(parcela.ipva_id)
+        self._session.commit()
+        return True, ""
+
+    def quitar_avista(self, ipva_id: int) -> tuple[bool, str]:
+        """
+        Quita o IPVA integralmente (modo à vista).
+        Retorna erro 400 se o IPVA estiver configurado como parcelado —
+        nesse caso o pagamento deve ser feito parcela a parcela.
+        """
+        ipva = self._session.get(Ipva, ipva_id)
+        if not ipva:
+            return False, "IPVA não encontrado."
+
+        if ipva.tipo_pagamento == "parcelado":
+            return False, (
+                "Este IPVA está configurado como parcelado. "
+                "Quite cada parcela individualmente."
+            )
+
+        ipva.pago = True
+        ipva.data_pagamento = date.today().isoformat()
+        self._session.commit()
+        return True, ""
+
+    def desfazer_parcelamento(self, ipva_id: int) -> tuple[bool, str]:
+        """
+        Remove todas as parcelas e volta o IPVA para modo à vista.
+        Útil quando o usuário quer trocar o modo de pagamento.
+        """
+        ipva = self._session.get(Ipva, ipva_id)
+        if not ipva:
+            return False, "IPVA não encontrado."
+
+        self._session.query(IpvaParcela).filter_by(ipva_id=ipva_id).delete()
+        ipva.tipo_pagamento = "avista"
+        ipva.pago = False
+        ipva.data_pagamento = None
         self._session.commit()
         return True, ""
 
     def status_geral(self, ipva_id: int) -> str:
         """
         Calcula o status derivado das parcelas:
-        quitado | parcialmente_pago | vencido | pendente
+        quitado | parcialmente_pago | vencido | pendente | sem_parcelas
         """
         parcelas = (
             self._session.query(IpvaParcela)
@@ -130,8 +164,8 @@ class IpvaService:
         if not parcelas:
             return "sem_parcelas"
 
-        total = len(parcelas)
-        pagas = sum(1 for p in parcelas if p.status == "pago")
+        total   = len(parcelas)
+        pagas   = sum(1 for p in parcelas if p.status == "pago")
         vencidas = sum(1 for p in parcelas if p.status == "vencido")
 
         if pagas == total:
@@ -145,12 +179,9 @@ class IpvaService:
     # ── Helpers privados ──────────────────────────────────────────────────────
 
     def _atualizar_status_vencidos(self, ipva_id: int) -> None:
-        """
-        Marca como 'vencido' as parcelas pendentes com vencimento anterior a hoje.
-        Chamado sempre antes de listar, evitando inconsistência na exibição.
-        """
+        """Marca como 'vencido' parcelas pendentes cujo vencimento já passou."""
         hoje = date.today().isoformat()
-        atualizadas = (
+        vencidas = (
             self._session.query(IpvaParcela)
             .filter(
                 IpvaParcela.ipva_id == ipva_id,
@@ -159,28 +190,26 @@ class IpvaService:
             )
             .all()
         )
-        for p in atualizadas:
+        for p in vencidas:
             p.status = "vencido"
-        if atualizadas:
+        if vencidas:
             self._session.commit()
 
     def _sincronizar_status_ipva(self, ipva_id: int) -> None:
-        """Atualiza ipva.pago baseado nas parcelas para manter consistência."""
+        """Atualiza ipva.pago com base no status consolidado das parcelas."""
         ipva = self._session.get(Ipva, ipva_id)
         if not ipva:
             return
         status = self.status_geral(ipva_id)
-        ipva.pago = status == "quitado"
+        ipva.pago = (status == "quitado")
+        if ipva.pago:
+            ipva.data_pagamento = date.today().isoformat()
 
     @staticmethod
     def _avancar_meses(data: date, meses: int) -> date:
-        """Avança N meses na data, ajustando para o último dia do mês se necessário."""
+        """Avança N meses ajustando para o último dia do mês quando necessário."""
         mes_alvo = data.month + meses
         ano_alvo = data.year + (mes_alvo - 1) // 12
         mes_alvo = ((mes_alvo - 1) % 12) + 1
-
-        # Garante que o dia não ultrapasse o último do mês destino
-        import calendar
         ultimo_dia = calendar.monthrange(ano_alvo, mes_alvo)[1]
-        dia_alvo = min(data.day, ultimo_dia)
-        return date(ano_alvo, mes_alvo, dia_alvo)
+        return date(ano_alvo, mes_alvo, min(data.day, ultimo_dia))

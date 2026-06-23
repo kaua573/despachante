@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Despachante — {% block title %}{% endblock %}</title>
+
+{% if escritorio_logo_url %}
+  <link rel="icon" type="image/png" href="{{ escritorio_logo_url }}">
+  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
+  <link rel="apple-touch-icon" href="{{ escritorio_logo_url }}">
+{% endif %}
+
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -14,6 +21,7 @@
     --vermelho:#b91c1c; --amarelo:#b45309; --branco:#ffffff;
     --card-bg:#ffffff; --body-bg:#f4f6fa;
     --sombra:0 2px 8px rgba(0,0,0,.10);
+    --input-bg:#ffffff; --input-texto:#1c2333;
   }
 
   html[data-tema="escuro"] {
@@ -23,9 +31,29 @@
     --vermelho:#f3685f; --amarelo:#e0a836; --branco:#1a2030;
     --card-bg:#171d2b; --body-bg:#0b0e16;
     --sombra:0 2px 10px rgba(0,0,0,.45);
+    --input-bg:#232a3b; --input-texto:#e7eaf0;
   }
 
   body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--body-bg); color:var(--texto); min-height:100vh; transition:background .2s,color .2s; }
+
+  /* ── Inputs globais — tema escuro não deixa o browser sobrescrever a cor ── */
+  input, select, textarea,
+  input[type="text"], input[type="email"], input[type="tel"],
+  input[type="number"], input[type="date"], input[type="password"],
+  input[type="search"], input[type="url"] {
+    background-color: var(--input-bg);
+    color: var(--input-texto);
+  }
+
+  /* Hack para o autofill do Chrome, que força fundo branco por padrão */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0px 1000px var(--input-bg) inset !important;
+    -webkit-text-fill-color: var(--input-texto) !important;
+    transition: background-color 9999s ease-in-out 0s;
+  }
 
   nav { background:var(--azul); padding:0 28px; display:flex; align-items:center; gap:20px; height:56px; box-shadow:0 2px 6px rgba(0,0,0,.25); }
   nav .logo { font-weight:700; font-size:17px; color:#fff; letter-spacing:.4px; display:flex; align-items:center; gap:8px; text-decoration:none; white-space:nowrap; }
@@ -93,7 +121,11 @@
 
   .field { display:flex; flex-direction:column; gap:5px; }
   .field label { font-size:12px; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:.4px; }
-  .field input,.field select,.field textarea { border:1px solid var(--cinza3); border-radius:6px; padding:8px 10px; font-size:14px; color:var(--texto); background:var(--card-bg); outline:none; font-family:inherit; transition:border-color .15s; }
+  .field input,.field select,.field textarea {
+    border:1px solid var(--cinza3); border-radius:6px; padding:8px 10px;
+    font-size:14px; color:var(--input-texto); background:var(--input-bg);
+    outline:none; font-family:inherit; transition:border-color .15s;
+  }
   .field input:focus,.field select:focus,.field textarea:focus { border-color:var(--azul2); box-shadow:0 0 0 3px rgba(37,99,174,.12); }
   .field textarea { resize:vertical; min-height:60px; }
   .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -125,7 +157,7 @@
   .tab-btn.ativa { color:var(--azul); border-bottom-color:var(--azul); }
   .tab-panel { border-radius:0 10px 10px 10px; }
 
-  .select-filtro { border:1px solid var(--cinza3); border-radius:6px; padding:6px 10px; font-size:13px; color:var(--texto); background:var(--card-bg); cursor:pointer; }
+  .select-filtro { border:1px solid var(--cinza3); border-radius:6px; padding:6px 10px; font-size:13px; color:var(--texto); background:var(--input-bg); cursor:pointer; }
 
   .file-drop { border:2px dashed var(--cinza3); border-radius:8px; padding:18px; text-align:center; cursor:pointer; transition:.15s; color:var(--sub); font-size:13px; }
   .file-drop:hover { border-color:var(--azul2); background:var(--cinza1); }
@@ -229,7 +261,7 @@ function statusVencimento(venc, pago) {
 // ── Requisições com tratamento de erro padronizado ───────────────────────────
 async function apiFetch(url, opcoes = {}) {
   try {
-    const res = await fetch(url, opcoes);
+    const res  = await fetch(url, opcoes);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = data.erro || data.error || `Erro ${res.status}`;
@@ -261,7 +293,7 @@ function _cancelarSenhaExclusao() {
 }
 
 async function _confirmarSenhaExclusao() {
-  const senha = document.getElementById('input-senha-exclusao').value;
+  const senha  = document.getElementById('input-senha-exclusao').value;
   const erroEl = document.getElementById('erro-senha-exclusao');
   if (!senha) {
     erroEl.textContent = 'Digite a senha.';
@@ -270,8 +302,8 @@ async function _confirmarSenhaExclusao() {
   }
   const data = await apiFetch('/api/configuracoes/verificar-senha', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ senha })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senha }),
   });
   if (!data) {
     erroEl.textContent = 'Senha incorreta.';
