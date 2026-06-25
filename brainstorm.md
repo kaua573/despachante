@@ -8,6 +8,8 @@ quero que o readme.md seja atualizado)
 
 dia 23/06 - (quando vou lançar um novo ipva ou editar algum não tenho a opção das parcelas, mesmo tendo sido implementado na ultima vez, quero que o campo proprietario dos veiculos não aceite caracteres especiais, adicionar o campo de ano para os veicuos, ainda tem o bug do tema escuro(estou anexando uma foto aqui para vc ver e ajustar no prompt), não quero que veiculos desativados ou vendidos participem da listagem de ipvas e nem sejam exportados em relalatorios a menos que seja solicitado que aparecam no relatorio (como contexto, o veiculo desativado ou vendido não tem nenhuma função com o cliente a não ser possuir um historico))
 
+fazer campo de pesquisa na pagina inicial (cliente/veiculo)
+
 proximas implementações:
 - formatar logo no pdf
 - filtrar os proprietarios já cadastrados (vinculados) ao cliente ao lançar um novo veiculo - feito dia 22/06

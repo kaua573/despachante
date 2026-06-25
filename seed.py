@@ -44,6 +44,16 @@ def seed():
             ("Distribuidora Bom Preço",   "23.456.789/0001-77", "(18) 3233-5566", "fin@bompreco.com",  "Múltiplos veículos. Contato: Financeiro."),
             # Cliente sem veículos — testa edge case na listagem e PDF
             ("Renata Lopes Ferreira",     "678.901.234-00", "(11) 98888-7766", "renata@email.com",      "Cadastro recente, sem veículos ainda."),
+            # Pessoa física com muitas multas
+            ("Roberto Alves Pereira",     "789.012.345-10", "(14) 99666-7788", "roberto@email.com",     "Histórico de infrações frequentes."),
+            # Pessoa jurídica pequena com 1 veículo
+            ("Agropecuária São Lucas Ltda","34.567.890/0001-11","(18) 3244-6677","fiscal@saolucas.com.br","Produtor rural — veículos agrícolas."),
+            # Cliente com e-mail incomum / sem arroba (testa validação)
+            ("Luciana Moreira Santos",    "890.123.456-21", "(11) 94444-3322", "",                      "Sem e-mail cadastrado. Contato apenas por telefone."),
+            # Cliente com nome longo e caracteres especiais
+            ("Sebastião D'Ávila Gonçalves Neto", "901.234.567-35", "(17) 99777-8899", "sebastiao@email.com", ""),
+            # Segunda pessoa jurídica grande
+            ("Logística Pantanal S/A",    "45.678.901/0001-33","(67) 3333-9900","operacoes@pantanal.com","Frota com veículos em vários estados. MS/SP."),
         ]
 
         clientes = {}
@@ -75,6 +85,25 @@ def seed():
             ("Distribuidora Bom Preço", "TUV3W45", "31234567890", "Distribuidora Bom Preço",   "Ford Cargo 1719 2016",      "desativado", "carga",   "Reserva — sem uso desde 2024."),
             # Veículo vendido — testa a situação 'vendido' no painel
             ("João Carlos Silva",       "XYZ-9012","41234567890", "João Carlos Silva",          "Renault Kwid 2019",         "vendido",    "passeio", "Vendido em 03/2026."),
+            # ── Novos cenários ────────────────────────────────────────────────
+            # Moto de frota (cliente PJ)
+            ("Distribuidora Bom Preço", "EFG4H56", "51234567890", "Distribuidora Bom Preço",   "Honda CG 160 Cargo 2023",   "ativo",      "passeio", "Moto de entrega."),
+            # Veículo com placa de outro estado (MS) — cliente Logística Pantanal
+            ("Logística Pantanal S/A",  "MSA1B23", "61234567890", "Logística Pantanal S/A",    "Scania R500 2022",          "ativo",      "carga",   "Emplacado em MS."),
+            ("Logística Pantanal S/A",  "MSC4D56", "71234567890", "Logística Pantanal S/A",    "Carreta Guerra 2021",       "ativo",      "reboque", "Acoplada ao Scania R500."),
+            ("Logística Pantanal S/A",  "IJK7L89", "81234567890", "Logística Pantanal S/A",    "Volkswagen Constellation 2020","ativo",   "carga",   "Base em SP."),
+            # Veículo agrícola / trator (especie diferente)
+            ("Agropecuária São Lucas Ltda","OPQ2R34","91234567890","Agropecuária São Lucas Ltda","John Deere 5075E 2021",     "ativo",      "especial","Trator agrícola."),
+            # Veículo com proprietário diferente do cliente (arrendamento)
+            ("Roberto Alves Pereira",   "STU5V67", "02234567890", "Banco Itaú S/A (financiado)","Chevrolet S10 LS 2023",    "ativo",      "passeio", "Financiado — alienação fiduciária Banco Itaú."),
+            # Caminhonete do cliente com multas
+            ("Roberto Alves Pereira",   "WXY8Z01", "03234567890", "Roberto Alves Pereira",     "Fiat Toro Freedom 2021",    "ativo",      "passeio", ""),
+            # Veículo antigo com placa modelo antigo
+            ("Luciana Moreira Santos",  "BCD-3456","04234567890", "Luciana Moreira Santos",    "Volkswagen Parati 1.6 2004","ativo",      "passeio", "Veículo antigo, IPVA reduzido."),
+            # Ônibus (tipo diferente)
+            ("Logística Pantanal S/A",  "EFG-7890","05234567890", "Logística Pantanal S/A",    "Marcopolo Paradiso 1200 2019","ativo",    "passeio", "Ônibus fretamento."),
+            # Veículo em nome de terceiro (Sebastião)
+            ("Sebastião D'Ávila Gonçalves Neto","HIJ1K23","06234567890","Sebastião D'Ávila Gonçalves Neto","Toyota Hilux SRX 2024","ativo","passeio","Veículo novo, 1º licenciamento em 2026."),
         ]
 
         veiculos = {}
@@ -125,6 +154,32 @@ def seed():
             ("NOP2Q34",  2025, 3100.00, -300, "parcelado", True,  None, "3× — todas pagas."),
             ("LMN8O90",  2026, 1450.00,  -1,  "parcelado", False, None, "5× — 1 vencida, 4 pendentes."),
             ("HIJ5K67",  2026, 960.00,   60,  "parcelado", False, None, "4× — todas pendentes, 2 vencidas não."),
+            # ── Novos registros de IPVA ───────────────────────────────────────
+            # Moto de entrega — à vista pago 2025
+            ("EFG4H56",  2025, 210.00,  -180, "avista", True,  -175, ""),
+            # Moto de entrega — 2026 pendente
+            ("EFG4H56",  2026, 225.00,   20,  "avista", False, None, ""),
+            # Caminhão MS — à vista vencido
+            ("MSA1B23",  2026, 4100.00,  -8,  "avista", False, None, "IPVA de MS — em atraso."),
+            # Caminhão SP — à vista pendente futuro
+            ("IJK7L89",  2026, 3750.00,  30,  "avista", False, None, ""),
+            # Trator agrícola — isento/valor simbólico (testa valor zero ou mínimo)
+            ("OPQ2R34",  2026,  80.00,   45,  "avista", False, None, "IPVA rural com isenção parcial."),
+            # S10 financiada — paga 2025
+            ("STU5V67",  2025, 820.00,  -200, "avista", True,  -195, ""),
+            # S10 financiada — parcelado 2026 (3× — 2 pagas, 1 pendente)
+            ("STU5V67",  2026, 860.00,  -40,  "parcelado", False, None, "3× — 2 pagas, 1 pendente."),
+            # Toro 2021 — pago 2025
+            ("WXY8Z01",  2025, 750.00,  -160, "avista", True,  -155, ""),
+            # Toro 2021 — vencido não pago 2026
+            ("WXY8Z01",  2026, 785.00,  -25,  "avista", False, None, "Proprietário com multas — checar débitos."),
+            # Parati 2004 — valor bem reduzido (veículo antigo)
+            ("BCD3456",  2025,  60.00,  -360, "avista", True,  -355, "IPVA reduzido — veículo com mais de 20 anos."),
+            ("BCD3456",  2026,  65.00,   10,  "avista", False, None, ""),
+            # Ônibus — parcelado 2026 (4× — todas pendentes)
+            ("EFG7890",  2026, 5200.00,  15,  "parcelado", False, None, "4× — ônibus, valor alto."),
+            # Hilux nova — à vista pendente 2026 (1º IPVA)
+            ("HIJ1K23",  2026, 1250.00,  35,  "avista", False, None, "1º IPVA do veículo, emplacado em 2025."),
         ]
 
         ipvas = {}  # (placa, ano) → id
@@ -205,6 +260,31 @@ def seed():
                 parc_d[1].status = "vencido"
             db.session.commit()
 
+        # Cenário E — STU5V67 2026 — 3× — 2 pagas, 1 pendente
+        ipva_service.gerar_parcelas(
+            ipvas[("STU5V67", 2026)],
+            num_parcelas=3,
+            valor_total=860.00,
+            data_primeira=dias(-70),
+        )
+        parc_e = db.session.query(IpvaParcela).filter_by(
+            ipva_id=ipvas[("STU5V67", 2026)]
+        ).order_by(IpvaParcela.numero).all()
+        if len(parc_e) >= 2:
+            parc_e[0].status = "pago"
+            parc_e[0].pago_em = dias(-68)
+            parc_e[1].status = "pago"
+            parc_e[1].pago_em = dias(-38)
+            db.session.commit()
+
+        # Cenário F — EFG7890 2026 — 4× — todas pendentes (ônibus)
+        ipva_service.gerar_parcelas(
+            ipvas[("EFG7890", 2026)],
+            num_parcelas=4,
+            valor_total=5200.00,
+            data_primeira=dias(15),
+        )
+
         total_ipva = len(ipva_data)
         print(f"✅  {total_ipva} registros de IPVA inseridos (4 parcelados com parcelas configuradas).")
 
@@ -225,6 +305,19 @@ def seed():
             ("LMN8O90",  2026, 310.00,    3, False,  None, "Vencimento em 3 dias — urgente."),
             ("PQR5678",  2026, 310.00,   22, False,  None, ""),
             ("XYZ9012",  2025, 130.00, -280, True,  -275, "Pago antes da venda."),
+            # ── Novos licenciamentos ──────────────────────────────────────────
+            ("EFG4H56",  2025, 100.00, -170, True,  -165, "Moto — taxa reduzida."),
+            ("EFG4H56",  2026, 110.00,   18, False,  None, ""),
+            ("MSA1B23",  2026, 310.00,   -6, False,  None, "Caminhão MS — vencido."),
+            ("IJK7L89",  2026, 310.00,   25, False,  None, ""),
+            ("OPQ2R34",  2026, 200.00,   50, False,  None, "Trator — licenciamento especial."),
+            ("STU5V67",  2025, 145.00, -200, True,  -195, ""),
+            ("STU5V67",  2026, 150.00,   14, False,  None, ""),
+            ("WXY8Z01",  2026, 145.00,  -18, False,  None, "Vencido — mesmo perfil de IPVA atrasado."),
+            ("BCD3456",  2026, 145.00,   30, False,  None, ""),
+            ("EFG7890",  2026, 680.00,   20, False,  None, "Ônibus — taxa mais alta."),
+            ("HIJ1K23",  2026, 155.00,   40, False,  None, "1º licenciamento, veículo novo."),
+            ("MSC4D56",  2026, 310.00,   -2, False,  None, "Carreta — vencimento iminente."),
         ]
 
         for placa, ano, valor, venc_delta, pago, pag_delta, obs in lic_data:
@@ -285,6 +378,37 @@ def seed():
             ("GHI5J67", "CET-001012",    -3,
              "Parar sobre a faixa de pedestres — Art. 170 CTB",
              195.23,   27, False, None, "Infração recente, prazo de recurso vigente."),
+            # ── Novas multas ──────────────────────────────────────────────────
+            # Roberto — histórico de infrações
+            ("WXY8Z01", "DETRAN-001100",  -5,
+             "Velocidade acima de 20% até 50% — Art. 218, II CTB",
+             195.23,   25, False, None, "Dentro do prazo de desconto."),
+            ("WXY8Z01", "PRF-001101",    -60,
+             "Ultrapassagem indevida — Art. 220 CTB",
+             293.47,  -30, False, None, "Vencida. Encaminhar para protesto."),
+            ("STU5V67", "DETRAN-001200", -90,
+             "Circular sem o CRLV — Art. 232 CTB",
+             293.47,  -60, True, -62, "Pago com 20% de desconto dentro do prazo."),
+            # Caminhão MS — multa de peso em balança federal
+            ("MSA1B23", "PRF-001300",   -20,
+             "Excesso de peso — Art. 99 CTB",
+             2934.70,   10, False, None, "Valor elevado — excesso acima de 5%."),
+            # Ônibus — infração em faixa exclusiva
+            ("EFG7890", "CET-001400",    -8,
+             "Circular em faixa exclusiva de ônibus sem autorização — Art. 193 CTB",
+             130.16,   22, False, None, "Irônico: ônibus em faixa de ônibus errada."),
+            # Hilux nova — sem cinto (infração leve)
+            ("HIJ1K23", "DETRAN-001500",  -2,
+             "Deixar de usar cinto de segurança — Art. 167 CTB",
+             195.23,   28, False, None, "Infração recentíssima."),
+            # Moto entrega — sem capacete passageiro
+            ("EFG4H56", "DETRAN-001600", -30,
+             "Transportar passageiro sem capacete — Art. 244, V CTB",
+             293.47,    0, False, None, "Vencimento hoje — urgente."),
+            # Toro — reincidência (segunda multa mesma placa)
+            ("WXY8Z01", "SENATRAN-001700",-180,
+             "Conduzir veículo com CNH suspensa — Art. 162, II CTB",
+             293.47, -145, True, -147, "Pago com recurso parcialmente aceito."),
         ]
 
         for placa, auto, dias_inf, desc, valor, dias_venc, pago, dias_pag, obs in multa_data:
@@ -316,6 +440,25 @@ def seed():
             ("Distribuidora Bom Preço",  "CRLV Digital 2026 — LMN8O90",    -5,  "outro",                  ""),
             # Cliente sem veículos também pode ter documentos
             ("Renata Lopes Ferreira",    "CPF e RG",                       -20, "documento_pessoal",      "Pré-cadastro."),
+            # ── Novos documentos ──────────────────────────────────────────────
+            # Logística Pantanal — empresa com vários documentos
+            ("Logística Pantanal S/A",   "Contrato Social",                -730, "contrato",              "Constituição de 2020, objeto: transporte rodoviário."),
+            ("Logística Pantanal S/A",   "Procuração — Gerente de Frota",   -60, "procuracao",            "Habilita Marcos Ribeiro a assinar documentos de veículos."),
+            ("Logística Pantanal S/A",   "CRLV Digital 2026 — MSA1B23",     -3, "outro",                 ""),
+            ("Logística Pantanal S/A",   "CRLV Digital 2026 — IJK7L89",    -10, "outro",                 ""),
+            # Agropecuária
+            ("Agropecuária São Lucas Ltda","Contrato Social",              -400, "contrato",              ""),
+            ("Agropecuária São Lucas Ltda","Nota Fiscal do Trator",         -200, "outro",                "NF-e de aquisição — John Deere 5075E."),
+            # Roberto — documentos de CNH e processo
+            ("Roberto Alves Pereira",    "CNH — categoria B/C",            -730, "documento_pessoal",     "Válida até 2027. Categoria C adquirida em 2022."),
+            ("Roberto Alves Pereira",    "Notificação DETRAN — suspensão",   -5, "outro",                 "1ª notificação de suspensão por pontuação."),
+            # Sebastião — comprovante de residência e nota do veículo novo
+            ("Sebastião D'Ávila Gonçalves Neto","Comprovante de Residência",  -7, "comprovante_residencia","Conta de água — SABESP."),
+            ("Sebastião D'Ávila Gonçalves Neto","Nota Fiscal Hilux SRX 2024",-180, "outro",               "NF-e de aquisição na concessionária."),
+            # Luciana — documento vencido (testa filtro de vencidos)
+            ("Luciana Moreira Santos",   "CNH — categoria B",             -1500, "documento_pessoal",     "CNH VENCIDA — emitida em 2020, expirou em 2025."),
+            # Carlos — procuração p/ despachante
+            ("Carlos Eduardo Martins",   "Procuração ao Despachante",       -15, "procuracao",            "Autoriza despachante a tratar de todos os documentos."),
         ]
 
         for cliente_nome, nome_doc, dias_doc, categoria, obs in doc_data:
@@ -333,12 +476,12 @@ def seed():
         # ── Resumo final ───────────────────────────────────────────────────
         print("\n" + "─" * 50)
         print("🏁  Seed concluído com sucesso!")
-        print(f"   {len(clientes_data):>3} clientes  (1 sem veículos)")
-        print(f"   {len(veiculos_data):>3} veículos  (Mercosul + placa antiga, passeio/carga/reboque, ativo/desativado/vendido)")
-        print(f"   {total_ipva:>3} IPVA      (à vista pago/pendente/vencido + 4 cenários de parcelamento)")
-        print(f"   {len(lic_data):>3} licenciamentos  (pago, pendente, vencido, urgente)")
-        print(f"   {len(multa_data):>3} multas    (5 órgãos, paga com/sem desconto, pendente, vencida)")
-        print(f"   {len(doc_data):>3} documentos")
+        print(f"   {len(clientes_data):>3} clientes  (2 sem veículos, 2 PJ frota, 1 PJ pequena, PF com multas)")
+        print(f"   {len(veiculos_data):>3} veículos  (Mercosul + placa antiga, passeio/carga/reboque/especial, ativo/desativado/vendido, trator/ônibus/moto frota)")
+        print(f"   {total_ipva:>3} IPVA      (à vista pago/pendente/vencido + 6 cenários de parcelamento)")
+        print(f"   {len(lic_data):>3} licenciamentos  (pago, pendente, vencido, urgente, ônibus, trator)")
+        print(f"   {len(multa_data):>3} multas    (5 órgãos, paga com/sem desconto, pendente, vencida, reincidência)")
+        print(f"   {len(doc_data):>3} documentos (pessoal, contrato, procuração, NF, CNH vencida)")
         print("─" * 50)
 
 
