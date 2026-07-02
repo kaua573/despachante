@@ -1,5 +1,6 @@
 import os
 from flask import Blueprint, render_template, request, jsonify, current_app
+from flask_login import login_required
 from app import db
 from app.services.configuracao_service import (
     ConfiguracaoService, PALETA_CORES, FONTES_PDF, TAMANHOS_PDF
@@ -16,6 +17,7 @@ def _cfg() -> ConfiguracaoService:
 # ── Página ────────────────────────────────────────────────────────────────────
 
 @bp.route("/configuracoes")
+@login_required
 def pagina_configuracoes():
     return render_template("configuracoes.html")
 
@@ -23,6 +25,7 @@ def pagina_configuracoes():
 # ── API — Geral ──────────────────────────────────────────────────────────────
 
 @bp.route("/api/configuracoes", methods=["GET"])
+@login_required
 def api_get_configuracoes():
     cfg = _cfg()
     return jsonify({
@@ -34,6 +37,7 @@ def api_get_configuracoes():
 # ── API — Senha ──────────────────────────────────────────────────────────────
 
 @bp.route("/api/configuracoes/senha", methods=["POST"])
+@login_required
 def api_set_senha():
     dados = request.get_json(silent=True) or {}
     ok, msg = _cfg().trocar_senha(
@@ -46,6 +50,7 @@ def api_set_senha():
 
 
 @bp.route("/api/configuracoes/verificar-senha", methods=["POST"])
+@login_required
 def api_verificar_senha():
     dados = request.get_json(silent=True) or {}
     if _cfg().senha_ok(dados.get("senha", "")):
@@ -56,6 +61,7 @@ def api_verificar_senha():
 # ── API — Backup ─────────────────────────────────────────────────────────────
 
 @bp.route("/api/configuracoes/backup-intervalo", methods=["POST"])
+@login_required
 def api_set_backup_intervalo():
     dados = request.get_json(silent=True) or {}
     try:
@@ -70,6 +76,7 @@ def api_set_backup_intervalo():
 
 
 @bp.route("/api/configuracoes/backup-agora", methods=["POST"])
+@login_required
 def api_backup_agora():
     svc = BackupService(current_app.config["BACKUP_DIR"])
     caminho = svc.fazer_backup()
@@ -79,6 +86,7 @@ def api_backup_agora():
 
 
 @bp.route("/api/configuracoes/backups", methods=["GET"])
+@login_required
 def api_listar_backups():
     svc = BackupService(current_app.config["BACKUP_DIR"])
     return jsonify(svc.listar())
@@ -87,6 +95,7 @@ def api_listar_backups():
 # ── API — Tema ───────────────────────────────────────────────────────────────
 
 @bp.route("/api/configuracoes/tema", methods=["GET"])
+@login_required
 def api_get_tema():
     cfg = _cfg()
     return jsonify({
@@ -97,6 +106,7 @@ def api_get_tema():
 
 
 @bp.route("/api/configuracoes/tema", methods=["POST"])
+@login_required
 def api_set_tema():
     dados = request.get_json(silent=True) or {}
     modo = dados.get("modo")
@@ -114,6 +124,7 @@ def api_set_tema():
 # ── API — Identidade do escritório ──────────────────────────────────────────
 
 @bp.route("/api/configuracoes/escritorio", methods=["GET"])
+@login_required
 def api_get_escritorio():
     cfg = _cfg()
     nome = cfg.get("escritorio_nome", "")
@@ -126,6 +137,7 @@ def api_get_escritorio():
 
 
 @bp.route("/api/configuracoes/escritorio", methods=["POST"])
+@login_required
 def api_set_escritorio():
     cfg = _cfg()
     nome = request.form.get("nome", "").strip()
@@ -137,7 +149,6 @@ def api_set_escritorio():
             ext = os.path.splitext(arquivo.filename)[1].lower()
             if ext not in current_app.config["EXTENSOES_LOGO"]:
                 return jsonify({"ok": False, "erro": "Formato de logo não suportado."}), 400
-            # Remove logo anterior do disco
             logo_ant = cfg.get("escritorio_logo", "")
             if logo_ant:
                 _remover_logo_disco(logo_ant, current_app.config["LOGO_DIR"])
@@ -153,6 +164,7 @@ def api_set_escritorio():
 
 
 @bp.route("/api/configuracoes/escritorio/logo", methods=["DELETE"])
+@login_required
 def api_remover_logo():
     cfg = _cfg()
     logo = cfg.get("escritorio_logo", "")
@@ -165,24 +177,26 @@ def api_remover_logo():
 # ── API — PDF ────────────────────────────────────────────────────────────────
 
 @bp.route("/api/configuracoes/pdf", methods=["GET"])
+@login_required
 def api_get_config_pdf():
     cfg = _cfg()
     return jsonify({
-        "fonte":              cfg.get("pdf_fonte", "moderna"),
-        "tamanho":            cfg.get("pdf_tamanho", "medio"),
-        "cor":                cfg.get("pdf_cor", "azul"),
-        "cor_texto":          cfg.get("pdf_cor_texto", "escuro"),
+        "fonte":                cfg.get("pdf_fonte", "moderna"),
+        "tamanho":              cfg.get("pdf_tamanho", "medio"),
+        "cor":                  cfg.get("pdf_cor", "azul"),
+        "cor_texto":            cfg.get("pdf_cor_texto", "escuro"),
         "mostrar_data_geracao": cfg.get("pdf_mostrar_data_geracao", "1") == "1",
-        "espacamento":        cfg.get("pdf_espacamento", "espacada"),
-        "ordem_blocos":       cfg.get("pdf_ordem_blocos", "dados_primeiro"),
-        "nome_escritorio":    cfg.get("pdf_nome_escritorio", ""),
-        "opcoes_fonte":       FONTES_PDF,
-        "opcoes_tamanho":     TAMANHOS_PDF,
-        "opcoes_cor":         PALETA_CORES,
+        "espacamento":          cfg.get("pdf_espacamento", "espacada"),
+        "ordem_blocos":         cfg.get("pdf_ordem_blocos", "dados_primeiro"),
+        "nome_escritorio":      cfg.get("pdf_nome_escritorio", ""),
+        "opcoes_fonte":         FONTES_PDF,
+        "opcoes_tamanho":       TAMANHOS_PDF,
+        "opcoes_cor":           PALETA_CORES,
     })
 
 
 @bp.route("/api/configuracoes/pdf", methods=["POST"])
+@login_required
 def api_set_config_pdf():
     dados = request.get_json(silent=True) or {}
     validacoes = [
@@ -198,14 +212,14 @@ def api_set_config_pdf():
             return jsonify({"ok": False, "erro": msg}), 400
 
     cfg = _cfg()
-    cfg.set("pdf_fonte",              dados["fonte"])
-    cfg.set("pdf_tamanho",            dados["tamanho"])
-    cfg.set("pdf_cor",                dados["cor"])
-    cfg.set("pdf_cor_texto",          dados["cor_texto"])
-    cfg.set("pdf_mostrar_data_geracao", "1" if dados.get("mostrar_data_geracao") else "0")
-    cfg.set("pdf_espacamento",        dados["espacamento"])
-    cfg.set("pdf_ordem_blocos",       dados["ordem_blocos"])
-    cfg.set("pdf_nome_escritorio",    dados.get("nome_escritorio", ""))
+    cfg.set("pdf_fonte",               dados["fonte"])
+    cfg.set("pdf_tamanho",             dados["tamanho"])
+    cfg.set("pdf_cor",                 dados["cor"])
+    cfg.set("pdf_cor_texto",           dados["cor_texto"])
+    cfg.set("pdf_mostrar_data_geracao","1" if dados.get("mostrar_data_geracao") else "0")
+    cfg.set("pdf_espacamento",         dados["espacamento"])
+    cfg.set("pdf_ordem_blocos",        dados["ordem_blocos"])
+    cfg.set("pdf_nome_escritorio",     dados.get("nome_escritorio", ""))
     return jsonify({"ok": True})
 
 

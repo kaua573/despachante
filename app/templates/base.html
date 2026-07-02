@@ -36,7 +36,6 @@
 
   body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--body-bg); color:var(--texto); min-height:100vh; transition:background .2s,color .2s; }
 
-  /* ── Inputs globais — tema escuro não deixa o browser sobrescrever a cor ── */
   input, select, textarea,
   input[type="text"], input[type="email"], input[type="tel"],
   input[type="number"], input[type="date"], input[type="password"],
@@ -45,7 +44,6 @@
     color: var(--input-texto);
   }
 
-  /* Hack para o autofill do Chrome, que força fundo branco por padrão */
   input:-webkit-autofill,
   input:-webkit-autofill:hover,
   input:-webkit-autofill:focus,
@@ -55,14 +53,21 @@
     transition: background-color 9999s ease-in-out 0s;
   }
 
-  nav { background:var(--azul); padding:0 28px; display:flex; align-items:center; gap:20px; height:56px; box-shadow:0 2px 6px rgba(0,0,0,.25); }
+  nav { background:var(--azul); padding:0 28px; display:flex; align-items:center; gap:16px; height:56px; box-shadow:0 2px 6px rgba(0,0,0,.25); }
   nav .logo { font-weight:700; font-size:17px; color:#fff; letter-spacing:.4px; display:flex; align-items:center; gap:8px; text-decoration:none; white-space:nowrap; }
   nav .logo span { opacity:.7; font-weight:400; }
   nav .nav-links { display:flex; gap:4px; }
   nav .nav-links a { color:rgba(255,255,255,.8); text-decoration:none; font-size:14px; padding:6px 12px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:7px; }
   nav .nav-links a:hover { background:rgba(255,255,255,.15); color:#fff; }
   nav .nav-links a.ativa { background:rgba(255,255,255,.2); color:#fff; font-weight:600; }
-  nav .breadcrumb { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,.7); font-size:13px; margin-left:auto; }
+
+  /* Usuário logado — canto direito */
+  .nav-usuario { margin-left:auto; display:flex; align-items:center; gap:10px; color:rgba(255,255,255,.9); font-size:13px; white-space:nowrap; }
+  .nav-usuario .badge-adm { background:rgba(255,255,255,.25); color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:.4px; }
+  .nav-usuario a { color:rgba(255,255,255,.75); text-decoration:none; padding:5px 10px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:5px; font-size:13px; }
+  .nav-usuario a:hover { background:rgba(255,255,255,.15); color:#fff; }
+
+  nav .breadcrumb { display:flex; align-items:center; gap:6px; color:rgba(255,255,255,.7); font-size:13px; }
   nav .breadcrumb a { color:rgba(255,255,255,.85); text-decoration:none; }
   nav .breadcrumb a:hover { color:#fff; text-decoration:underline; }
   nav .breadcrumb .sep { opacity:.5; }
@@ -173,12 +178,10 @@
   .modo-card:hover { border-color:var(--azul2); }
   .modo-card.selecionado { border-color:var(--azul2); background:var(--cinza1); }
 
-  /* ── Drag-and-drop de campos do relatório ── */
   .campo-drag { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--cinza1); border:1px solid var(--cinza2); border-radius:8px; cursor:grab; transition:.15s; }
   .campo-drag:hover { border-color:var(--azul2); background:var(--card-bg); }
   .campo-drag.dragging { opacity:.4; }
   .campo-drag.drag-over { border-color:var(--azul2); background:var(--cinza2); }
-  .drag-handle { color:var(--sub); cursor:grab; font-size:16px; }
 </style>
 </head>
 <body>
@@ -195,14 +198,35 @@
       <span>Despachante</span>
     {% endif %}
   </a>
+
   <div class="nav-links">
     <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
-    <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
-    <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
+    {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_clientes') %}
+      <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
+    {% endif %}
+    {% if current_user.is_authenticated and current_user.tem_permissao('gerar_relatorios') %}
+      <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
+    {% endif %}
     <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
+    {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
+      <a href="/admin/usuarios" class="{{ 'ativa' if '/admin' in request.path else '' }}">{{ icon('security') }} Admin</a>
+    {% endif %}
   </div>
+
+  <!-- Usuário logado -->
+  {% if current_user.is_authenticated %}
+  <div class="nav-usuario">
+    <span>{{ current_user.nome_completo }}</span>
+    {% if current_user.perfil == 'administrador' %}
+      <span class="badge-adm">Adm</span>
+    {% endif %}
+    <a href="/logout" title="Sair">{{ icon('padlock','icon icon-sm') }} Sair</a>
+  </div>
+  {% endif %}
+
   <div class="breadcrumb">{% block breadcrumb %}{% endblock %}</div>
 </nav>
+
 <div class="container">{% block content %}{% endblock %}</div>
 <div id="toast"></div>
 
@@ -229,7 +253,6 @@
 </div>
 
 <script>
-// ── Utilitários globais ──────────────────────────────────────────────────────
 function toast(msg, tipo='ok') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -258,7 +281,6 @@ function statusVencimento(venc, pago) {
   return '<span class="badge badge-pendente">Pendente</span>';
 }
 
-// ── Requisições com tratamento de erro padronizado ───────────────────────────
 async function apiFetch(url, opcoes = {}) {
   try {
     const res  = await fetch(url, opcoes);
@@ -275,7 +297,6 @@ async function apiFetch(url, opcoes = {}) {
   }
 }
 
-// ── Confirmação de exclusão com senha ────────────────────────────────────────
 let _callbackExclusao = null;
 
 function confirmarExclusao(mensagem, callback) {

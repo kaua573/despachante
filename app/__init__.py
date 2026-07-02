@@ -1,12 +1,14 @@
 import os
-from flask import Flask
+from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_login import LoginManager
 from markupsafe import Markup
 from config import config
 
 db = SQLAlchemy()
 migrate = Migrate()
+login_manager = LoginManager()
 
 
 def create_app(config_name: str = "default") -> Flask:
@@ -17,28 +19,31 @@ def create_app(config_name: str = "default") -> Flask:
     db.init_app(app)
     migrate.init_app(app, db)
 
+    # Flask-Login
+    login_manager.init_app(app)
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = None  # sem flash — o redirect já é suficiente
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        from app.models.usuario import Usuario
+        return db.session.get(Usuario, int(user_id))
+
     _registrar_helpers_jinja(app)
     _registrar_blueprints(app)
+    _registrar_handlers_erro(app)
     _iniciar_backup_automatico(app)
 
     return app
 
 
 def _registrar_helpers_jinja(app: Flask) -> None:
-    """Registra funções e filtros globais nos templates Jinja2."""
-
-    from functools import lru_cache
-
-    @lru_cache(maxsize=64)
-    def _ler_svg_bruto(caminho: str) -> str:
-        with open(caminho, "r", encoding="utf-8") as f:
-            return f.read()
-
     def icon_svg(nome: str, classe: str = "icon") -> Markup:
         caminho = os.path.join(app.static_folder, "icons", f"{nome}.svg")
         if not os.path.exists(caminho):
             return Markup("")
-        svg = _ler_svg_bruto(caminho)
+        with open(caminho, "r", encoding="utf-8") as f:
+            svg = f.read()
         import re
         if 'class="' in svg.split(">", 1)[0]:
             svg = re.sub(r'class="[^"]*"', f'class="{classe}"', svg, count=1)
@@ -48,14 +53,12 @@ def _registrar_helpers_jinja(app: Flask) -> None:
 
     app.jinja_env.globals["icon"] = icon_svg
 
-    # ── Filtros de formatação para exibição nos templates ──
     from app.services.validacao_service import formatar_cpf, formatar_telefone, normalizar_placa
 
     app.jinja_env.filters["formatar_cpf"] = formatar_cpf
     app.jinja_env.filters["formatar_telefone"] = formatar_telefone
 
     def formatar_placa_exibicao(placa: str) -> str:
-        """Exibe placa sem hífen (padrão armazenado); Mercosul sem separador."""
         return normalizar_placa(placa)
 
     app.jinja_env.filters["formatar_placa"] = formatar_placa_exibicao
@@ -92,7 +95,11 @@ def _registrar_blueprints(app: Flask) -> None:
     from app.routes.configuracoes import bp as config_bp
     from app.routes.relatorios import bp as relatorios_bp
     from app.routes.ipva import bp as ipva_bp
+    from app.routes.auth import bp as auth_bp
+    from app.routes.admin import bp as admin_bp
 
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(admin_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(clientes_bp)
     app.register_blueprint(veiculos_bp)
@@ -102,11 +109,15 @@ def _registrar_blueprints(app: Flask) -> None:
     app.register_blueprint(ipva_bp)
 
 
+def _registrar_handlers_erro(app: Flask) -> None:
+    @app.errorhandler(403)
+    def acesso_negado(e):
+        return render_template("errors/403.html"), 403
+
+
 def _iniciar_backup_automatico(app: Flask) -> None:
     import threading
-    import os
 
-    # Evita duplicar a thread quando Flask usa o reloader em modo debug
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true" and app.debug:
         return
 

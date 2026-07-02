@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Usuários{% endblock %}
+{% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Usuários</span>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('users') }} Usuários do sistema</h2>
+    <a href="/admin/usuarios/novo" class="btn btn-primary">+ Novo usuário</a>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th>Nome completo</th><th>Usuário</th><th>Perfil</th>
+        <th>Último acesso</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody>
+      {% for u in usuarios %}
+        <tr>
+          <td><strong>{{ u.nome_completo }}</strong></td>
+          <td style="font-family:monospace;">{{ u.nome_usuario }}</td>
+          <td>
+            {% if u.perfil == 'administrador' %}
+              <span class="badge badge-ativo">Administrador</span>
+            {% else %}
+              <span class="badge badge-inativo">Operador</span>
+            {% endif %}
+          </td>
+          <td>{{ u.ultimo_acesso.strftime('%d/%m/%Y %H:%M') if u.ultimo_acesso else '—' }}</td>
+          <td>
+            {% if u.ativo %}
+              <span class="badge badge-pago">Ativo</span>
+            {% else %}
+              <span class="badge badge-vencido">Inativo</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;">
+              <a class="btn btn-ghost btn-sm" href="/admin/usuarios/{{ u.id }}/editar">{{ icon('edit','icon icon-sm') }}</a>
+              <button class="btn btn-outline btn-sm" onclick="abrirRedefinirSenha({{ u.id }}, '{{ u.nome_completo }}')">🔑 Senha</button>
+              <button class="btn {% if u.ativo %}btn-danger{% else %}btn-success{% endif %} btn-sm"
+                      onclick="toggleAtivo({{ u.id }}, {{ 'true' if u.ativo else 'false' }}, '{{ u.nome_completo }}')">
+                {{ '⛔ Desativar' if u.ativo else '✅ Ativar' }}
+              </button>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal redefinir senha -->
+<div class="modal-overlay" id="modal-senha">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <h3>🔑 Redefinir senha</h3>
+      <button class="btn-close" onclick="document.getElementById('modal-senha').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="msg-redef" style="font-size:13px;color:var(--sub);margin-bottom:12px;"></p>
+      <div class="field">
+        <label>Nova senha temporária (mín. 6 caracteres)</label>
+        <input id="input-senha-temp" type="password" placeholder="••••••">
+      </div>
+      <p id="erro-redef" style="color:var(--vermelho);font-size:13px;display:none;"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-senha').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarRedefinir()">Salvar senha temporária</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _uidRedef = null;
+
+function abrirRedefinirSenha(uid, nome) {
+  _uidRedef = uid;
+  document.getElementById('msg-redef').textContent = `Definir senha temporária para ${nome}. O usuário deverá trocar no próximo login.`;
+  document.getElementById('input-senha-temp').value = '';
+  document.getElementById('erro-redef').style.display = 'none';
+  document.getElementById('modal-senha').classList.add('open');
+}
+
+async function confirmarRedefinir() {
+  const senha = document.getElementById('input-senha-temp').value;
+  const erroEl = document.getElementById('erro-redef');
+  const fd = new FormData();
+  fd.append('senha_temp', senha);
+  try {
+    const res = await fetch(`/admin/usuarios/${_uidRedef}/redefinir-senha`, { method: 'POST', body: fd });
+    const d = await res.json();
+    if (!d.ok) { erroEl.textContent = d.erro; erroEl.style.display = ''; return; }
+    document.getElementById('modal-senha').classList.remove('open');
+    toast('Senha temporária definida!');
+  } catch(e) { erroEl.textContent = 'Erro de conexão.'; erroEl.style.display = ''; }
+}
+
+async function toggleAtivo(uid, ativo, nome) {
+  const msg = ativo ? `Desativar ${nome}?` : `Reativar ${nome}?`;
+  if (!confirm(msg)) return;
+  const res = await fetch(`/admin/usuarios/${uid}/toggle-ativo`, { method: 'POST' });
+  const d = await res.json();
+  if (!d.ok) { toast(d.erro, 'err'); return; }
+  location.reload();
+}
+</script>
+{% endblock %}

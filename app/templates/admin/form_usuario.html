@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar' if usuario else 'Novo' }} Usuário{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/usuarios">Usuários</a><span class="sep">›</span>
+  <span>{{ 'Editar' if usuario else 'Novo usuário' }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:640px;">
+  <div class="card-header">
+    <h2>{{ icon('users') }} {{ 'Editar usuário' if usuario else 'Novo usuário' }}</h2>
+  </div>
+  <div class="card-body">
+    {% if erro %}<div style="background:#fee2e2;color:#991b1b;border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:16px;">{{ erro }}</div>{% endif %}
+
+    <form method="POST" style="display:flex;flex-direction:column;gap:14px;">
+      <div class="row2">
+        <div class="field">
+          <label>Nome completo *</label>
+          <input name="nome_completo" value="{{ usuario.nome_completo if usuario else '' }}" required>
+        </div>
+        <div class="field">
+          <label>Nome de usuário *</label>
+          <input name="nome_usuario" value="{{ usuario.nome_usuario if usuario else '' }}" required
+                 style="font-family:monospace;" autocomplete="off">
+        </div>
+      </div>
+
+      {% if not usuario %}
+      <div class="field">
+        <label>Senha inicial *</label>
+        <input type="password" name="senha" required minlength="6" placeholder="Mínimo 6 caracteres">
+        <span style="font-size:12px;color:var(--sub);">O usuário deverá trocar no primeiro acesso.</span>
+      </div>
+      {% endif %}
+
+      <div class="field">
+        <label>Perfil *</label>
+        <select name="perfil" id="sel-perfil" onchange="atualizarPermissoes()">
+          <option value="operador" {{ 'selected' if usuario and usuario.perfil == 'operador' else '' }}>Operador</option>
+          <option value="administrador" {{ 'selected' if usuario and usuario.perfil == 'administrador' else '' }}>Administrador</option>
+        </select>
+      </div>
+
+      <div id="bloco-permissoes" style="{{ 'display:none' if usuario and usuario.perfil == 'administrador' else '' }}">
+        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Permissões do operador</div>
+        <div class="check-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          {% for cod, desc in permissoes %}
+            <label class="check-item">
+              <input type="checkbox" name="permissoes" value="{{ cod }}"
+                {{ 'checked' if permissoes_atuais is defined and cod in permissoes_atuais else '' }}>
+              {{ desc }}
+            </label>
+          {% endfor %}
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="marcarPermissoes(true)">Todas</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="marcarPermissoes(false)">Nenhuma</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <button type="submit" class="btn btn-primary">{{ icon('save','icon icon-sm') }} Salvar</button>
+        <a href="/admin/usuarios" class="btn btn-ghost">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function atualizarPermissoes() {
+  const perfil = document.getElementById('sel-perfil').value;
+  document.getElementById('bloco-permissoes').style.display = perfil === 'administrador' ? 'none' : '';
+}
+function marcarPermissoes(val) {
+  document.querySelectorAll('input[name="permissoes"]').forEach(c => c.checked = val);
+}
+</script>
+{% endblock %}
