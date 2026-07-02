@@ -49,6 +49,8 @@ def _registrar_helpers_jinja(app: Flask) -> None:
             svg = re.sub(r'class="[^"]*"', f'class="{classe}"', svg, count=1)
         else:
             svg = svg.replace("<svg ", f'<svg class="{classe}" ', 1)
+
+        svg = re.sub(r'(<svg[^>]*?)\s+fill="(?!none)[^"]*"', r'\1', svg, count=1)
         return Markup(svg)
 
     app.jinja_env.globals["icon"] = icon_svg

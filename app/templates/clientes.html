@@ -11,16 +11,24 @@
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <div class="search-box">
         {{ icon('find','icon icon-sm') }}
-        <input type="text" id="busca" placeholder="Buscar por nome, CPF..." oninput="carregar()" style="margin-left:4px;">
+        <input type="text" id="busca" placeholder="Buscar por nome, CPF..." oninput="carregar()"
+          style="margin-left:4px;">
       </div>
       <button class="btn btn-primary" onclick="abrirModal()">{{ icon('users') }} Novo cliente</button>
     </div>
   </div>
   <div class="tabela-wrap">
     <table>
-      <thead><tr>
-        <th>Nome</th><th>CPF</th><th>Telefone</th><th>Email</th><th>Obs.</th><th style="min-width:150px;">Ações</th>
-      </tr></thead>
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>CPF</th>
+          <th>Telefone</th>
+          <th>Email</th>
+          <th>Obs.</th>
+          <th style="min-width:150px;">Ações</th>
+        </tr>
+      </thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
@@ -34,8 +42,10 @@
       <button class="btn-close" onclick="fecharModal()">✕</button>
     </div>
     <div class="tabs" style="padding:0 20px;border-bottom:1px solid var(--cinza2);">
-      <button class="tab-btn ativa" data-tab="dados" onclick="mudarTabModal('dados')">{{ icon('users','icon icon-sm') }} Dados</button>
-      <button class="tab-btn" id="tab-doc-btn" data-tab="docs" onclick="mudarTabModal('docs')" style="display:none;">{{ icon('folder','icon icon-sm') }} Documentos</button>
+      <button class="tab-btn ativa" data-tab="dados" onclick="mudarTabModal('dados')">{{ icon('users','icon icon-sm') }}
+        Dados</button>
+      <button class="tab-btn" id="tab-doc-btn" data-tab="docs" onclick="mudarTabModal('docs')" style="display:none;">{{
+        icon('folder','icon icon-sm') }} Documentos</button>
     </div>
     <div class="modal-body" id="painel-tab-dados">
       <div class="field"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
@@ -56,11 +66,13 @@
         <input id="f-email" type="email" placeholder="email@exemplo.com">
         <span id="erro-email" style="color:var(--vermelho);font-size:12px;display:none;">E-mail inválido.</span>
       </div>
-      <div class="field"><label>Observação</label><textarea id="f-obs" placeholder="Anotações sobre o cliente..."></textarea></div>
+      <div class="field"><label>Observação</label><textarea id="f-obs"
+          placeholder="Anotações sobre o cliente..."></textarea></div>
     </div>
     <div class="modal-body" id="painel-tab-docs" style="display:none;">
       <div id="lista-docs" style="display:flex;flex-direction:column;gap:8px;"></div>
-      <button class="btn btn-outline btn-sm" style="align-self:flex-start;" onclick="abrirModalDoc()">{{ icon('upload','icon icon-sm') }} Adicionar documento</button>
+      <button class="btn btn-outline btn-sm" style="align-self:flex-start;" onclick="abrirModalDoc()">{{
+        icon('upload','icon icon-sm') }} Adicionar documento</button>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
@@ -77,7 +89,8 @@
       <button class="btn-close" onclick="fecharModalDoc()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="field"><label>Nome *</label><input id="fd-nome" placeholder="Ex: CNH, Comprovante de residência..."></div>
+      <div class="field"><label>Nome *</label><input id="fd-nome" placeholder="Ex: CNH, Comprovante de residência...">
+      </div>
       <div class="row2">
         <div class="field"><label>Data *</label><input id="fd-data" type="date"></div>
         <div class="field"><label>Categoria *</label>
@@ -115,7 +128,8 @@
       <button class="btn-close" onclick="fecharModalPdf()">✕</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:14px;color:var(--sub);margin-bottom:4px;">Selecione o que incluir no relatório de <strong id="pdf-nome-cliente"></strong>:</p>
+      <p style="font-size:14px;color:var(--sub);margin-bottom:4px;">Selecione o que incluir no relatório de <strong
+          id="pdf-nome-cliente"></strong>:</p>
       <div class="check-group">
         <label class="check-item"><input type="checkbox" id="pdf-dados" checked> Dados do cliente</label>
         <label class="check-item"><input type="checkbox" id="pdf-veiculos" checked> Informações dos veículos</label>
@@ -133,182 +147,192 @@
 
 {% block scripts %}
 <script>
-let editId = null;
-let pdfClienteId = null;
-let docClienteId = null;
-const CATEGORIAS_DOC = {
-  documento_pessoal:'Documento pessoal', comprovante_residencia:'Comprovante de residência',
-  contrato:'Contrato', procuracao:'Procuração', outro:'Outro'
-};
-
-// ── Máscaras e validação frontend ────────────────────────────────────────────
-function iniciarMascaras() {
-  if (typeof Inputmask === 'undefined') return;
-  Inputmask({ mask: '999.999.999-99' }).mask(document.getElementById('f-cpf'));
-  Inputmask({ mask: ['(99) 9999-9999','(99) 99999-9999'], keepStatic: false })
-    .mask(document.getElementById('f-tel'));
-}
-
-// Valida CPF matematicamente no frontend (espelho do backend)
-function validarCpfFrontend(cpf) {
-  const d = cpf.replace(/\D/g,'');
-  if (d.length !== 11 || /^(.)\1+$/.test(d)) return false;
-  const calc = (n) => {
-    let s = 0;
-    for (let i = 0; i < n - 1; i++) s += parseInt(d[i]) * (n - i);
-    const r = s % 11;
-    return r < 2 ? 0 : 11 - r;
+  let editId = null;
+  let pdfClienteId = null;
+  let docClienteId = null;
+  const CATEGORIAS_DOC = {
+    documento_pessoal: 'Documento pessoal', comprovante_residencia: 'Comprovante de residência',
+    contrato: 'Contrato', procuracao: 'Procuração', outro: 'Outro'
   };
-  return parseInt(d[9]) === calc(10) && parseInt(d[10]) === calc(11);
-}
 
-function validarEmailFrontend(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
-}
-
-function mostrarErro(id, msg, mostrar) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = msg;
-  el.style.display = mostrar ? '' : 'none';
-  const input = el.previousElementSibling;
-  if (input && input.tagName === 'INPUT') {
-    input.style.borderColor = mostrar ? 'var(--vermelho)' : '';
+  // ── Máscaras e validação frontend ────────────────────────────────────────────
+  function iniciarMascaras() {
+    if (typeof Inputmask === 'undefined') return;
+    Inputmask({ mask: '999.999.999-99' }).mask(document.getElementById('f-cpf'));
+    Inputmask({ mask: ['(99) 9999-9999', '(99) 99999-9999'], keepStatic: false })
+      .mask(document.getElementById('f-tel'));
   }
-}
 
-async function carregar() {
-  const busca = document.getElementById('busca').value;
-  const dados = await apiFetch('/api/clientes?busca=' + encodeURIComponent(busca));
-  if (!dados) return;
-  const tbody = document.getElementById('tbody');
-  if (!dados.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
-    return;
+  // Valida CPF matematicamente no frontend (espelho do backend)
+  function validarCpfFrontend(cpf) {
+    const d = cpf.replace(/\D/g, '');
+    if (d.length !== 11 || /^(.)\1+$/.test(d)) return false;
+    const calc = (n) => {
+      let s = 0;
+      for (let i = 0; i < n - 1; i++) s += parseInt(d[i]) * (n - i);
+      const r = s % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    return parseInt(d[9]) === calc(10) && parseInt(d[10]) === calc(11);
   }
-  tbody.innerHTML = dados.map(c => `
+
+  function validarEmailFrontend(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  }
+
+  function mostrarErro(id, msg, mostrar) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg;
+    el.style.display = mostrar ? '' : 'none';
+    const input = el.previousElementSibling;
+    if (input && input.tagName === 'INPUT') {
+      input.style.borderColor = mostrar ? 'var(--vermelho)' : '';
+    }
+  }
+
+  function abrirDocs(cid) {
+    docClienteId = cid;
+    carregarDocumentos();
+    mudarTabModal('docs');
+    document.getElementById('tab-doc-btn').style.display = '';
+    document.getElementById('modal-titulo').textContent = 'Documentos';
+    document.getElementById('modal').classList.add('open');
+  }
+
+  async function carregar() {
+    const busca = document.getElementById('busca').value;
+    const dados = await apiFetch('/api/clientes?busca=' + encodeURIComponent(busca));
+    if (!dados) return;
+    const tbody = document.getElementById('tbody');
+    if (!dados.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = dados.map(c => `
     <tr>
       <td><strong>${c.nome}</strong></td>
-      <td>${c.cpf||'—'}</td>
-      <td>${c.telefone||'—'}</td>
-      <td>${c.email||'—'}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.observacao||''}">${c.observacao||'—'}</td>
+      <td>${c.cpf || '—'}</td>
+      <td>${c.telefone || '—'}</td>
+      <td>${c.email || '—'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.observacao || ''}">${c.observacao || '—'}</td>
       <td>
         <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
-          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${c.nome.replace(/'/g,"\\'")}')">{{ icon('file','icon icon-sm') }}</button>
+          <button class="btn btn-outline btn-sm btn-icon" title="Documentos" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }}</button>
+          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${c.nome.replace(/'/g, "\\'")}')">{{ icon('file','icon icon-sm') }}</button>
           <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${JSON.stringify(c)})'>{{ icon('edit','icon icon-sm') }}</button>
-          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${c.nome.replace(/'/g,"\\'")}')">{{ icon('delete','icon icon-sm') }}</button>
+          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${c.nome.replace(/'/g, "\\'")}')">{{ icon('delete','icon icon-sm') }}</button>
         </div>
       </td>
     </tr>
   `).join('');
-}
-
-function mudarTabModal(tab) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
-  document.querySelector(`[data-tab="${tab}"]`).classList.add('ativa');
-  document.getElementById('painel-tab-dados').style.display = tab === 'dados' ? '' : 'none';
-  document.getElementById('painel-tab-docs').style.display  = tab === 'docs'  ? '' : 'none';
-}
-
-function abrirModal() {
-  editId = null;
-  document.getElementById('modal-titulo').textContent = 'Novo cliente';
-  ['f-nome','f-cpf','f-tel','f-email','f-obs'].forEach(id => document.getElementById(id).value = '');
-  ['erro-cpf','erro-tel','erro-email'].forEach(id => mostrarErro(id, '', false));
-  document.getElementById('tab-doc-btn').style.display = 'none';
-  mudarTabModal('dados');
-  document.getElementById('modal').classList.add('open');
-  setTimeout(iniciarMascaras, 50);
-}
-
-async function editar(c) {
-  editId = c.id;
-  document.getElementById('modal-titulo').textContent = 'Editar cliente';
-  document.getElementById('f-nome').value  = c.nome||'';
-  // Exibe CPF e telefone formatados na edição
-  document.getElementById('f-cpf').value   = c.cpf ? c.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
-  document.getElementById('f-tel').value   = c.telefone ? formatarTelExibicao(c.telefone) : '';
-  document.getElementById('f-email').value = c.email||'';
-  document.getElementById('f-obs').value   = c.observacao||'';
-  ['erro-cpf','erro-tel','erro-email'].forEach(id => mostrarErro(id, '', false));
-  document.getElementById('tab-doc-btn').style.display = '';
-  docClienteId = c.id;
-  await carregarDocumentos();
-  mudarTabModal('dados');
-  document.getElementById('modal').classList.add('open');
-  setTimeout(iniciarMascaras, 50);
-}
-
-function formatarTelExibicao(tel) {
-  const d = tel.replace(/\D/g,'');
-  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
-  return tel;
-}
-
-function fecharModal() { document.getElementById('modal').classList.remove('open'); }
-
-async function salvar() {
-  const nome  = document.getElementById('f-nome').value.trim();
-  const cpf   = document.getElementById('f-cpf').value.trim();
-  const tel   = document.getElementById('f-tel').value.trim();
-  const email = document.getElementById('f-email').value.trim();
-
-  // Limpa erros anteriores
-  ['erro-cpf','erro-tel','erro-email'].forEach(id => mostrarErro(id, '', false));
-
-  let invalido = false;
-  if (!nome) { toast('Nome é obrigatório.', 'err'); return; }
-  if (!validarCpfFrontend(cpf)) {
-    mostrarErro('erro-cpf', 'CPF inválido.', true);
-    invalido = true;
   }
-  if (tel.replace(/\D/g,'').length < 10) {
-    mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
-    invalido = true;
-  }
-  if (!validarEmailFrontend(email)) {
-    mostrarErro('erro-email', 'E-mail inválido.', true);
-    invalido = true;
-  }
-  if (invalido) return;
 
-  const payload = { nome, cpf, telefone: tel, email, observacao: document.getElementById('f-obs').value.trim() };
-  const url    = editId ? `/api/clientes/${editId}` : '/api/clientes';
-  const method = editId ? 'PUT' : 'POST';
-  const data   = await apiFetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-  if (!data) return;
-  fecharModal();
-  carregar();
-  toast(editId ? 'Cliente atualizado!' : 'Cliente cadastrado!');
-}
+  function mudarTabModal(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
+    document.querySelector(`[data-tab="${tab}"]`).classList.add('ativa');
+    document.getElementById('painel-tab-dados').style.display = tab === 'dados' ? '' : 'none';
+    document.getElementById('painel-tab-docs').style.display = tab === 'docs' ? '' : 'none';
+  }
 
-async function excluir(id, nome) {
-  confirmarExclusao(`Excluir "${nome}" e todos os seus veículos/documentos?`, async () => {
-    const data = await apiFetch(`/api/clientes/${id}`, { method:'DELETE' });
+  function abrirModal() {
+    editId = null;
+    document.getElementById('modal-titulo').textContent = 'Novo cliente';
+    ['f-nome', 'f-cpf', 'f-tel', 'f-email', 'f-obs'].forEach(id => document.getElementById(id).value = '');
+    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    document.getElementById('tab-doc-btn').style.display = 'none';
+    mudarTabModal('dados');
+    document.getElementById('modal').classList.add('open');
+    setTimeout(iniciarMascaras, 50);
+  }
+
+  async function editar(c) {
+    editId = c.id;
+    document.getElementById('modal-titulo').textContent = 'Editar cliente';
+    document.getElementById('f-nome').value = c.nome || '';
+    // Exibe CPF e telefone formatados na edição
+    document.getElementById('f-cpf').value = c.cpf ? c.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
+    document.getElementById('f-tel').value = c.telefone ? formatarTelExibicao(c.telefone) : '';
+    document.getElementById('f-email').value = c.email || '';
+    document.getElementById('f-obs').value = c.observacao || '';
+    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    document.getElementById('tab-doc-btn').style.display = '';
+    docClienteId = c.id;
+    await carregarDocumentos();
+    mudarTabModal('dados');
+    document.getElementById('modal').classList.add('open');
+    setTimeout(iniciarMascaras, 50);
+  }
+
+  function formatarTelExibicao(tel) {
+    const d = tel.replace(/\D/g, '');
+    if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return tel;
+  }
+
+  function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+
+  async function salvar() {
+    const nome = document.getElementById('f-nome').value.trim();
+    const cpf = document.getElementById('f-cpf').value.trim();
+    const tel = document.getElementById('f-tel').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+
+    // Limpa erros anteriores
+    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+
+    let invalido = false;
+    if (!nome) { toast('Nome é obrigatório.', 'err'); return; }
+    if (!validarCpfFrontend(cpf)) {
+      mostrarErro('erro-cpf', 'CPF inválido.', true);
+      invalido = true;
+    }
+    if (tel.replace(/\D/g, '').length < 10) {
+      mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
+      invalido = true;
+    }
+    if (!validarEmailFrontend(email)) {
+      mostrarErro('erro-email', 'E-mail inválido.', true);
+      invalido = true;
+    }
+    if (invalido) return;
+
+    const payload = { nome, cpf, telefone: tel, email, observacao: document.getElementById('f-obs').value.trim() };
+    const url = editId ? `/api/clientes/${editId}` : '/api/clientes';
+    const method = editId ? 'PUT' : 'POST';
+    const data = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (!data) return;
+    fecharModal();
     carregar();
-    toast('Cliente excluído.');
-  });
-}
-
-// ── Documentos ───────────────────────────────────────────────────────────────
-async function carregarDocumentos() {
-  const docs = await apiFetch(`/api/clientes/${docClienteId}/documentos`);
-  if (!docs) return;
-  const lista = document.getElementById('lista-docs');
-  if (!docs.length) {
-    lista.innerHTML = `<div class="empty-state"><p>Nenhum documento anexado</p></div>`;
-    return;
+    toast(editId ? 'Cliente atualizado!' : 'Cliente cadastrado!');
   }
-  lista.innerHTML = docs.map(d => `
+
+  async function excluir(id, nome) {
+    confirmarExclusao(`Excluir "${nome}" e todos os seus veículos/documentos?`, async () => {
+      const data = await apiFetch(`/api/clientes/${id}`, { method: 'DELETE' });
+      if (!data) return;
+      carregar();
+      toast('Cliente excluído.');
+    });
+  }
+
+  // ── Documentos ───────────────────────────────────────────────────────────────
+  async function carregarDocumentos() {
+    const docs = await apiFetch(`/api/clientes/${docClienteId}/documentos`);
+    if (!docs) return;
+    const lista = document.getElementById('lista-docs');
+    if (!docs.length) {
+      lista.innerHTML = `<div class="empty-state"><p>Nenhum documento anexado</p></div>`;
+      return;
+    }
+    lista.innerHTML = docs.map(d => `
     <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--cinza1);border-radius:8px;border:1px solid var(--cinza2);">
       {{ icon('file','icon') }}
       <div style="flex:1;min-width:0;">
         <div style="font-weight:600;font-size:14px;">${d.nome}</div>
-        <div style="font-size:12px;color:var(--sub);">${CATEGORIAS_DOC[d.categoria]||d.categoria} · ${fmtData(d.data_documento)} · cadastrado em ${fmtDataHora(d.criado_em)}</div>
+        <div style="font-size:12px;color:var(--sub);">${CATEGORIAS_DOC[d.categoria] || d.categoria} · ${fmtData(d.data_documento)} · cadastrado em ${fmtDataHora(d.criado_em)}</div>
         ${d.observacao ? `<div style="font-size:12px;color:var(--sub);margin-top:2px;">${d.observacao}</div>` : ''}
       </div>
       <div style="display:flex;gap:4px;">
@@ -317,77 +341,77 @@ async function carregarDocumentos() {
       </div>
     </div>
   `).join('');
-}
+  }
 
-function abrirModalDoc() {
-  document.getElementById('fd-nome').value = '';
-  document.getElementById('fd-data').value = new Date().toISOString().split('T')[0];
-  document.getElementById('fd-categoria').value = 'documento_pessoal';
-  document.getElementById('fd-obs').value = '';
-  document.getElementById('fd-arquivo').value = '';
-  document.getElementById('file-drop-texto').textContent = 'Clique para selecionar um arquivo';
-  document.getElementById('modal-doc').classList.add('open');
-}
-function fecharModalDoc() { document.getElementById('modal-doc').classList.remove('open'); }
+  function abrirModalDoc() {
+    document.getElementById('fd-nome').value = '';
+    document.getElementById('fd-data').value = new Date().toISOString().split('T')[0];
+    document.getElementById('fd-categoria').value = 'documento_pessoal';
+    document.getElementById('fd-obs').value = '';
+    document.getElementById('fd-arquivo').value = '';
+    document.getElementById('file-drop-texto').textContent = 'Clique para selecionar um arquivo';
+    document.getElementById('modal-doc').classList.add('open');
+  }
+  function fecharModalDoc() { document.getElementById('modal-doc').classList.remove('open'); }
 
-function onArquivoSelecionado() {
-  const f = document.getElementById('fd-arquivo').files[0];
-  document.getElementById('file-drop-texto').textContent = f ? f.name : 'Clique para selecionar um arquivo';
-}
+  function onArquivoSelecionado() {
+    const f = document.getElementById('fd-arquivo').files[0];
+    document.getElementById('file-drop-texto').textContent = f ? f.name : 'Clique para selecionar um arquivo';
+  }
 
-async function salvarDocumento() {
-  const nome = document.getElementById('fd-nome').value.trim();
-  const data = document.getElementById('fd-data').value;
-  const categoria = document.getElementById('fd-categoria').value;
-  if (!nome || !data || !categoria) { toast('Preencha nome, data e categoria', 'err'); return; }
-  const fd = new FormData();
-  fd.append('cliente_id', docClienteId);
-  fd.append('nome', nome);
-  fd.append('data_documento', data);
-  fd.append('categoria', categoria);
-  fd.append('observacao', document.getElementById('fd-obs').value.trim());
-  const arquivo = document.getElementById('fd-arquivo').files[0];
-  if (arquivo) fd.append('arquivo', arquivo);
-  try {
-    const res = await fetch('/api/documentos', { method:'POST', body: fd });
-    const result = await res.json();
-    if (!res.ok) { toast(result.erro || 'Erro ao salvar', 'err'); return; }
-  } catch(e) { toast('Erro de conexão', 'err'); return; }
-  fecharModalDoc();
-  await carregarDocumentos();
-  toast('Documento adicionado!');
-}
-
-async function excluirDocumento(id) {
-  confirmarExclusao('Excluir este documento?', async () => {
-    const data = await apiFetch(`/api/documentos/${id}`, { method:'DELETE' });
-    if (!data) return;
+  async function salvarDocumento() {
+    const nome = document.getElementById('fd-nome').value.trim();
+    const data = document.getElementById('fd-data').value;
+    const categoria = document.getElementById('fd-categoria').value;
+    if (!nome || !data || !categoria) { toast('Preencha nome, data e categoria', 'err'); return; }
+    const fd = new FormData();
+    fd.append('cliente_id', docClienteId);
+    fd.append('nome', nome);
+    fd.append('data_documento', data);
+    fd.append('categoria', categoria);
+    fd.append('observacao', document.getElementById('fd-obs').value.trim());
+    const arquivo = document.getElementById('fd-arquivo').files[0];
+    if (arquivo) fd.append('arquivo', arquivo);
+    try {
+      const res = await fetch('/api/documentos', { method: 'POST', body: fd });
+      const result = await res.json();
+      if (!res.ok) { toast(result.erro || 'Erro ao salvar', 'err'); return; }
+    } catch (e) { toast('Erro de conexão', 'err'); return; }
+    fecharModalDoc();
     await carregarDocumentos();
-    toast('Documento excluído.');
-  });
-}
+    toast('Documento adicionado!');
+  }
 
-// ── PDF ───────────────────────────────────────────────────────────────────────
-function abrirModalPdf(id, nome) {
-  pdfClienteId = id;
-  document.getElementById('pdf-nome-cliente').textContent = nome;
-  document.getElementById('modal-pdf').classList.add('open');
-}
-function fecharModalPdf() { document.getElementById('modal-pdf').classList.remove('open'); }
+  async function excluirDocumento(id) {
+    confirmarExclusao('Excluir este documento?', async () => {
+      const data = await apiFetch(`/api/documentos/${id}`, { method: 'DELETE' });
+      if (!data) return;
+      await carregarDocumentos();
+      toast('Documento excluído.');
+    });
+  }
 
-function gerarPdf() {
-  const incluir = [];
-  if (document.getElementById('pdf-dados').checked)        incluir.push('dados');
-  if (document.getElementById('pdf-veiculos').checked)     incluir.push('veiculos');
-  if (document.getElementById('pdf-ipva').checked)         incluir.push('ipva');
-  if (document.getElementById('pdf-licenciamento').checked) incluir.push('licenciamento');
-  if (!incluir.length) { toast('Selecione ao menos uma opção', 'err'); return; }
-  const params = incluir.map(i => 'incluir=' + i).join('&');
-  window.open(`/api/clientes/${pdfClienteId}/relatorio?${params}`, '_blank');
-  fecharModalPdf();
-  toast('PDF gerado!');
-}
+  // ── PDF ───────────────────────────────────────────────────────────────────────
+  function abrirModalPdf(id, nome) {
+    pdfClienteId = id;
+    document.getElementById('pdf-nome-cliente').textContent = nome;
+    document.getElementById('modal-pdf').classList.add('open');
+  }
+  function fecharModalPdf() { document.getElementById('modal-pdf').classList.remove('open'); }
 
-carregar();
+  function gerarPdf() {
+    const incluir = [];
+    if (document.getElementById('pdf-dados').checked) incluir.push('dados');
+    if (document.getElementById('pdf-veiculos').checked) incluir.push('veiculos');
+    if (document.getElementById('pdf-ipva').checked) incluir.push('ipva');
+    if (document.getElementById('pdf-licenciamento').checked) incluir.push('licenciamento');
+    if (!incluir.length) { toast('Selecione ao menos uma opção', 'err'); return; }
+    const params = incluir.map(i => 'incluir=' + i).join('&');
+    window.open(`/api/clientes/${pdfClienteId}/relatorio?${params}`, '_blank');
+    fecharModalPdf();
+    toast('PDF gerado!');
+  }
+
+  carregar();
 </script>
 {% endblock %}
