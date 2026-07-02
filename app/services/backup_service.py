@@ -1,6 +1,12 @@
 """
 Serviço de backup automático do banco de dados.
 Cria cópias com timestamp e remove arquivos mais antigos que 5 dias.
+
+⚠️  ATENÇÃO — este serviço só funciona com SQLite (copia o arquivo .db direto do disco).
+    Ao migrar para PostgreSQL/Supabase, fazer_backup() vai rodar sem erro mas sem
+    fazer nada útil (db_path nunca vai existir). Nessa migração, substituir a
+    lógica interna por 'pg_dump' agendado, ou desligar esse serviço e usar o
+    backup automático nativo do Supabase.
 """
 import glob
 import os
@@ -28,12 +34,14 @@ class BackupService:
         """
         Copia o banco de dados para backup_dir com timestamp no nome.
         Remove backups com mais de 5 dias.
-        Retorna o caminho do arquivo criado, ou None se o banco não existe.
+        Retorna o caminho do arquivo criado, ou None se não houver SQLite para copiar.
         """
         if db_path is None:
-            # Localiza o arquivo despachante.db a partir da raiz do projeto
-            raiz = Path(__file__).parent.parent.parent
-            db_path = str(raiz / "despachante.db")
+            db_path = self._resolver_db_path_sqlite()
+            if db_path is None:
+                # Não é SQLite (ex: PostgreSQL/Supabase) — nada a copiar aqui.
+                # Ver aviso no topo do arquivo sobre backup em produção.
+                return None
 
         with self._lock:
             destino = None
@@ -44,6 +52,25 @@ class BackupService:
 
             self._remover_antigos()
             return destino
+
+    @staticmethod
+    def _resolver_db_path_sqlite() -> str | None:
+        """Extrai o caminho do arquivo .db a partir da URI configurada, se for SQLite."""
+        try:
+            from flask import current_app
+            uri = current_app.config.get("SQLALCHEMY_DATABASE_URI", "")
+        except RuntimeError:
+            uri = ""
+
+        if uri.startswith("sqlite:///"):
+            return uri.replace("sqlite:///", "", 1)
+
+        if not uri:
+            # Fallback: localiza despachante.db a partir da raiz do projeto
+            raiz = Path(__file__).parent.parent.parent
+            return str(raiz / "despachante.db")
+
+        return None  # URI configurada, mas não é SQLite (ex: postgresql://...)
 
     def listar(self) -> list[dict]:
         """Retorna lista de backups salvos, ordenados do mais recente ao mais antigo."""

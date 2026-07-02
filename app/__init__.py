@@ -27,12 +27,18 @@ def create_app(config_name: str = "default") -> Flask:
 def _registrar_helpers_jinja(app: Flask) -> None:
     """Registra funções e filtros globais nos templates Jinja2."""
 
+    from functools import lru_cache
+
+    @lru_cache(maxsize=64)
+    def _ler_svg_bruto(caminho: str) -> str:
+        with open(caminho, "r", encoding="utf-8") as f:
+            return f.read()
+
     def icon_svg(nome: str, classe: str = "icon") -> Markup:
         caminho = os.path.join(app.static_folder, "icons", f"{nome}.svg")
         if not os.path.exists(caminho):
             return Markup("")
-        with open(caminho, "r", encoding="utf-8") as f:
-            svg = f.read()
+        svg = _ler_svg_bruto(caminho)
         import re
         if 'class="' in svg.split(">", 1)[0]:
             svg = re.sub(r'class="[^"]*"', f'class="{classe}"', svg, count=1)

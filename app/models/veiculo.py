@@ -7,7 +7,7 @@ class Veiculo(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
-    placa = db.Column(db.String(10), nullable=False)
+    placa = db.Column(db.String(10), nullable=False, index=True)
     renavam = db.Column(db.String(20))
     proprietario = db.Column(db.String(200))
     marca_modelo = db.Column(db.String(100))
