@@ -100,6 +100,11 @@
   tbody tr:hover { background:var(--cinza1); }
   tbody tr:last-child { border-bottom:none; }
   td { padding:10px 14px; vertical-align:middle; }
+  
+  .tabela-scroll{
+    max-height: 420px; overflow-y: auto;
+    position: sticky; top: 0; background: var(--cinza1); z-index: 1;
+  }
 
   .badge { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap; }
   html[data-tema="claro"] .badge-pago     { background:#d1fae5; color:#065f46; }
