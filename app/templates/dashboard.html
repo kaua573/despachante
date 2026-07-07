@@ -45,21 +45,51 @@
     </div>
   </div>
 </div>#}
+
+<style>
+  .filtros-venc { display:flex; flex-wrap:wrap; gap:10px; padding:14px 20px; border-bottom:1px solid var(--cinza2); }
+  .filtros-venc input { border:1px solid var(--cinza3); border-radius:6px; padding:7px 10px; font-size:13px; color:var(--texto); background:var(--input-bg); outline:none; }
+  .filtros-venc input:focus { border-color:var(--azul2); box-shadow:0 0 0 3px rgba(37,99,174,.12); }
+  .filtros-venc input[type="text"] { width:190px; }
+  .filtros-venc .btn-limpar { align-self:center; }
+  th.ordenavel { cursor:pointer; user-select:none; white-space:nowrap; }
+  th.ordenavel:hover { color:var(--azul2); }
+  th.ordenavel .seta { display:inline-block; width:10px; opacity:.55; }
+  .badge-urg-vencido30  { background:#7f1d1d; color:#fecaca; }
+  .badge-urg-vencido    { background:#fee2e2; color:#991b1b; }
+  .badge-urg-hoje       { background:#fdba74; color:#7c2d12; }
+  .badge-urg-urgente    { background:#fed7aa; color:#9a3412; }
+  .badge-urg-atencao    { background:#fef3c7; color:#92400e; }
+  .badge-urg-tranquilo  { background:#dbeafe; color:#1e40af; }
+  html[data-tema="escuro"] .badge-urg-vencido30  { background:#5c1010; color:#ffb4ab; }
+  html[data-tema="escuro"] .badge-urg-vencido    { background:#3d1815; color:#f3685f; }
+  html[data-tema="escuro"] .badge-urg-hoje       { background:#5a2c0a; color:#ffb37a; }
+  html[data-tema="escuro"] .badge-urg-urgente    { background:#3d2410; color:#f3a35f; }
+  html[data-tema="escuro"] .badge-urg-atencao    { background:#3d2f0a; color:#e0a836; }
+  html[data-tema="escuro"] .badge-urg-tranquilo  { background:#16243d; color:#6fa8e8; }
+</style>
+
 <div class="card" style="margin-bottom:20px;">
   <div class="card-header">
     <h2>{{ icon('calendar') }} Vencimentos de IPVA — próximos 30 dias</h2>
     <span id="badge-ipva" style="font-size:12px;color:var(--sub);"></span>
   </div>
+  <div class="filtros-venc">
+    <input type="text" id="f-ipva-cliente" placeholder="Filtrar por cliente..." oninput="onFiltroChange('ipva')">
+    <input type="text" id="f-ipva-placa" placeholder="Filtrar por placa..." oninput="onFiltroChange('ipva')">
+    <input type="date" id="f-ipva-data" onchange="onFiltroChange('ipva')">
+    <button class="btn btn-ghost btn-sm btn-limpar" onclick="limparFiltros('ipva')">Limpar filtros</button>
+  </div>
   <div class="tabela-wrap tabela-scroll">
     <table>
       <thead>
         <tr>
-          <th>Cliente</th>
+          <th class="ordenavel" onclick="onOrdenar('ipva','cliente_nome')">Cliente <span class="seta" id="seta-ipva-cliente_nome"></span></th>
           <th>Placa</th>
           <th>Espécie</th>
           <th>Ano</th>
-          <th>Valor</th>
-          <th>Vencimento</th>
+          <th class="ordenavel" onclick="onOrdenar('ipva','valor')">Valor <span class="seta" id="seta-ipva-valor"></span></th>
+          <th class="ordenavel" onclick="onOrdenar('ipva','vencimento')">Vencimento <span class="seta" id="seta-ipva-vencimento"></span></th>
           <th>Situação</th>
           <th>Ação</th>
         </tr>
@@ -74,16 +104,22 @@
     <h2>{{ icon('file') }} Vencimentos de Licenciamento — próximos 30 dias</h2>
     <span id="badge-lic" style="font-size:12px;color:var(--sub);"></span>
   </div>
+  <div class="filtros-venc">
+    <input type="text" id="f-licenciamento-cliente" placeholder="Filtrar por cliente..." oninput="onFiltroChange('licenciamento')">
+    <input type="text" id="f-licenciamento-placa" placeholder="Filtrar por placa..." oninput="onFiltroChange('licenciamento')">
+    <input type="date" id="f-licenciamento-data" onchange="onFiltroChange('licenciamento')">
+    <button class="btn btn-ghost btn-sm btn-limpar" onclick="limparFiltros('licenciamento')">Limpar filtros</button>
+  </div>
   <div class="tabela-wrap tabela-scroll">
     <table>
       <thead>
         <tr>
-          <th>Cliente</th>
+          <th class="ordenavel" onclick="onOrdenar('licenciamento','cliente_nome')">Cliente <span class="seta" id="seta-licenciamento-cliente_nome"></span></th>
           <th>Placa</th>
           <th>Espécie</th>
           <th>Ano</th>
-          <th>Valor</th>
-          <th>Vencimento</th>
+          <th class="ordenavel" onclick="onOrdenar('licenciamento','valor')">Valor <span class="seta" id="seta-licenciamento-valor"></span></th>
+          <th class="ordenavel" onclick="onOrdenar('licenciamento','vencimento')">Vencimento <span class="seta" id="seta-licenciamento-vencimento"></span></th>
           <th>Situação</th>
           <th>Ação</th>
         </tr>
@@ -98,28 +134,103 @@
 <script>
   const CAT = { passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque' };
 
+  // Estado independente de cada tabela (dados brutos + filtros + ordenação)
+  const estado = {
+    ipva:          { dados: [], sortCol: 'vencimento', sortDir: 'asc' },
+    licenciamento: { dados: [], sortCol: 'vencimento', sortDir: 'asc' },
+  };
+
   function diasRestantes(venc) {
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     const d = new Date(venc + 'T00:00:00');
     return Math.ceil((d - hoje) / 86400000);
   }
 
+  // Escala de urgência (do mais crítico ao mais tranquilo). Verde é evitado de
+  // propósito para não ser confundido com "já pago".
+  function classificarUrgencia(dias) {
+    if (dias < -10) return { classe: 'badge-urg-vencido30', label: `Vencido há ${Math.abs(dias)}d` };
+    if (dias < 0)    return { classe: 'badge-urg-vencido',   label: `Vencido há ${Math.abs(dias)}d` };
+    if (dias === 0)  return { classe: 'badge-urg-hoje',      label: 'Vence hoje' };
+    if (dias <= 5)   return { classe: 'badge-urg-urgente',   label: `Vence em ${dias}d` };
+    if (dias <= 15)  return { classe: 'badge-urg-atencao',   label: `Vence em ${dias}d` };
+    return                  { classe: 'badge-urg-tranquilo', label: `Vence em ${dias}d` };
+  }
+
   function renderLinhaVenc(r) {
     const dias = diasRestantes(r.vencimento);
-    let badge, estilo = '';
-    if (dias < 0) { badge = `<span class="badge badge-vencido">Vencido há ${Math.abs(dias)}d</span>`; estilo = 'background:#fff5f5'; }
-    else if (dias <= 7) { badge = `<span class="badge badge-vencido">Vence em ${dias}d</span>`; estilo = 'background:#fff5f5'; }
-    else { badge = `<span class="badge badge-pendente">Vence em ${dias}d</span>`; estilo = ''; }
-    return `<tr style="${estilo}">
+    const urg = classificarUrgencia(dias);
+    return `<tr>
     <td><a href="/clientes/${r.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;font-weight:600;">${r.cliente_nome}</a></td>
     <td><strong style="font-family:monospace;">${r.placa}</strong></td>
     <td>${CAT[r.especie] || r.especie || '—'}</td>
     <td>${r.ano_referencia}</td>
     <td>${fmtMoeda(r.valor)}</td>
     <td>${fmtData(r.vencimento)}</td>
-    <td>${badge}</td>
+    <td><span class="badge ${urg.classe}">${urg.label}</span></td>
     <td><a class="btn btn-primary btn-sm" href="/veiculos/${r.vid}/painel">Ver</a></td>
   </tr>`;
+  }
+
+  // ── Filtros + ordenação (aplicados em memória, sem nova chamada à API) ──────
+  function onFiltroChange(tipo) { renderizar(tipo); }
+
+  function limparFiltros(tipo) {
+    document.getElementById(`f-${tipo}-cliente`).value = '';
+    document.getElementById(`f-${tipo}-placa`).value = '';
+    document.getElementById(`f-${tipo}-data`).value = '';
+    renderizar(tipo);
+  }
+
+  function onOrdenar(tipo, coluna) {
+    const e = estado[tipo];
+    if (e.sortCol === coluna) {
+      e.sortDir = e.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      e.sortCol = coluna;
+      e.sortDir = 'asc';
+    }
+    renderizar(tipo);
+  }
+
+  function atualizarSetas(tipo) {
+    const e = estado[tipo];
+    ['cliente_nome', 'valor', 'vencimento'].forEach(col => {
+      const el = document.getElementById(`seta-${tipo}-${col}`);
+      if (!el) return;
+      el.textContent = col === e.sortCol ? (e.sortDir === 'asc' ? '▲' : '▼') : '';
+    });
+  }
+
+  function renderizar(tipo) {
+    const e = estado[tipo];
+    const buscaCliente = document.getElementById(`f-${tipo}-cliente`).value.trim().toLowerCase();
+    const buscaPlaca   = document.getElementById(`f-${tipo}-placa`).value.trim().toLowerCase();
+    const dataFiltro   = document.getElementById(`f-${tipo}-data`).value;
+
+    let filtrado = e.dados.filter(r =>
+      (!buscaCliente || (r.cliente_nome || '').toLowerCase().includes(buscaCliente)) &&
+      (!buscaPlaca   || (r.placa || '').toLowerCase().includes(buscaPlaca)) &&
+      (!dataFiltro   || r.vencimento === dataFiltro)
+    );
+
+    const dir = e.sortDir === 'asc' ? 1 : -1;
+    filtrado.sort((a, b) => {
+      if (e.sortCol === 'cliente_nome') return dir * (a.cliente_nome || '').localeCompare(b.cliente_nome || '');
+      if (e.sortCol === 'valor')        return dir * ((a.valor || 0) - (b.valor || 0));
+      return dir * (a.vencimento || '').localeCompare(b.vencimento || '');
+    });
+
+    const tbodyId = tipo === 'ipva' ? 'tbody-ipva' : 'tbody-lic';
+    const badgeId = tipo === 'ipva' ? 'badge-ipva' : 'badge-lic';
+    const nomeVazio = tipo === 'ipva' ? 'IPVA' : 'licenciamento';
+
+    document.getElementById(badgeId).textContent = filtrado.length + ' registro(s)';
+    document.getElementById(tbodyId).innerHTML = filtrado.length
+      ? filtrado.map(renderLinhaVenc).join('')
+      : `<tr><td colspan="8"><div class="empty-state"><p>Nenhum ${nomeVazio} encontrado com os filtros atuais</p></div></td></tr>`;
+
+    atualizarSetas(tipo);
   }
 
   async function carregar() {
@@ -134,17 +245,10 @@
       document.getElementById('tot-multas').textContent = d.totais.multas_pendentes;
     #}
 
-    const tbi = document.getElementById('tbody-ipva');
-    document.getElementById('badge-ipva').textContent = d.ipva.length + ' registro(s)';
-    tbi.innerHTML = d.ipva.length
-      ? d.ipva.map(renderLinhaVenc).join('')
-      : `<tr><td colspan="8"><div class="empty-state"><p>Nenhum IPVA vencendo nos próximos 30 dias</p></div></td></tr>`;
-
-    const tbl = document.getElementById('tbody-lic');
-    document.getElementById('badge-lic').textContent = d.licenciamento.length + ' registro(s)';
-    tbl.innerHTML = d.licenciamento.length
-      ? d.licenciamento.map(renderLinhaVenc).join('')
-      : `<tr><td colspan="8"><div class="empty-state"><p>Nenhum licenciamento vencendo nos próximos 30 dias</p></div></td></tr>`;
+    estado.ipva.dados = d.ipva;
+    estado.licenciamento.dados = d.licenciamento;
+    renderizar('ipva');
+    renderizar('licenciamento');
   }
 
   carregar();
