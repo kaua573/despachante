@@ -134,6 +134,8 @@ class VeiculoService:
         }
         if modelo in (Ipva, Licenciamento):
             campos_comuns["ano_referencia"] = dados["ano_referencia"]
+        if modelo is Ipva:
+            campos_comuns["tipo_pagamento"] = dados.get("tipo_pagamento") or "avista"
         elif modelo is Multa:
             campos_comuns.update({
                 "auto_infracao": dados.get("auto_infracao", ""),
@@ -149,13 +151,21 @@ class VeiculoService:
         obj = self._session.get(modelo, obj_id)
         if not obj:
             return False, "Registro não encontrado."
+
+        # IPVA parcelado: pago/data_pagamento são controlados pela quitação de
+        # parcelas (IpvaService), não pelo formulário básico de edição.
+        eh_ipva_parcelado = modelo is Ipva and (dados.get("tipo_pagamento") or obj.tipo_pagamento) == "parcelado"
+
         obj.valor = dados.get("valor") or None
         obj.vencimento = dados.get("vencimento") or None
-        obj.pago = bool(int(dados.get("pago", 0)))
-        obj.data_pagamento = dados.get("data_pagamento") or None
+        if not eh_ipva_parcelado:
+            obj.pago = bool(int(dados.get("pago", 0)))
+            obj.data_pagamento = dados.get("data_pagamento") or None
         obj.observacao = dados.get("observacao", "")
         if modelo in (Ipva, Licenciamento):
             obj.ano_referencia = dados["ano_referencia"]
+        if modelo is Ipva:
+            obj.tipo_pagamento = dados.get("tipo_pagamento") or obj.tipo_pagamento or "avista"
         elif modelo is Multa:
             obj.auto_infracao = dados.get("auto_infracao", "")
             obj.data_infracao = dados.get("data_infracao") or None
