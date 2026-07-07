@@ -67,7 +67,7 @@ def api_criar_veiculo():
         return jsonify({"ok": False, "erro": erro}), 400
     v = _svc().criar(dados)
     _log().registrar("criar_veiculo", "veiculo", v.id, {"placa": v.placa})
-    return jsonify({"ok": True})
+    return jsonify({"ok": True}) 
 
 
 @bp.route("/api/veiculos/<int:vid>", methods=["PUT"])
