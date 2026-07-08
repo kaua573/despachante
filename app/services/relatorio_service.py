@@ -331,11 +331,11 @@ class RelatorioService:
             SimpleDocTemplate, Paragraph, Spacer, Table,
             TableStyle, HRFlowable, Image as RLImage,
         )
-        from app.services.configuracao_service import FONTES_PDF, TAMANHOS_PDF, PALETA_CORES
+        from app.services.configuracao_service import FONTES_PDF, TAMANHOS_PDF, resolver_cor
 
         fonte   = FONTES_PDF.get(cfg_pdf.get("fonte", "moderna"), FONTES_PDF["moderna"])
         tam     = TAMANHOS_PDF.get(cfg_pdf.get("tamanho", "medio"), TAMANHOS_PDF["medio"])
-        paleta  = PALETA_CORES.get(cfg_pdf.get("cor", "azul"), PALETA_CORES["azul"])
+        paleta  = resolver_cor(cfg_pdf.get("cor", "azul"))
         mostrar_data    = cfg_pdf.get("mostrar_data_geracao", True)
         nome_escritorio = cfg_pdf.get("nome_escritorio", "")
         logo_dir        = cfg_pdf.get("logo_dir", "")
@@ -346,6 +346,9 @@ class RelatorioService:
         CINZA1 = rl_colors.HexColor("#f4f6fa")
         CINZA2 = rl_colors.HexColor("#e8ecf2")
         BRANCO = rl_colors.white
+        # Texto sobre fundo COR_PRINCIPAL (cabeçalhos de tabela, resumo): calculado
+        # automaticamente para permanecer legível seja qual for a cor escolhida.
+        TEXTO_HEADER = rl_colors.HexColor(paleta["contraste"])
         FONTE_BASE = fonte["base"]
         FONTE_BOLD = fonte["bold"]
 
@@ -353,7 +356,7 @@ class RelatorioService:
         sSub    = ParagraphStyle("sub",    fontName=FONTE_BASE, fontSize=tam["mini"] + 1,  textColor=rl_colors.HexColor("#5a6680"), spaceAfter=10)
         sSecao  = ParagraphStyle("secao",  fontName=FONTE_BOLD, fontSize=tam["secao"],     textColor=COR_SECUND, spaceBefore=12, spaceAfter=4)
         sCell   = ParagraphStyle("cell",   fontName=FONTE_BASE, fontSize=tam["texto"] - 1, textColor=rl_colors.HexColor("#1c2333"))
-        sHead   = ParagraphStyle("head",   fontName=FONTE_BOLD, fontSize=tam["mini"],      textColor=BRANCO)
+        sHead   = ParagraphStyle("head",   fontName=FONTE_BOLD, fontSize=tam["mini"],      textColor=TEXTO_HEADER)
         sTotal  = ParagraphStyle("total",  fontName=FONTE_BOLD, fontSize=tam["texto"] - 1, textColor=COR_PRINCIPAL)
         sRodape = ParagraphStyle("rodape", fontName=FONTE_BASE, fontSize=tam["mini"],      textColor=rl_colors.HexColor("#9aa4ba"))
         sEscrit = ParagraphStyle("escrit", fontName=FONTE_BOLD, fontSize=tam["mini"] + 3,  textColor=COR_SECUND, spaceAfter=2)
@@ -444,10 +447,10 @@ class RelatorioService:
             grupos = self.agrupar(dados, campo_grupo)
             for nome_grupo, linhas in grupos.items():
                 story.append(Paragraph(str(nome_grupo), sSecao))
-                story.extend(self._montar_tabela_pdf(linhas, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config))
+                story.extend(self._montar_tabela_pdf(linhas, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config, TEXTO_HEADER))
                 story.append(Spacer(1, 8))
         else:
-            story.extend(self._montar_tabela_pdf(dados, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config))
+            story.extend(self._montar_tabela_pdf(dados, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config, TEXTO_HEADER))
 
         # ── Rodapé ────────────────────────────────────────────────────────
         story.append(Spacer(1, 16))
@@ -458,8 +461,9 @@ class RelatorioService:
         buf.seek(0)
         return buf.read()
 
-    def _montar_tabela_pdf(self, dados, campos_visiveis, sHead, sCell, cor_principal, cinza1, cinza2, branco, config):
+    def _montar_tabela_pdf(self, dados, campos_visiveis, sHead, sCell, cor_principal, cinza1, cinza2, branco, config, texto_header=None):
         from reportlab.platypus import Table, TableStyle, Paragraph
+        texto_header = texto_header or branco
 
         if not dados:
             return [Paragraph("Nenhum registro encontrado.", sCell)]
@@ -494,7 +498,7 @@ class RelatorioService:
         t     = Table(linhas, colWidths=col_w, repeatRows=1)
         estilos = [
             ("BACKGROUND",    (0, 0), (-1, 0), cor_principal),
-            ("TEXTCOLOR",     (0, 0), (-1, 0), branco),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), texto_header),
             ("ROWBACKGROUNDS",(0, 1), (-1, -1), [branco, cinza1]),
             ("BOX",           (0, 0), (-1, -1), 0.5, cinza2),
             ("INNERGRID",     (0, 0), (-1, -1), 0.3, cinza2),

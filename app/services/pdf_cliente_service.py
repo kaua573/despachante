@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.cliente import Cliente
 from app.models.veiculo import Veiculo
 from app.services.configuracao_service import (
-    ConfiguracaoService, FONTES_PDF, TAMANHOS_PDF, PALETA_CORES
+    ConfiguracaoService, FONTES_PDF, TAMANHOS_PDF, resolver_cor
 )
 
 
@@ -66,7 +66,7 @@ class PdfClienteService:
         # Carrega configurações de apresentação
         cfg_fonte = FONTES_PDF.get(self._cfg.get("pdf_fonte", "moderna"), FONTES_PDF["moderna"])
         cfg_tam   = TAMANHOS_PDF.get(self._cfg.get("pdf_tamanho", "medio"), TAMANHOS_PDF["medio"])
-        cfg_cor   = PALETA_CORES.get(self._cfg.get("pdf_cor", "azul"), PALETA_CORES["azul"])
+        cfg_cor   = resolver_cor(self._cfg.get("pdf_cor", "azul"))
         mostrar_data  = self._cfg.get("pdf_mostrar_data_geracao", "1") == "1"
         espacamento   = self._cfg.get("pdf_espacamento", "espacada")
         ordem_blocos  = self._cfg.get("pdf_ordem_blocos", "dados_primeiro")
@@ -86,6 +86,9 @@ class PdfClienteService:
         VERM   = colors.HexColor("#991b1b")
         AMAR   = colors.HexColor("#92400e")
         BRANCO = colors.white
+        # Texto do cabeçalho das tabelas (fundo = COR_PRINCIPAL): branco ou escuro,
+        # o que garantir leitura, já que a cor principal pode ser clara ou escura.
+        TEXTO_HEADER = colors.HexColor(cfg_cor["contraste"])
 
         _mapa_texto = {"escuro": "#1c2333", "cinza": "#4a5568", "claro": "#ffffff"}
         TEXTO = colors.HexColor(_mapa_texto.get(cor_texto_cfg, "#1c2333"))
@@ -94,6 +97,7 @@ class PdfClienteService:
         sSub    = ParagraphStyle("sub",    fontName=FONTE_BASE, fontSize=cfg_tam["mini"] + 2, textColor=colors.HexColor("#5a6680"), spaceAfter=12)
         sSecao  = ParagraphStyle("secao",  fontName=FONTE_BOLD, fontSize=cfg_tam["secao"],   textColor=COR_SECUND, spaceBefore=14, spaceAfter=6)
         sLabel  = ParagraphStyle("label",  fontName=FONTE_BOLD, fontSize=cfg_tam["mini"] + 1, textColor=colors.HexColor("#5a6680"))
+        sThead  = ParagraphStyle("thead",  fontName=FONTE_BOLD, fontSize=cfg_tam["mini"] + 1, textColor=TEXTO_HEADER)
         sValor  = ParagraphStyle("valor",  fontName=FONTE_BASE, fontSize=cfg_tam["texto"],   textColor=TEXTO)
         sPlaca  = ParagraphStyle("placa",  fontName=FONTE_BOLD, fontSize=cfg_tam["secao"] + 1, textColor=COR_PRINCIPAL)
         sMini   = ParagraphStyle("mini",   fontName=FONTE_BASE, fontSize=cfg_tam["mini"],    textColor=colors.HexColor("#5a6680"))
@@ -202,13 +206,13 @@ class PdfClienteService:
                 def tabela_registros(titulo, registros, campos_cabecalho, extrair_linha):
                     bloco.append(Spacer(1, 8))
                     bloco.append(Paragraph(titulo, sSecao))
-                    thead = [Paragraph(h, sLabel) for h in campos_cabecalho]
+                    thead = [Paragraph(h, sThead) for h in campos_cabecalho]
                     trows = [thead] + [extrair_linha(r) for r in registros]
                     col_w = [f"{100 / len(campos_cabecalho):.1f}%"] * len(campos_cabecalho)
                     ti = Table(trows, colWidths=col_w)
                     ti.setStyle(TableStyle([
                         ("BACKGROUND", (0, 0), (-1, 0), COR_PRINCIPAL),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), BRANCO),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), TEXTO_HEADER),
                         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [BRANCO, CINZA1]),
                         ("BOX", (0, 0), (-1, -1), 0.5, CINZA2),
                         ("INNERGRID", (0, 0), (-1, -1), 0.3, CINZA2),

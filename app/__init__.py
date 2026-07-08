@@ -77,8 +77,8 @@ def _registrar_helpers_jinja(app: Flask) -> None:
         except Exception:
             modo, cor_chave, esc_nome, esc_logo = "claro", "azul", "", ""
 
-        from app.services.configuracao_service import PALETA_CORES
-        cor = PALETA_CORES.get(cor_chave, PALETA_CORES["azul"])
+        from app.services.configuracao_service import resolver_cor
+        cor = resolver_cor(cor_chave)
         logo_url = f"/static/uploads/logo/{esc_logo}" if esc_logo else ""
         return {
             "tema_modo": modo,

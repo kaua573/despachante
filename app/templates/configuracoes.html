@@ -3,39 +3,110 @@
 {% block breadcrumb %}<span>Configurações</span>{% endblock %}
 
 {% block content %}
+<style>
+  .cor-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .cor-picker {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 2px solid var(--cinza3);
+    border-radius: 8px;
+    cursor: pointer;
+    background: none;
+  }
+
+  .cor-picker::-webkit-color-swatch-wrapper {
+    padding: 2px;
+  }
+
+  .cor-picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 5px;
+  }
+
+  .cor-hex {
+    width: 110px;
+    font-family: monospace;
+    text-transform: lowercase;
+    border: 1px solid var(--cinza3);
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 13px;
+    color: var(--texto);
+    background: var(--input-bg);
+  }
+
+  .cor-hex:focus {
+    outline: none;
+    border-color: var(--azul2);
+    box-shadow: 0 0 0 3px rgba(37, 99, 174, .12);
+  }
+
+  .cor-preview {
+    flex: 1;
+    height: 44px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    border: 1px solid var(--cinza3);
+    transition: .15s;
+  }
+</style>
 <div style="display:flex;flex-direction:column;gap:20px;max-width:780px;">
 
   <!-- Identidade do escritório -->
   <div class="card">
-    <div class="card-header"><h2>{{ icon('security') }} Identidade do escritório</h2></div>
+    <div class="card-header">
+      <h2>{{ icon('security') }} Identidade do escritório</h2>
+    </div>
     <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
-      <p style="font-size:13px;color:var(--sub);">O nome e a logo aparecem na barra de navegação e nos relatórios PDF.</p>
+      <p style="font-size:13px;color:var(--sub);">O nome e a logo aparecem na barra de navegação e nos relatórios PDF.
+      </p>
       <div class="field">
         <label>Nome do escritório</label>
         <input id="esc-nome" placeholder="Ex: Despachante Silva & Associados">
       </div>
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">Logo</div>
+        <div
+          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">
+          Logo</div>
         <div id="logo-preview-wrap" style="display:none;margin-bottom:10px;align-items:center;gap:12px;">
-          <img id="logo-preview" src="" alt="Logo atual" style="height:48px;max-width:180px;object-fit:contain;border-radius:6px;border:1px solid var(--cinza2);padding:4px;background:var(--cinza1);">
-          <button class="btn btn-danger btn-sm" onclick="removerLogo()">{{ icon('delete','icon icon-sm') }} Remover logo</button>
+          <img id="logo-preview" src="" alt="Logo atual"
+            style="height:48px;max-width:180px;object-fit:contain;border-radius:6px;border:1px solid var(--cinza2);padding:4px;background:var(--cinza1);">
+          <button class="btn btn-danger btn-sm" onclick="removerLogo()">{{ icon('delete','icon icon-sm') }} Remover
+            logo</button>
         </div>
-        <div class="file-drop" id="logo-drop" onclick="document.getElementById('logo-input').click()" style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <div class="file-drop" id="logo-drop" onclick="document.getElementById('logo-input').click()"
+          style="display:flex;flex-direction:column;align-items:center;gap:6px;">
           {{ icon('upload','icon icon-lg') }}
           <span id="logo-drop-texto">Clique para selecionar a logo (PNG, JPG ou SVG)</span>
         </div>
-        <input type="file" id="logo-input" accept=".png,.jpg,.jpeg,.svg,.gif,.webp" style="display:none;" onchange="onLogoSelecionada()">
+        <input type="file" id="logo-input" accept=".png,.jpg,.jpeg,.svg,.gif,.webp" style="display:none;"
+          onchange="onLogoSelecionada()">
       </div>
-      <button class="btn btn-primary" onclick="salvarEscritorio()">{{ icon('save','icon icon-sm') }} Salvar identidade</button>
+      <button class="btn btn-primary" onclick="salvarEscritorio()">{{ icon('save','icon icon-sm') }} Salvar
+        identidade</button>
     </div>
   </div>
 
   <!-- Aparência -->
   <div class="card">
-    <div class="card-header"><h2>{{ icon('color') }} Aparência do sistema</h2></div>
+    <div class="card-header">
+      <h2>{{ icon('color') }} Aparência do sistema</h2>
+    </div>
     <div class="card-body" style="display:flex;flex-direction:column;gap:20px;">
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Modo</div>
+        <div
+          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
+          Modo</div>
         <div class="modo-toggle">
           <div class="modo-card" id="modo-claro" onclick="selecionarModo('claro')">
             {{ icon('view','icon') }}<div class="label" style="margin-top:6px;">Claro</div>
@@ -46,17 +117,27 @@
         </div>
       </div>
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Cor principal</div>
-        <div class="swatch-group" id="swatch-tema"></div>
-        <div id="label-cor-tema" style="font-size:13px;color:var(--sub);margin-top:8px;"></div>
+        <div
+          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
+          Cor principal</div>
+        <div class="cor-picker-row">
+          <input type="color" id="cor-tema-picker" class="cor-picker" oninput="onCorChange('tema', this.value)">
+          <input type="text" id="cor-tema-hex" class="cor-hex" maxlength="7" placeholder="#1a4f8a"
+            oninput="onHexDigitado('tema', this.value)">
+          <div class="cor-preview" id="cor-tema-preview">Aa</div>
+        </div>
+        <!--div class="swatch-group" id="swatch-tema" style="margin-top:10px;"></div -esconde bolas de cores -->
       </div>
-      <button class="btn btn-primary" onclick="salvarTema()">{{ icon('save','icon icon-sm') }} Aplicar aparência</button>
+      <button class="btn btn-primary" onclick="salvarTema()">{{ icon('save','icon icon-sm') }} Aplicar
+        aparência</button>
     </div>
   </div>
 
   <!-- PDF -->
   <div class="card">
-    <div class="card-header"><h2>{{ icon('file') }} Personalização do relatório PDF</h2></div>
+    <div class="card-header">
+      <h2>{{ icon('file') }} Personalização do relatório PDF</h2>
+    </div>
     <div class="card-body" style="display:flex;flex-direction:column;gap:18px;">
       <div class="row2">
         <div class="field"><label>Fonte</label>
@@ -75,34 +156,55 @@
         </div>
       </div>
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">Cor do texto</div>
+        <div
+          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">
+          Cor do texto</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;" id="cor-texto-group">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;" id="ct-escuro">
+          <label
+            style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;"
+            id="ct-escuro">
             <input type="radio" name="pdf-cor-texto" value="escuro" style="accent-color:var(--azul2);">
-            <span style="width:16px;height:16px;border-radius:50%;background:#1c2333;display:inline-block;border:1px solid var(--cinza3);"></span>
+            <span
+              style="width:16px;height:16px;border-radius:50%;background:#1c2333;display:inline-block;border:1px solid var(--cinza3);"></span>
             Escuro (padrão)
           </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;" id="ct-cinza">
+          <label
+            style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;"
+            id="ct-cinza">
             <input type="radio" name="pdf-cor-texto" value="cinza" style="accent-color:var(--azul2);">
-            <span style="width:16px;height:16px;border-radius:50%;background:#4a5568;display:inline-block;border:1px solid var(--cinza3);"></span>
+            <span
+              style="width:16px;height:16px;border-radius:50%;background:#4a5568;display:inline-block;border:1px solid var(--cinza3);"></span>
             Cinza (suave)
           </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;" id="ct-claro">
+          <label
+            style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;"
+            id="ct-claro">
             <input type="radio" name="pdf-cor-texto" value="claro" style="accent-color:var(--azul2);">
-            <span style="width:16px;height:16px;border-radius:50%;background:#9aa4ba;display:inline-block;border:1px solid var(--cinza3);"></span>
+            <span
+              style="width:16px;height:16px;border-radius:50%;background:#9aa4ba;display:inline-block;border:1px solid var(--cinza3);"></span>
             Claro (para fundos escuros)
           </label>
         </div>
       </div>
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Cor principal do PDF</div>
-        <div class="swatch-group" id="swatch-pdf"></div>
-        <div id="label-cor-pdf" style="font-size:13px;color:var(--sub);margin-top:8px;"></div>
+        <div
+          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
+          Cor principal do PDF</div>
+        <div class="cor-picker-row">
+          <input type="color" id="cor-pdf-picker" class="cor-picker" oninput="onCorChange('pdf', this.value)">
+          <input type="text" id="cor-pdf-hex" class="cor-hex" maxlength="7" placeholder="#1a4f8a"
+            oninput="onHexDigitado('pdf', this.value)">
+          <div class="cor-preview" id="cor-pdf-preview">Aa</div>
+        </div>
+        <!--div class="swatch-group" id="swatch-pdf" style="margin-top:10px;"></div--esconde bolas de cores -->
       </div>
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Layout</div>
+        <div
+          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
+          Layout</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <label class="check-item"><input type="checkbox" id="pdf-mostrar-data"> Mostrar data/hora de geração no cabeçalho</label>
+          <label class="check-item"><input type="checkbox" id="pdf-mostrar-data"> Mostrar data/hora de geração no
+            cabeçalho</label>
           <div class="row2" style="gap:12px;margin-top:4px;">
             <div class="field"><label>Espaçamento das tabelas</label>
               <select id="pdf-espacamento">
@@ -120,36 +222,48 @@
         </div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-primary" onclick="salvarPdf()">{{ icon('save','icon icon-sm') }} Salvar configurações do PDF</button>
-        <button class="btn btn-outline" onclick="previewPdf()">{{ icon('view','icon icon-sm') }} Gerar PDF de prévia</button>
+        <button class="btn btn-primary" onclick="salvarPdf()">{{ icon('save','icon icon-sm') }} Salvar configurações do
+          PDF</button>
+        <button class="btn btn-outline" onclick="previewPdf()">{{ icon('view','icon icon-sm') }} Gerar PDF de
+          prévia</button>
       </div>
     </div>
   </div>
 
   <!-- Senha de exclusão -->
   <div class="card">
-    <div class="card-header"><h2>{{ icon('padlock') }} Senha de exclusão</h2></div>
+    <div class="card-header">
+      <h2>{{ icon('padlock') }} Senha de exclusão</h2>
+    </div>
     <div class="card-body">
-      <p style="font-size:13px;color:var(--sub);margin-bottom:14px;">Exigida toda vez que algo for excluído no sistema.</p>
-      <div id="aviso-senha-padrao" style="display:none;align-items:center;gap:8px;background:var(--cinza1);border:1px solid var(--amarelo);color:var(--amarelo);padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;">
+      <p style="font-size:13px;color:var(--sub);margin-bottom:14px;">Exigida toda vez que algo for excluído no sistema.
+      </p>
+      <div id="aviso-senha-padrao"
+        style="display:none;align-items:center;gap:8px;background:var(--cinza1);border:1px solid var(--amarelo);color:var(--amarelo);padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;">
         {{ icon('warning','icon icon-sm') }} Senha ainda no valor padrão (<strong>0000</strong>). Recomendamos trocar.
       </div>
       <div class="row2">
         <div class="field"><label>Senha atual</label><input id="f-senha-atual" type="password" placeholder="••••"></div>
-        <div class="field"><label>Nova senha</label><input id="f-senha-nova" type="password" placeholder="Mínimo 4 caracteres"></div>
+        <div class="field"><label>Nova senha</label><input id="f-senha-nova" type="password"
+            placeholder="Mínimo 4 caracteres"></div>
       </div>
       <div style="margin-top:14px;">
-        <button class="btn btn-primary" onclick="salvarSenha()">{{ icon('save','icon icon-sm') }} Salvar nova senha</button>
+        <button class="btn btn-primary" onclick="salvarSenha()">{{ icon('save','icon icon-sm') }} Salvar nova
+          senha</button>
       </div>
     </div>
   </div>
 
   <!-- Backup automático -->
   <div class="card">
-    <div class="card-header"><h2>{{ icon('folder') }} Backup automático</h2></div>
+    <div class="card-header">
+      <h2>{{ icon('folder') }} Backup automático</h2>
+    </div>
     <div class="card-body">
       <p style="font-size:13px;color:var(--sub);margin-bottom:14px;">
-        Cópia automática salva na pasta <code style="background:var(--cinza1);padding:1px 6px;border-radius:4px;">backups/</code>. Cópias com mais de 5 dias são removidas automaticamente.
+        Cópia automática salva na pasta <code
+          style="background:var(--cinza1);padding:1px 6px;border-radius:4px;">backups/</code>. Cópias com mais de 5 dias
+        são removidas automaticamente.
       </p>
       <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
         <div class="field" style="max-width:200px;">
@@ -157,7 +271,8 @@
           <input id="f-backup-intervalo" type="number" min="1" placeholder="30">
         </div>
         <button class="btn btn-primary" onclick="salvarIntervalo()">{{ icon('save','icon icon-sm') }} Salvar</button>
-        <button class="btn btn-outline" onclick="backupAgora()">{{ icon('folder','icon icon-sm') }} Fazer backup agora</button>
+        <button class="btn btn-outline" onclick="backupAgora()">{{ icon('folder','icon icon-sm') }} Fazer backup
+          agora</button>
       </div>
     </div>
   </div>
@@ -170,7 +285,13 @@
     </div>
     <div class="tabela-wrap">
       <table>
-        <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Criado em</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Arquivo</th>
+            <th>Tamanho</th>
+            <th>Criado em</th>
+          </tr>
+        </thead>
         <tbody id="tbody-backups"></tbody>
       </table>
     </div>
@@ -181,217 +302,257 @@
 
 {% block scripts %}
 <script>
-let temaModoCurrent = 'claro', temaCorCurrent = 'azul', pdfCorCurrent = 'azul';
+  let temaModoCurrent = 'claro', temaCorCurrent = '#1a4f8a', pdfCorCurrent = '#1a4f8a';
 
-async function init() {
-  await Promise.all([carregarEscritorio(), carregarTema(), carregarPdf(), carregarConfig(), carregarBackups()]);
-}
+  async function init() {
+    await Promise.all([carregarEscritorio(), carregarTema(), carregarPdf(), carregarConfig(), carregarBackups()]);
+  }
 
-// ── Identidade ────────────────────────────────────────────────────────────────
-async function carregarEscritorio() {
-  const d = await apiFetch('/api/configuracoes/escritorio');
-  if (!d) return;
-  document.getElementById('esc-nome').value = d.nome || '';
-  if (d.logo_url) {
-    document.getElementById('logo-preview').src = d.logo_url;
-    document.getElementById('logo-preview-wrap').style.display = 'flex';
-  } else {
+  // ── Identidade ────────────────────────────────────────────────────────────────
+  async function carregarEscritorio() {
+    const d = await apiFetch('/api/configuracoes/escritorio');
+    if (!d) return;
+    document.getElementById('esc-nome').value = d.nome || '';
+    if (d.logo_url) {
+      document.getElementById('logo-preview').src = d.logo_url;
+      document.getElementById('logo-preview-wrap').style.display = 'flex';
+    } else {
+      document.getElementById('logo-preview-wrap').style.display = 'none';
+    }
+  }
+
+  function onLogoSelecionada() {
+    const f = document.getElementById('logo-input').files[0];
+    if (!f) return;
+    document.getElementById('logo-drop-texto').textContent = f.name;
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('logo-preview').src = e.target.result;
+      document.getElementById('logo-preview-wrap').style.display = 'flex';
+    };
+    reader.readAsDataURL(f);
+  }
+
+  async function salvarEscritorio() {
+    const fd = new FormData();
+    fd.append('nome', document.getElementById('esc-nome').value.trim());
+    const logoInput = document.getElementById('logo-input');
+    if (logoInput.files[0]) fd.append('logo', logoInput.files[0]);
+    try {
+      const res = await fetch('/api/configuracoes/escritorio', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!d.ok) { toast(d.erro || 'Erro ao salvar', 'err'); return; }
+      toast('Identidade salva! Recarregando...');
+      setTimeout(() => location.reload(), 900);
+    } catch (e) { toast('Erro de conexão', 'err'); }
+  }
+
+  async function removerLogo() {
+    if (!confirm('Remover a logo atual?')) return;
+    const d = await apiFetch('/api/configuracoes/escritorio/logo', { method: 'DELETE' });
+    if (!d) return;
     document.getElementById('logo-preview-wrap').style.display = 'none';
-  }
-}
-
-function onLogoSelecionada() {
-  const f = document.getElementById('logo-input').files[0];
-  if (!f) return;
-  document.getElementById('logo-drop-texto').textContent = f.name;
-  const reader = new FileReader();
-  reader.onload = e => {
-    document.getElementById('logo-preview').src = e.target.result;
-    document.getElementById('logo-preview-wrap').style.display = 'flex';
-  };
-  reader.readAsDataURL(f);
-}
-
-async function salvarEscritorio() {
-  const fd = new FormData();
-  fd.append('nome', document.getElementById('esc-nome').value.trim());
-  const logoInput = document.getElementById('logo-input');
-  if (logoInput.files[0]) fd.append('logo', logoInput.files[0]);
-  try {
-    const res = await fetch('/api/configuracoes/escritorio', { method: 'POST', body: fd });
-    const d = await res.json();
-    if (!d.ok) { toast(d.erro || 'Erro ao salvar', 'err'); return; }
-    toast('Identidade salva! Recarregando...');
+    document.getElementById('logo-preview').src = '';
+    document.getElementById('logo-drop-texto').textContent = 'Clique para selecionar a logo (PNG, JPG ou SVG)';
+    document.getElementById('logo-input').value = '';
+    toast('Logo removida! Recarregando...');
     setTimeout(() => location.reload(), 900);
-  } catch(e) { toast('Erro de conexão', 'err'); }
-}
-
-async function removerLogo() {
-  if (!confirm('Remover a logo atual?')) return;
-  const d = await apiFetch('/api/configuracoes/escritorio/logo', { method: 'DELETE' });
-  if (!d) return;
-  document.getElementById('logo-preview-wrap').style.display = 'none';
-  document.getElementById('logo-preview').src = '';
-  document.getElementById('logo-drop-texto').textContent = 'Clique para selecionar a logo (PNG, JPG ou SVG)';
-  document.getElementById('logo-input').value = '';
-  toast('Logo removida! Recarregando...');
-  setTimeout(() => location.reload(), 900);
-}
-
-// ── Tema ──────────────────────────────────────────────────────────────────────
-async function carregarTema() {
-  const d = await apiFetch('/api/configuracoes/tema');
-  if (!d) return;
-  temaModoCurrent = d.modo; temaCorCurrent = d.cor;
-  document.getElementById('modo-claro').classList.toggle('selecionado', d.modo === 'claro');
-  document.getElementById('modo-escuro').classList.toggle('selecionado', d.modo === 'escuro');
-  renderSwatches('swatch-tema', d.paleta, temaCorCurrent, cor => {
-    temaCorCurrent = cor;
-    document.getElementById('label-cor-tema').textContent = d.paleta[cor]?.nome || cor;
-  });
-  document.getElementById('label-cor-tema').textContent = d.paleta[temaCorCurrent]?.nome || temaCorCurrent;
-}
-
-function selecionarModo(modo) {
-  temaModoCurrent = modo;
-  document.getElementById('modo-claro').classList.toggle('selecionado', modo === 'claro');
-  document.getElementById('modo-escuro').classList.toggle('selecionado', modo === 'escuro');
-}
-
-async function salvarTema() {
-  const d = await apiFetch('/api/configuracoes/tema', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ modo: temaModoCurrent, cor: temaCorCurrent })
-  });
-  if (!d) return;
-  toast('Aparência salva! Recarregando...');
-  setTimeout(() => location.reload(), 900);
-}
-
-// ── PDF ───────────────────────────────────────────────────────────────────────
-async function carregarPdf() {
-  const d = await apiFetch('/api/configuracoes/pdf');
-  if (!d) return;
-  pdfCorCurrent = d.cor;
-  document.getElementById('pdf-fonte').value = d.fonte;
-  document.getElementById('pdf-tamanho').value = d.tamanho;
-  document.getElementById('pdf-mostrar-data').checked = d.mostrar_data_geracao;
-  document.getElementById('pdf-espacamento').value = d.espacamento;
-  document.getElementById('pdf-ordem').value = d.ordem_blocos;
-  const radios = document.querySelectorAll('input[name="pdf-cor-texto"]');
-  radios.forEach(r => {
-    r.checked = r.value === d.cor_texto;
-    atualizarBordaCorTexto(r.closest('label'), r.checked);
-    r.addEventListener('change', () => radios.forEach(rr => atualizarBordaCorTexto(rr.closest('label'), rr.checked)));
-  });
-  renderSwatches('swatch-pdf', d.opcoes_cor, pdfCorCurrent, cor => {
-    pdfCorCurrent = cor;
-    document.getElementById('label-cor-pdf').textContent = d.opcoes_cor[cor]?.nome || cor;
-  });
-  document.getElementById('label-cor-pdf').textContent = d.opcoes_cor[pdfCorCurrent]?.nome || pdfCorCurrent;
-}
-
-function atualizarBordaCorTexto(label, selecionado) {
-  if (!label) return;
-  label.style.borderColor = selecionado ? 'var(--azul2)' : 'var(--cinza3)';
-  label.style.background  = selecionado ? 'var(--cinza1)' : '';
-}
-
-async function salvarPdf() {
-  const corTexto = document.querySelector('input[name="pdf-cor-texto"]:checked')?.value || 'escuro';
-  const d = await apiFetch('/api/configuracoes/pdf', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      fonte: document.getElementById('pdf-fonte').value,
-      tamanho: document.getElementById('pdf-tamanho').value,
-      cor: pdfCorCurrent, cor_texto: corTexto,
-      mostrar_data_geracao: document.getElementById('pdf-mostrar-data').checked,
-      espacamento: document.getElementById('pdf-espacamento').value,
-      ordem_blocos: document.getElementById('pdf-ordem').value,
-      nome_escritorio: ''
-    })
-  });
-  if (d) toast('Configurações do PDF salvas!');
-}
-
-async function previewPdf() {
-  const cls = await apiFetch('/api/clientes');
-  if (!cls || !cls.length) { toast('Cadastre ao menos um cliente para gerar a prévia', 'err'); return; }
-  window.open(`/api/clientes/${cls[0].id}/relatorio?incluir=dados&incluir=veiculos&incluir=ipva&incluir=licenciamento`, '_blank');
-}
-
-// ── Senha ─────────────────────────────────────────────────────────────────────
-async function carregarConfig() {
-  const cfg = await apiFetch('/api/configuracoes');
-  if (!cfg) return;
-  document.getElementById('f-backup-intervalo').value = cfg.backup_intervalo_min;
-  document.getElementById('aviso-senha-padrao').style.display = cfg.senha_configurada ? 'none' : 'flex';
-}
-
-async function salvarSenha() {
-  const senha_atual = document.getElementById('f-senha-atual').value;
-  const nova_senha  = document.getElementById('f-senha-nova').value;
-  if (!senha_atual || !nova_senha) { toast('Preencha a senha atual e a nova senha', 'err'); return; }
-  const d = await apiFetch('/api/configuracoes/senha', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ senha_atual, nova_senha })
-  });
-  if (!d) return;
-  document.getElementById('f-senha-atual').value = '';
-  document.getElementById('f-senha-nova').value  = '';
-  toast('Senha atualizada!');
-  carregarConfig();
-}
-
-// ── Backup ────────────────────────────────────────────────────────────────────
-async function salvarIntervalo() {
-  const minutos = parseInt(document.getElementById('f-backup-intervalo').value);
-  const d = await apiFetch('/api/configuracoes/backup-intervalo', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ minutos })
-  });
-  if (d) toast('Intervalo de backup atualizado!');
-}
-
-async function backupAgora() {
-  const d = await apiFetch('/api/configuracoes/backup-agora', { method: 'POST' });
-  if (d) { toast('Backup criado: ' + d.arquivo); carregarBackups(); }
-}
-
-async function carregarBackups() {
-  const lista = await apiFetch('/api/configuracoes/backups');
-  if (!lista) return;
-  document.getElementById('badge-backups').textContent = lista.length + ' arquivo(s)';
-  const tbody = document.getElementById('tbody-backups');
-  if (!lista.length) {
-    tbody.innerHTML = `<tr><td colspan="3"><div class="empty-state"><p>Nenhum backup gerado ainda</p></div></td></tr>`;
-    return;
   }
-  tbody.innerHTML = lista.map(b => `<tr>
+
+  // ── Cores (espectro livre) ───────────────────────────────────────────────────
+  // Mesma fórmula de luminância (WCAG 2.0) usada no backend, para a prévia
+  // reagir instantaneamente sem precisar ir ao servidor.
+  function luminanciaRelativa(hex) {
+    const h = hex.replace('#', '');
+    const canais = [0, 2, 4].map(i => {
+      let c = parseInt(h.substring(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * canais[0] + 0.7152 * canais[1] + 0.0722 * canais[2];
+  }
+
+  function corContraste(hex) {
+    return luminanciaRelativa(hex) > 0.5 ? '#1c2333' : '#ffffff';
+  }
+
+  function hexValido(hex) {
+    return /^#[0-9a-fA-F]{6}$/.test(hex);
+  }
+
+  function atualizarPreview(tipo, hex) {
+    const preview = document.getElementById(`cor-${tipo}-preview`);
+    preview.style.background = hex;
+    preview.style.color = corContraste(hex);
+    preview.textContent = 'Aa — assim ficará o texto sobre essa cor';
+    preview.style.fontSize = '12px';
+    preview.style.padding = '0 12px';
+  }
+
+  function definirCor(tipo, hex) {
+    if (!hexValido(hex)) return;
+    hex = hex.toLowerCase();
+    if (tipo === 'tema') temaCorCurrent = hex; else pdfCorCurrent = hex;
+    document.getElementById(`cor-${tipo}-picker`).value = hex;
+    document.getElementById(`cor-${tipo}-hex`).value = hex;
+    atualizarPreview(tipo, hex);
+    document.querySelectorAll(`#swatch-${tipo} .swatch`).forEach(s => s.classList.toggle('selecionada', s.dataset.hex === hex));
+  }
+
+  function onCorChange(tipo, hex) { definirCor(tipo, hex); }
+
+  function onHexDigitado(tipo, valor) {
+    valor = valor.trim();
+    if (!valor.startsWith('#')) valor = '#' + valor;
+    if (hexValido(valor)) definirCor(tipo, valor);
+  }
+
+  function renderSwatches(containerId, sugestoes, corAtualHex) {
+    const el = document.getElementById(containerId);
+    const tipo = containerId.includes('pdf') ? 'pdf' : 'tema';
+    el.innerHTML = '';
+    for (const info of Object.values(sugestoes)) {
+      const hex = info.principal.toLowerCase();
+      const div = document.createElement('div');
+      div.className = 'swatch' + (hex === corAtualHex ? ' selecionada' : '');
+      div.title = info.nome;
+      div.dataset.hex = hex;
+      div.style.background = hex;
+      div.onclick = () => definirCor(tipo, hex);
+      el.appendChild(div);
+    }
+  }
+
+  // ── Tema ──────────────────────────────────────────────────────────────────────
+  async function carregarTema() {
+    const d = await apiFetch('/api/configuracoes/tema');
+    if (!d) return;
+    temaModoCurrent = d.modo;
+    temaCorCurrent = d.resolvida.principal;
+    document.getElementById('modo-claro').classList.toggle('selecionado', d.modo === 'claro');
+    document.getElementById('modo-escuro').classList.toggle('selecionado', d.modo === 'escuro');
+    renderSwatches('swatch-tema', d.sugestoes, temaCorCurrent);
+    definirCor('tema', temaCorCurrent);
+  }
+
+  function selecionarModo(modo) {
+    temaModoCurrent = modo;
+    document.getElementById('modo-claro').classList.toggle('selecionado', modo === 'claro');
+    document.getElementById('modo-escuro').classList.toggle('selecionado', modo === 'escuro');
+  }
+
+  async function salvarTema() {
+    const d = await apiFetch('/api/configuracoes/tema', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo: temaModoCurrent, cor: temaCorCurrent })
+    });
+    if (!d) return;
+    toast('Aparência salva! Recarregando...');
+    setTimeout(() => location.reload(), 900);
+  }
+
+  // ── PDF ───────────────────────────────────────────────────────────────────────
+  async function carregarPdf() {
+    const d = await apiFetch('/api/configuracoes/pdf');
+    if (!d) return;
+    pdfCorCurrent = d.cor_resolvida.principal;
+    document.getElementById('pdf-fonte').value = d.fonte;
+    document.getElementById('pdf-tamanho').value = d.tamanho;
+    document.getElementById('pdf-mostrar-data').checked = d.mostrar_data_geracao;
+    document.getElementById('pdf-espacamento').value = d.espacamento;
+    document.getElementById('pdf-ordem').value = d.ordem_blocos;
+    const radios = document.querySelectorAll('input[name="pdf-cor-texto"]');
+    radios.forEach(r => {
+      r.checked = r.value === d.cor_texto;
+      atualizarBordaCorTexto(r.closest('label'), r.checked);
+      r.addEventListener('change', () => radios.forEach(rr => atualizarBordaCorTexto(rr.closest('label'), rr.checked)));
+    });
+    renderSwatches('swatch-pdf', d.sugestoes_cor, pdfCorCurrent);
+    definirCor('pdf', pdfCorCurrent);
+  }
+
+  function atualizarBordaCorTexto(label, selecionado) {
+    if (!label) return;
+    label.style.borderColor = selecionado ? 'var(--azul2)' : 'var(--cinza3)';
+    label.style.background = selecionado ? 'var(--cinza1)' : '';
+  }
+
+  async function salvarPdf() {
+    const corTexto = document.querySelector('input[name="pdf-cor-texto"]:checked')?.value || 'escuro';
+    const d = await apiFetch('/api/configuracoes/pdf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fonte: document.getElementById('pdf-fonte').value,
+        tamanho: document.getElementById('pdf-tamanho').value,
+        cor: pdfCorCurrent, cor_texto: corTexto,
+        mostrar_data_geracao: document.getElementById('pdf-mostrar-data').checked,
+        espacamento: document.getElementById('pdf-espacamento').value,
+        ordem_blocos: document.getElementById('pdf-ordem').value,
+        nome_escritorio: ''
+      })
+    });
+    if (d) toast('Configurações do PDF salvas!');
+  }
+
+  async function previewPdf() {
+    const cls = await apiFetch('/api/clientes');
+    if (!cls || !cls.length) { toast('Cadastre ao menos um cliente para gerar a prévia', 'err'); return; }
+    window.open(`/api/clientes/${cls[0].id}/relatorio?incluir=dados&incluir=veiculos&incluir=ipva&incluir=licenciamento`, '_blank');
+  }
+
+  // ── Senha ─────────────────────────────────────────────────────────────────────
+  async function carregarConfig() {
+    const cfg = await apiFetch('/api/configuracoes');
+    if (!cfg) return;
+    document.getElementById('f-backup-intervalo').value = cfg.backup_intervalo_min;
+    document.getElementById('aviso-senha-padrao').style.display = cfg.senha_configurada ? 'none' : 'flex';
+  }
+
+  async function salvarSenha() {
+    const senha_atual = document.getElementById('f-senha-atual').value;
+    const nova_senha = document.getElementById('f-senha-nova').value;
+    if (!senha_atual || !nova_senha) { toast('Preencha a senha atual e a nova senha', 'err'); return; }
+    const d = await apiFetch('/api/configuracoes/senha', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha_atual, nova_senha })
+    });
+    if (!d) return;
+    document.getElementById('f-senha-atual').value = '';
+    document.getElementById('f-senha-nova').value = '';
+    toast('Senha atualizada!');
+    carregarConfig();
+  }
+
+  // ── Backup ────────────────────────────────────────────────────────────────────
+  async function salvarIntervalo() {
+    const minutos = parseInt(document.getElementById('f-backup-intervalo').value);
+    const d = await apiFetch('/api/configuracoes/backup-intervalo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutos })
+    });
+    if (d) toast('Intervalo de backup atualizado!');
+  }
+
+  async function backupAgora() {
+    const d = await apiFetch('/api/configuracoes/backup-agora', { method: 'POST' });
+    if (d) { toast('Backup criado: ' + d.arquivo); carregarBackups(); }
+  }
+
+  async function carregarBackups() {
+    const lista = await apiFetch('/api/configuracoes/backups');
+    if (!lista) return;
+    document.getElementById('badge-backups').textContent = lista.length + ' arquivo(s)';
+    const tbody = document.getElementById('tbody-backups');
+    if (!lista.length) {
+      tbody.innerHTML = `<tr><td colspan="3"><div class="empty-state"><p>Nenhum backup gerado ainda</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = lista.map(b => `<tr>
     <td style="font-family:monospace;font-size:13px;">${b.nome}</td>
     <td>${b.tamanho_kb} KB</td>
     <td>${b.criado_em}</td>
   </tr>`).join('');
-}
-
-// ── Swatches ──────────────────────────────────────────────────────────────────
-function renderSwatches(containerId, paleta, corAtual, onSelect) {
-  const el = document.getElementById(containerId);
-  el.innerHTML = '';
-  for (const [chave, info] of Object.entries(paleta)) {
-    const div = document.createElement('div');
-    div.className = 'swatch' + (chave === corAtual ? ' selecionada' : '');
-    div.title = info.nome;
-    div.style.background = info.principal;
-    div.onclick = () => {
-      el.querySelectorAll('.swatch').forEach(s => s.classList.remove('selecionada'));
-      div.classList.add('selecionada');
-      onSelect(chave);
-    };
-    el.appendChild(div);
   }
-}
 
-init();
+  init();
 </script>
 {% endblock %}

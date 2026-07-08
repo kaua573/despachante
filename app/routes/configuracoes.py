@@ -3,7 +3,8 @@ from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required
 from app import db
 from app.services.configuracao_service import (
-    ConfiguracaoService, PALETA_CORES, FONTES_PDF, TAMANHOS_PDF
+    ConfiguracaoService, PALETA_CORES, FONTES_PDF, TAMANHOS_PDF,
+    hex_valido, resolver_cor,
 )
 from app.services.backup_service import BackupService
 
@@ -98,10 +99,12 @@ def api_listar_backups():
 @login_required
 def api_get_tema():
     cfg = _cfg()
+    cor = cfg.get("tema_cor", "azul")
     return jsonify({
-        "modo":   cfg.get("tema_modo", "claro"),
-        "cor":    cfg.get("tema_cor", "azul"),
-        "paleta": PALETA_CORES,
+        "modo":      cfg.get("tema_modo", "claro"),
+        "cor":       cor,
+        "resolvida": resolver_cor(cor),
+        "sugestoes": PALETA_CORES,
     })
 
 
@@ -110,11 +113,11 @@ def api_get_tema():
 def api_set_tema():
     dados = request.get_json(silent=True) or {}
     modo = dados.get("modo")
-    cor = dados.get("cor")
+    cor = dados.get("cor", "")
     if modo not in ("claro", "escuro"):
         return jsonify({"ok": False, "erro": "Modo inválido."}), 400
-    if cor not in PALETA_CORES:
-        return jsonify({"ok": False, "erro": "Cor inválida."}), 400
+    if cor not in PALETA_CORES and not hex_valido(cor):
+        return jsonify({"ok": False, "erro": "Cor inválida. Use um código hexadecimal, ex: #1a4f8a."}), 400
     cfg = _cfg()
     cfg.set("tema_modo", modo)
     cfg.set("tema_cor", cor)
@@ -180,10 +183,12 @@ def api_remover_logo():
 @login_required
 def api_get_config_pdf():
     cfg = _cfg()
+    cor = cfg.get("pdf_cor", "azul")
     return jsonify({
         "fonte":                cfg.get("pdf_fonte", "moderna"),
         "tamanho":              cfg.get("pdf_tamanho", "medio"),
-        "cor":                  cfg.get("pdf_cor", "azul"),
+        "cor":                  cor,
+        "cor_resolvida":        resolver_cor(cor),
         "cor_texto":            cfg.get("pdf_cor_texto", "escuro"),
         "mostrar_data_geracao": cfg.get("pdf_mostrar_data_geracao", "1") == "1",
         "espacamento":          cfg.get("pdf_espacamento", "espacada"),
@@ -191,7 +196,7 @@ def api_get_config_pdf():
         "nome_escritorio":      cfg.get("pdf_nome_escritorio", ""),
         "opcoes_fonte":         FONTES_PDF,
         "opcoes_tamanho":       TAMANHOS_PDF,
-        "opcoes_cor":           PALETA_CORES,
+        "sugestoes_cor":        PALETA_CORES,
     })
 
 
@@ -199,10 +204,11 @@ def api_get_config_pdf():
 @login_required
 def api_set_config_pdf():
     dados = request.get_json(silent=True) or {}
+    cor = dados.get("cor", "")
     validacoes = [
         (dados.get("fonte") not in FONTES_PDF,         "Fonte inválida."),
         (dados.get("tamanho") not in TAMANHOS_PDF,     "Tamanho inválido."),
-        (dados.get("cor") not in PALETA_CORES,         "Cor inválida."),
+        (cor not in PALETA_CORES and not hex_valido(cor), "Cor inválida. Use um código hexadecimal, ex: #1a4f8a."),
         (dados.get("cor_texto") not in ("escuro", "cinza", "claro"), "Cor do texto inválida."),
         (dados.get("espacamento") not in ("compacta", "espacada"),   "Espaçamento inválido."),
         (dados.get("ordem_blocos") not in ("dados_primeiro", "veiculos_primeiro"), "Ordem de blocos inválida."),

@@ -3,12 +3,17 @@ Serviço de configurações do sistema.
 Centraliza leitura/escrita de configurações, paleta de cores e fontes PDF.
 """
 from __future__ import annotations
+import re
 from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.configuracao import Configuracao
 
+_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
 # ── Paleta compartilhada entre tema web e PDF ──────────────────────────────
+# Continuam existindo como sugestões de clique rápido na interface, mas deixaram
+# de ser as únicas cores aceitas — qualquer hexadecimal válido pode ser usado.
 PALETA_CORES: dict[str, dict] = {
     "azul":     {"nome": "Azul",     "principal": "#1a4f8a", "secundaria": "#2563ae"},
     "vermelho": {"nome": "Vermelho", "principal": "#9a2424", "secundaria": "#c0392b"},
@@ -47,6 +52,87 @@ DEFAULTS: dict[str, str] = {
     "escritorio_nome":           "",
     "escritorio_logo":           "",
 }
+
+
+# ── Utilitários de cor (espectro livre + contraste automático) ──────────────
+
+def hex_valido(cor: Optional[str]) -> bool:
+    """Valida o formato #RRGGBB."""
+    return bool(cor) and bool(_HEX_RE.match(cor))
+
+
+def _clamp(v: int) -> int:
+    return max(0, min(255, v))
+
+
+def variar_cor(cor_hex: str, fator: float) -> str:
+    """Clareia (fator > 0) ou escurece (fator < 0) uma cor hex. fator vai de -1 a 1.
+    Usada para derivar automaticamente a cor 'secundária' a partir da cor escolhida
+    pelo usuário, sem exigir um segundo seletor."""
+    h = cor_hex.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    if fator >= 0:
+        r, g, b = (_clamp(int(c + (255 - c) * fator)) for c in (r, g, b))
+    else:
+        r, g, b = (_clamp(int(c * (1 + fator))) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _luminancia_relativa(cor_hex: str) -> float:
+    """Luminância relativa (fórmula WCAG 2.0), usada para decidir contraste."""
+    h = cor_hex.lstrip("#")
+    canais = []
+    for i in (0, 2, 4):
+        c = int(h[i:i + 2], 16) / 255
+        canais.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    r, g, b = canais
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def cor_contraste_solida(cor_hex: str) -> str:
+    """Retorna a cor de texto/ícone (branco ou escuro) com melhor leitura sobre `cor_hex`."""
+    return "#1c2333" if _luminancia_relativa(cor_hex) > 0.5 else "#ffffff"
+
+
+def resolver_cor(cor: Optional[str]) -> dict:
+    """
+    Resolve uma cor configurada — hexadecimal livre ou uma das chaves antigas
+    da paleta fixa, mantidas por compatibilidade com bancos já existentes —
+    em um conjunto pronto para uso: principal, secundária (derivada
+    automaticamente) e variantes de contraste para texto/ícones.
+    """
+    principal = PALETA_CORES[cor]["principal"] if cor in PALETA_CORES else cor
+    if not hex_valido(principal):
+        principal = PALETA_CORES["azul"]["principal"]
+    secundaria = variar_cor(principal, 0.18)
+
+    def _variantes(fundo: str) -> dict:
+        contraste = cor_contraste_solida(fundo)
+        rgb = "28,35,51" if contraste == "#1c2333" else "255,255,255"
+        return {
+            "solida": contraste,
+            "forte":  f"rgba({rgb},.9)",
+            "medio":  f"rgba({rgb},.75)",
+            "fraco":  f"rgba({rgb},.15)",
+        }
+
+    c_principal  = _variantes(principal)
+    c_secundaria = _variantes(secundaria)
+    return {
+        "principal":  principal,
+        "secundaria": secundaria,
+        # Contraste calculado sobre a cor principal (usada como fundo do menu
+        # no modo claro) e sobre a secundária (fundo do menu no modo escuro),
+        # garantindo que texto/ícones fiquem legíveis em qualquer cor escolhida.
+        "contraste":             c_principal["solida"],
+        "contraste_forte":       c_principal["forte"],
+        "contraste_medio":       c_principal["medio"],
+        "contraste_fraco":       c_principal["fraco"],
+        "contraste_sec":         c_secundaria["solida"],
+        "contraste_sec_forte":   c_secundaria["forte"],
+        "contraste_sec_medio":   c_secundaria["medio"],
+        "contraste_sec_fraco":   c_secundaria["fraco"],
+    }
 
 
 class ConfiguracaoService:
