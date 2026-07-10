@@ -1,12 +1,29 @@
 diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
-index 66e1d64..3951439 100644
+index 75f0ebe..773ed83 100644
 --- a/app/templates/dashboard.html
 +++ b/app/templates/dashboard.html
-@@ -143,6 +143,33 @@
- </div>
- </div>
+@@ -79,6 +79,15 @@
+   .venc-grid th, .venc-grid td { padding:7px 5px; }
+   .venc-grid .badge { padding:2px 7px; font-size:10px; }
+   .venc-grid .btn-sm { padding:3px 9px; font-size:11px; }
++  .venc-grid { margin-top:-16px; }
++
++  /* Card de clientes esticado a largura total, no mesmo padrão do venc-grid */
++  .card-full {
++    width:100vw; margin-left:calc(50% - 50vw); padding:0 8px; box-sizing:border-box;
++    margin-top:10px;
++  }
++  .card-full thead th { padding:6px 9px; font-size:10px; }
++  .card-full td { padding:6px 9px; font-size:13px; }
+ </style>
  
-+<div class="card" style="margin-top:20px;">
+ <div class="venc-grid">
+@@ -142,6 +151,34 @@
+   </div>
+ </div>
+ </div>
++
++<div class="card card-full">
 +  <div class="card-header">
 +    <h2>{{ icon('users') }} Clientes cadastrados</h2>
 +    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -36,10 +53,11 @@ index 66e1d64..3951439 100644
  {% endblock %}
  
  {% block scripts %}
-@@ -266,6 +293,23 @@
+@@ -265,6 +302,24 @@
      renderizar('licenciamento');
    }
  
++
 +  // ── Clientes (consulta rápida — cadastro/edição continuam em /clientes) ──────
 +  async function carregarClientesDash() {
 +    const busca = document.getElementById('busca-clientes-dash').value;
