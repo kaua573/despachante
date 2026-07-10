@@ -67,9 +67,22 @@
   html[data-tema="escuro"] .badge-urg-urgente    { background:#3d2410; color:#f3a35f; }
   html[data-tema="escuro"] .badge-urg-atencao    { background:#3d2f0a; color:#e0a836; }
   html[data-tema="escuro"] .badge-urg-tranquilo  { background:#16243d; color:#6fa8e8; }
+
+  /* Duas tabelas lado a lado, cada metade com rolagem horizontal própria */
+  .venc-grid { 
+    /*display:grid; grid-template-columns:1fr 1fr; gap:20px; */
+    display:grid; grid-template-columns:1fr 1fr; gap:5px;
+    width:100vw; margin-left:calc(50% - 50vw); padding:0 8px; box-sizing:border-box;
+  }
+  .venc-grid .card { margin-bottom:0; }
+  .venc-grid table { min-width:760px; font-size:14px; }
+  .venc-grid th, .venc-grid td { padding:7px 5px; }
+  .venc-grid .badge { padding:2px 7px; font-size:10px; }
+  .venc-grid .btn-sm { padding:3px 9px; font-size:11px; }
 </style>
 
-<div class="card" style="margin-bottom:20px;">
+<div class="venc-grid">
+<div class="card">
   <div class="card-header">
     <h2>{{ icon('calendar') }} Vencimentos de IPVA — próximos 30 dias</h2>
     <span id="badge-ipva" style="font-size:12px;color:var(--sub);"></span>
@@ -127,6 +140,7 @@
       <tbody id="tbody-lic"></tbody>
     </table>
   </div>
+</div>
 </div>
 {% endblock %}
 

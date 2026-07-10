@@ -1,0 +1,62 @@
+diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
+index 66e1d64..3951439 100644
+--- a/app/templates/dashboard.html
++++ b/app/templates/dashboard.html
+@@ -143,6 +143,33 @@
+ </div>
+ </div>
+ 
++<div class="card" style="margin-top:20px;">
++  <div class="card-header">
++    <h2>{{ icon('users') }} Clientes cadastrados</h2>
++    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
++      <div class="search-box">
++        {{ icon('find','icon icon-sm') }}
++        <input type="text" id="busca-clientes-dash" placeholder="Buscar por nome, CPF..." oninput="carregarClientesDash()" style="margin-left:4px;">
++      </div>
++      <a class="btn btn-primary" href="/clientes">{{ icon('users','icon icon-sm') }} Gerenciar clientes</a>
++    </div>
++  </div>
++  <div class="tabela-wrap tabela-scroll">
++    <table>
++      <thead>
++        <tr>
++          <th>Nome</th>
++          <th>CPF</th>
++          <th>Telefone</th>
++          <th>Email</th>
++          <th>Obs.</th>
++          <th>Ação</th>
++        </tr>
++      </thead>
++      <tbody id="tbody-clientes-dash"></tbody>
++    </table>
++  </div>
++</div>
+ {% endblock %}
+ 
+ {% block scripts %}
+@@ -266,6 +293,23 @@
+     renderizar('licenciamento');
+   }
+ 
++  // ── Clientes (consulta rápida — cadastro/edição continuam em /clientes) ──────
++  async function carregarClientesDash() {
++    const busca = document.getElementById('busca-clientes-dash').value;
++    const dados = await apiFetch('/api/clientes?busca=' + encodeURIComponent(busca));
++    if (!dados) return;
++    const tbody = document.getElementById('tbody-clientes-dash');
++    tbody.innerHTML = dados.length ? dados.map(c => `<tr>
++      <td><strong>${c.nome}</strong></td>
++      <td>${c.cpf || '—'}</td>
++      <td>${c.telefone || '—'}</td>
++      <td>${c.email || '—'}</td>
++      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.observacao || ''}">${c.observacao || '—'}</td>
++      <td><a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a></td>
++    </tr>`).join('') : `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
++  }
++
+   carregar();
++  carregarClientesDash();
+ </script>
+ {% endblock %}
