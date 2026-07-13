@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Dados locais — nunca devem ir para o repositório
+despachante.db
+*.db
+backups/*.db
+app/static/uploads/documentos/*
+app/static/uploads/logo/*
+!app/static/uploads/documentos/.gitkeep
+!app/static/uploads/logo/.gitkeep
+
+# Ambiente
+.env
+
+# Build do executável
+build/
+dist/
+installer_output/
+*.spec.bak
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,6 +1,29 @@
 import os
+import sys
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _resolver_base_dir() -> str:
+    """
+    Diretório onde ficam o banco de dados, uploads e backups (dados do usuário).
+
+    - Em desenvolvimento (`python run.py`): raiz do projeto, como sempre foi.
+    - Empacotado como .exe (PyInstaller): a pasta do executável costuma ficar em
+      "Arquivos de Programas", sem permissão de escrita para o usuário comum, e no
+      modo --onefile os arquivos do bundle ficam num diretório temporário que é
+      apagado a cada execução. Por isso, quando `sys.frozen` existe, os dados
+      passam a morar em "%APPDATA%\\SistemaDespachante", que é sempre gravável e
+      persiste entre execuções e atualizações do programa.
+    """
+    if getattr(sys, "frozen", False):
+        appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+        base = os.path.join(appdata, "SistemaDespachante")
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
+BASE_DIR = _resolver_base_dir()
 
 
 class Config:
@@ -31,6 +54,19 @@ class DevelopmentConfig(Config):
     )
 
 
+class DesktopConfig(Config):
+    """
+    Config usada pelo executável empacotado (launcher.py + Waitress).
+    Mesma base SQLite da DevelopmentConfig, porém com DEBUG desligado —
+    não expõe o debugger interativo do Werkzeug para o usuário final.
+    """
+    DEBUG = False
+    SQLALCHEMY_DATABASE_URI = os.environ.get(
+        "DATABASE_URL",
+        f"sqlite:///{os.path.join(BASE_DIR, 'despachante.db')}"
+    )
+
+
 class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
@@ -45,5 +81,6 @@ class ProductionConfig(Config):
 config = {
     "development": DevelopmentConfig,
     "production": ProductionConfig,
+    "desktop": DesktopConfig,
     "default": DevelopmentConfig,
 }

@@ -1,0 +1,5 @@
+# Dependências usadas apenas para GERAR o instalador (.exe).
+# Instale com: pip install -r requirements.txt -r requirements-build.txt
+# Não são necessárias para rodar o sistema, só para empacotá-lo.
+
+pyinstaller>=6.10.0
