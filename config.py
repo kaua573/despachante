@@ -7,16 +7,30 @@ def _resolver_base_dir() -> str:
     Diretório onde ficam o banco de dados, uploads e backups (dados do usuário).
 
     - Em desenvolvimento (`python run.py`): raiz do projeto, como sempre foi.
-    - Empacotado como .exe (PyInstaller): a pasta do executável costuma ficar em
-      "Arquivos de Programas", sem permissão de escrita para o usuário comum, e no
-      modo --onefile os arquivos do bundle ficam num diretório temporário que é
-      apagado a cada execução. Por isso, quando `sys.frozen` existe, os dados
-      passam a morar em "%APPDATA%\\SistemaDespachante", que é sempre gravável e
-      persiste entre execuções e atualizações do programa.
+    - Empacotado como .exe (PyInstaller, modo --onedir): o instalador (Inno
+      Setup) pergunta na tela de instalação onde salvar os dados e grava a
+      resposta em "local_dados.cfg", ao lado do executável. Se esse arquivo
+      existir, o caminho salvo nele é usado. Se não existir (ex.: instalação
+      antiga, ou o .exe rodando fora do instalador), cai no padrão: subpasta
+      "dados" ao lado do executável.
+      Em qualquer um dos dois casos, fica fora da pasta que o instalador
+      sobrescreve em atualizações — os dados nunca são apagados ao atualizar
+      ou desinstalar o programa.
     """
     if getattr(sys, "frozen", False):
-        appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
-        base = os.path.join(appdata, "SistemaDespachante")
+        pasta_do_programa = os.path.dirname(sys.executable)
+        arquivo_config = os.path.join(pasta_do_programa, "local_dados.cfg")
+        base = None
+        if os.path.isfile(arquivo_config):
+            try:
+                with open(arquivo_config, "r", encoding="utf-8") as f:
+                    caminho_salvo = f.read().strip()
+                if caminho_salvo:
+                    base = caminho_salvo
+            except OSError:
+                base = None
+        if not base:
+            base = os.path.join(pasta_do_programa, "dados")
     else:
         base = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(base, exist_ok=True)

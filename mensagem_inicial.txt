@@ -1,0 +1,19 @@
+Antes de continuar, um aviso importante sobre onde guardar os dados do sistema:
+
+Mais à frente você vai escolher uma pasta para o banco de dados e os backups
+automáticos. Por padrão, essa pasta fica dentro da própria instalação, o que
+é seguro e recomendado.
+
+Se preferir escolher outro local (um HD externo ou uma segunda partição, por
+exemplo), evite:
+
+  - Pastas de rede (\\servidor\...): o banco de dados fica sendo acessado o
+    tempo todo enquanto o sistema está aberto, e acesso via rede pode travar
+    ou corromper o arquivo.
+
+  - Pastas sincronizadas em nuvem (OneDrive, Google Drive, Dropbox etc.)
+
+Essas opções são seguras para guardar CÓPIAS dos backups já prontos, mas não
+para o banco de dados em uso durante o funcionamento do sistema.
+
+Clique em "Avançar" para continuar a instalação.

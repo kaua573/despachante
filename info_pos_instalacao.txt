@@ -1,0 +1,12 @@
+Instalação concluída!
+
+Na primeira vez que o Sistema Despachante for aberto, ele cria o banco de
+dados automaticamente e já vem com um usuário administrador padrão:
+
+    Usuário: admin
+    Senha:   admin123
+
+Por segurança, o sistema vai pedir a troca dessa senha assim que você
+fizer login pela primeira vez. Guarde a nova senha em um lugar seguro.
+
+Clique em "Avançar" para concluir e abrir o sistema.

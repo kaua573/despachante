@@ -29,6 +29,6 @@ def baixar_documento(nome):
 def logo_arquivo(nome):
     # Rota dedicada (não é o /static automático do Flask): a logo é enviada
     # pelo usuário em tempo de execução e fica em LOGO_DIR, que no .exe
-    # empacotado mora em %APPDATA%, fora da pasta estática somente-leitura
+    # empacotado mora na pasta "dados", fora da pasta estática somente-leitura
     # do bundle. Mantém a mesma URL de sempre para não quebrar templates.
     return send_from_directory(current_app.config["LOGO_DIR"], nome)

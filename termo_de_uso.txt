@@ -1,0 +1,38 @@
+TERMO DE USO — SISTEMA DESPACHANTE
+
+Leia com atenção antes de continuar a instalação.
+
+1. NATUREZA DO SISTEMA
+Este sistema foi desenvolvido para auxiliar no controle de clientes,
+veículos, IPVA, licenciamento, multas e documentos de um despachante
+veicular. Ele é fornecido "como está", sem garantias de que estará livre
+de erros ou de que atenderá a todas as necessidades específicas do uso
+pretendido.
+
+2. RESPONSABILIDADE PELOS DADOS
+Todas as informações cadastradas (valores, datas de vencimento, dados de
+clientes e veículos etc.) devem ser conferidas por quem utiliza o sistema.
+O sistema é uma ferramenta de apoio ao controle desses dados, não substitui
+a checagem de prazos e valores nos órgãos e fontes oficiais (Detran, órgãos
+autuadores, entre outros).
+
+3. BACKUP
+O sistema realiza backups automáticos do banco de dados, mas essa rotina
+não substitui uma cópia externa periódica (pendrive, nuvem, outro
+computador). A manutenção de cópias de segurança externas é de
+responsabilidade de quem utiliza o sistema.
+
+4. LIMITAÇÃO DE RESPONSABILIDADE
+Na máxima extensão permitida pela legislação aplicável, o desenvolvedor
+deste sistema não se responsabiliza por perdas de dados, prejuízos
+financeiros, multas, vencimentos perdidos ou quaisquer outros danos
+decorrentes do uso, mau uso, indisponibilidade, falha técnica ou
+interrupção do funcionamento do sistema.
+
+5. USO POR CONTA E RISCO
+O uso deste sistema é por conta e risco de quem o instala e utiliza. Ao
+prosseguir com a instalação, você declara estar ciente das condições
+acima e concorda com o uso do sistema nesses termos.
+
+Se você não concorda com os termos acima, selecione "Não aceito o
+contrato" e cancele a instalação.
