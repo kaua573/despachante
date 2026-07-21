@@ -149,6 +149,12 @@
   .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
 
+  .detalhes-grid { display:flex; flex-direction:column; }
+  .detalhe-linha { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:10px 0; border-bottom:1px solid var(--cinza2); }
+  .detalhe-linha:last-child { border-bottom:none; }
+  .detalhe-label { font-size:12px; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; padding-top:1px; }
+  .detalhe-valor { font-size:14px; color:var(--texto); text-align:right; font-weight:600; }
+
   .empty-state { text-align:center; padding:36px 20px; color:var(--sub); }
   .empty-state p { font-size:14px; margin-top:8px; }
 

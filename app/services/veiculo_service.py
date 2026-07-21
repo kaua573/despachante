@@ -136,6 +136,8 @@ class VeiculoService:
             campos_comuns["ano_referencia"] = dados["ano_referencia"]
         if modelo is Ipva:
             campos_comuns["tipo_pagamento"] = dados.get("tipo_pagamento") or "avista"
+            campos_comuns["valor_integral"] = dados.get("valor_integral") or None
+            campos_comuns["desconto_percentual"] = dados.get("desconto_percentual") or None
         elif modelo is Multa:
             campos_comuns.update({
                 "auto_infracao": dados.get("auto_infracao", ""),
@@ -166,6 +168,8 @@ class VeiculoService:
             obj.ano_referencia = dados["ano_referencia"]
         if modelo is Ipva:
             obj.tipo_pagamento = dados.get("tipo_pagamento") or obj.tipo_pagamento or "avista"
+            obj.valor_integral = dados.get("valor_integral") or None
+            obj.desconto_percentual = dados.get("desconto_percentual") or None
         elif modelo is Multa:
             obj.auto_infracao = dados.get("auto_infracao", "")
             obj.data_infracao = dados.get("data_infracao") or None

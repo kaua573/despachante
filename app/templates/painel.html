@@ -155,7 +155,7 @@
     <div class="modal-body" id="modal-body"></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+      <button class="btn btn-primary" id="btn-modal-salvar" onclick="salvar()">Salvar</button>
     </div>
   </div>
 </div>
@@ -223,6 +223,7 @@ async function carregarIpva() {
       <td>${acaoPgto}</td>
       <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
       <td><div style="display:flex;gap:5px;">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("ipva",${JSON.stringify(r)})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
         <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("ipva",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
         <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('ipva',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
       </div></td>
@@ -257,6 +258,7 @@ async function carregarLicenciamento() {
     <td>${fmtData(r.data_pagamento)}</td>
     <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
     <td><div style="display:flex;gap:5px;">
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("licenciamento",${JSON.stringify(r)})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
       <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("licenciamento",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
       <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('licenciamento',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
     </div></td>
@@ -283,6 +285,7 @@ async function carregarMultas() {
     <td>${statusVencimento(r.vencimento, r.pago)}</td>
     <td>${fmtData(r.data_pagamento)}</td>
     <td><div style="display:flex;gap:5px;">
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("multas",${JSON.stringify(r)})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
       <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("multas",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
       <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('multas',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
     </div></td>
@@ -381,8 +384,15 @@ async function desfazerParcelamento() {
 // IPVA: formulário dinâmico com escolha de modo de pagamento + cálculo de desconto/parcelas
 function formIpva(r) {
   const modo      = r?.tipo_pagamento || 'avista';
-  const valorAtual = r?.valor || '';
   const anoAtual   = r?.ano_referencia || new Date().getFullYear();
+
+  // Registros cadastrados antes desta correção só têm o campo "valor" salvo
+  // (sem valor_integral/desconto_percentual) — nesse caso cai no comportamento
+  // antigo, mostrando o valor salvo como se fosse o integral, sem desconto.
+  const temDetalhamento    = r?.valor_integral != null && r.valor_integral !== '';
+  const valorIntegralAtual = temDetalhamento ? r.valor_integral : (r?.valor ?? '');
+  const descontoAtual      = temDetalhamento ? (r.desconto_percentual ?? '') : '';
+  const valorDescontoAtual = temDetalhamento ? (r?.valor ?? '') : '';
 
   return `
     <div class="row2">
@@ -405,21 +415,23 @@ function formIpva(r) {
         <div class="field">
           <label>Valor integral (R$)</label>
           <input id="f-valor-integral" type="number" step="0.01" min="0"
-                 value="${valorAtual}"
+                 value="${valorIntegralAtual}"
                  placeholder="0,00" oninput="calcularDesconto()">
         </div>
         <div class="field">
           <label>Desconto (%)</label>
           <input id="f-desconto-pct" type="number" step="0.01" min="0" max="100"
+                 value="${descontoAtual}"
                  placeholder="0,00" oninput="calcularDescontoPct()">
         </div>
         <div class="field">
           <label>Valor com desconto (R$)</label>
           <input id="f-valor-desconto" type="number" step="0.01" min="0"
+                 value="${valorDescontoAtual}"
                  placeholder="0,00" oninput="calcularDescontoInverso()">
         </div>
       </div>
-      <p style="font-size:12px;color:var(--sub);margin-top:-6px;">
+      <p style="font-size:12px;color:var(--sub);margin:8px 0 14px;">
         Preencha qualquer dois campos — o terceiro é calculado automaticamente.
       </p>
       <div class="row2">
@@ -492,7 +504,9 @@ function calcularDesconto() {
     const comDesc = integral * (1 - pct / 100);
     document.getElementById('f-valor-desconto').value = comDesc.toFixed(2);
   }
-  // o campo f-valor (usado no payload) sempre aponta para o integral
+  // valor_integral, desconto_percentual e o valor com desconto são lidos
+  // direto dos campos na hora de montar o payload em salvar() — nada aqui
+  // precisa espelhar isso.
 }
 
 // Desconto: % digitado → recalcula valor com desconto
@@ -576,11 +590,77 @@ function abrirModal(tipo, dados = null) {
   editId    = dados?.id || null;
   document.getElementById('modal-titulo').textContent = (editId ? 'Editar ' : 'Adicionar ') + TITULOS[tipo];
   document.getElementById('modal-body').innerHTML = FORMS[tipo](dados);
+  document.getElementById('btn-modal-salvar').style.display = '';
+  document.getElementById('modal').classList.add('open');
+}
+
+// ── Visualização somente leitura (IPVA / Licenciamento / Multas) ───────────────
+function linhaDetalhe(label, valor) {
+  return `<div class="detalhe-linha"><span class="detalhe-label">${label}</span><span class="detalhe-valor">${valor ?? '—'}</span></div>`;
+}
+
+const DETALHES = {
+  ipva: (r) => {
+    const parcelado = r.tipo_pagamento === 'parcelado';
+    let corpo = `<div class="detalhes-grid">`
+      + linhaDetalhe('Ano referência', r.ano_referencia)
+      + linhaDetalhe('Modo de pagamento', parcelado ? 'Parcelado' : 'À vista');
+
+    if (parcelado) {
+      corpo += linhaDetalhe('Valor total', fmtMoeda(r.valor))
+        + linhaDetalhe('Parcelas', r.num_parcelas ? `${r.num_parcelas}×` : 'Ainda não configuradas');
+    } else {
+      const temDetalhamento = r.valor_integral != null;
+      corpo += linhaDetalhe('Valor integral', temDetalhamento ? fmtMoeda(r.valor_integral) : fmtMoeda(r.valor))
+        + linhaDetalhe('Desconto', temDetalhamento && r.desconto_percentual != null ? `${r.desconto_percentual}%` : '—')
+        + linhaDetalhe('Valor a pagar', fmtMoeda(r.valor))
+        + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+        + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+        + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—');
+    }
+    corpo += linhaDetalhe('Observação', r.observacao || '—') + `</div>`;
+    return corpo;
+  },
+
+  licenciamento: (r) => `<div class="detalhes-grid">`
+    + linhaDetalhe('Ano referência', r.ano_referencia)
+    + linhaDetalhe('Valor', fmtMoeda(r.valor))
+    + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+    + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+    + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
+    + linhaDetalhe('Observação', r.observacao || '—')
+    + `</div>`,
+
+  multas: (r) => `<div class="detalhes-grid">`
+    + linhaDetalhe('Auto de infração', r.auto_infracao || '—')
+    + linhaDetalhe('Data da infração', fmtData(r.data_infracao))
+    + linhaDetalhe('Descrição', r.descricao || '—')
+    + linhaDetalhe('Valor', fmtMoeda(r.valor))
+    + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+    + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+    + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
+    + `</div>`,
+};
+
+function visualizarDetalhes(tipo, dados) {
+  document.getElementById('modal-titulo').textContent = 'Detalhes — ' + TITULOS[tipo];
+  document.getElementById('modal-body').innerHTML = DETALHES[tipo](dados);
+  document.getElementById('btn-modal-salvar').style.display = 'none';
   document.getElementById('modal').classList.add('open');
 }
 
 function editar(tipo, dados) { abrirModal(tipo, dados); }
 function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+
+// ESC fecha o modal que estiver aberto (edição/visualização ou parcelas)
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Escape') return;
+  if (document.getElementById('modal').classList.contains('open')) {
+    fecharModal();
+  } else if (document.getElementById('modal-parcelas').classList.contains('open')) {
+    fecharModalParcelas();
+  }
+});
 
 function getVal(id) {
   const el = document.getElementById(id);
@@ -641,11 +721,14 @@ async function salvar() {
 
     // À vista: usa o valor integral; se houver desconto, salva o valor com desconto
     const valorIntegral  = parseFloat(getVal('f-valor-integral'))  || null;
+    const descontoPct    = parseFloat(getVal('f-desconto-pct'))    || null;
     const valorDesconto  = parseFloat(getVal('f-valor-desconto'))  || null;
     valor = valorDesconto || valorIntegral;   // prioriza o valor com desconto se preenchido
 
     payload = {
       veiculo_id: VID, ano_referencia: ano, valor,
+      valor_integral: valorIntegral,
+      desconto_percentual: descontoPct,
       vencimento: getVal('f-venc') || null,
       pago: parseInt(getVal('f-pago') || '0'),
       data_pagamento: getVal('f-dtpag') || null,

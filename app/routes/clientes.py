@@ -58,7 +58,9 @@ def api_criar_cliente():
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
     _normalizar_cliente(dados)
-    cliente = _svc().criar(dados)
+    cliente, erro = _svc().criar(dados)
+    if not cliente:
+        return jsonify({"ok": False, "erro": erro}), 400
     _log().registrar("criar_cliente", "cliente", cliente.id, {"nome": cliente.nome})
     return jsonify({"ok": True})
 

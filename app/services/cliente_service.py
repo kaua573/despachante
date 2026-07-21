@@ -6,6 +6,7 @@ import os
 import uuid
 from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from werkzeug.datastructures import FileStorage
 
 from app.models.cliente import Cliente
@@ -31,28 +32,50 @@ class ClienteService:
     def obter(self, cliente_id: int) -> Optional[Cliente]:
         return self._session.get(Cliente, cliente_id)
 
-    def criar(self, dados: dict) -> Cliente:
+    def _cpf_em_uso(self, cpf: str, ignorar_id: Optional[int] = None) -> bool:
+        if not cpf:
+            return False
+        q = self._session.query(Cliente.id).filter(Cliente.cpf == cpf)
+        if ignorar_id:
+            q = q.filter(Cliente.id != ignorar_id)
+        return self._session.query(q.exists()).scalar()
+
+    def criar(self, dados: dict) -> tuple[Optional[Cliente], str]:
+        cpf = dados.get("cpf", "")
+        if self._cpf_em_uso(cpf):
+            return None, "Já existe um cliente cadastrado com esse CPF."
         cliente = Cliente(
             nome=dados["nome"],
-            cpf=dados.get("cpf", ""),
+            cpf=cpf,
             telefone=dados.get("telefone", ""),
             email=dados.get("email", ""),
             observacao=dados.get("observacao", ""),
         )
         self._session.add(cliente)
-        self._session.commit()
-        return cliente
+        try:
+            self._session.commit()
+        except IntegrityError:
+            self._session.rollback()
+            return None, "Já existe um cliente cadastrado com esse CPF."
+        return cliente, ""
 
     def atualizar(self, cliente_id: int, dados: dict) -> tuple[bool, str]:
         cliente = self.obter(cliente_id)
         if not cliente:
             return False, "Cliente não encontrado."
+        cpf = dados.get("cpf", "")
+        if self._cpf_em_uso(cpf, ignorar_id=cliente_id):
+            return False, "Já existe um cliente cadastrado com esse CPF."
         cliente.nome = dados["nome"]
-        cliente.cpf = dados.get("cpf", "")
+        cliente.cpf = cpf
         cliente.telefone = dados.get("telefone", "")
         cliente.email = dados.get("email", "")
         cliente.observacao = dados.get("observacao", "")
-        self._session.commit()
+        try:
+            self._session.commit()
+        except IntegrityError:
+            self._session.rollback()
+            return False, "Já existe um cliente cadastrado com esse CPF."
         return True, ""
 
     def excluir(self, cliente_id: int) -> tuple[bool, str]:
