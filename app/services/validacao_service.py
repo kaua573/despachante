@@ -124,9 +124,7 @@ def validar_campos_cliente(dados: dict) -> str:
         return "Telefone é obrigatório."
     if not validar_telefone(telefone):
         return "Telefone inválido. Use (DDD) + número com 8 ou 9 dígitos."
-    if not email.strip():
-        return "E-mail é obrigatório."
-    if not validar_email(email):
+    if email.strip() and not validar_email(email):
         return "E-mail inválido."
     return ""
 

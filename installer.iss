@@ -22,7 +22,7 @@ OutputBaseFilename=SistemaDespachante_Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-LicenceFile=termo_de_uso.txt
+LicenseFile=termo_de_uso.txt
 InfoBeforeFile=mensagem_inicial.txt
 InfoAfterFile=info_pos_instalacao.txt
 ; Mostra uma tela com o login padrão (admin / admin123) logo após copiar os
@@ -83,7 +83,7 @@ end;
 procedure InitializeWizardAposSelecaoDePasta;
 begin
   { Sugere a pasta padrão (subpasta "dados" dentro da instalação) só depois
-    que o usuário já escolheu {app} na tela anterior, para o caminho sugerido
+    que o usuário já escolheu a pasta do programa na tela anterior, para o caminho sugerido
     já vir certo. }
   if DadosPage.Values[0] = '' then
     DadosPage.Values[0] := ExpandConstant('{app}') + '\dados';

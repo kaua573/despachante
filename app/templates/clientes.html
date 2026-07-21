@@ -293,7 +293,7 @@
       mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
       invalido = true;
     }
-    if (!validarEmailFrontend(email)) {
+    if (email && !validarEmailFrontend(email)) {
       mostrarErro('erro-email', 'E-mail inválido.', true);
       invalido = true;
     }
