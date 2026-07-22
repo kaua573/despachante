@@ -184,6 +184,18 @@ def api_deletar_licenciamento(lid):
     return jsonify({"ok": True})
 
 
+@bp.route("/api/licenciamento/<int:lid>/quitar", methods=["POST"])
+@login_required
+@requer_permissao("gerenciar_licenciamento")
+def api_quitar_licenciamento(lid):
+    from app.services.pendencia_service import PendenciaService
+    ok, msg = PendenciaService(db.session).quitar_licenciamento(lid)
+    if not ok:
+        return jsonify({"ok": False, "erro": msg}), 400
+    _log().registrar("quitar_licenciamento", "licenciamento", lid)
+    return jsonify({"ok": True})
+
+
 # ── API — Multas ─────────────────────────────────────────────────────────────
 
 @bp.route("/api/veiculos/<int:vid>/multas", methods=["GET"])
@@ -225,6 +237,18 @@ def api_deletar_multa(mid):
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
     _log().registrar("excluir_multa", "multa", mid)
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/multas/<int:mid>/quitar", methods=["POST"])
+@login_required
+@requer_permissao("gerenciar_multas")
+def api_quitar_multa(mid):
+    from app.services.pendencia_service import PendenciaService
+    ok, msg = PendenciaService(db.session).quitar_multa(mid)
+    if not ok:
+        return jsonify({"ok": False, "erro": msg}), 400
+    _log().registrar("quitar_multa", "multa", mid)
     return jsonify({"ok": True})
 
 

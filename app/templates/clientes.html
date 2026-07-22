@@ -219,6 +219,7 @@
       <td>
         <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
+          <a class="btn btn-outline btn-sm btn-icon" title="Pendências" href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }}</a>
           <button class="btn btn-outline btn-sm btn-icon" title="Documentos" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }}</button>
           <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${c.nome.replace(/'/g, "\\'")}')">{{ icon('file','icon icon-sm') }}</button>
           <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${JSON.stringify(c)})'>{{ icon('edit','icon icon-sm') }}</button>

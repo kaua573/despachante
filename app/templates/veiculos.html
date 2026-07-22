@@ -13,6 +13,7 @@
   <div class="card-header">
     <h2>{{ icon('car') }} Veículos de <em>{{ cliente.nome }}</em></h2>
     <div style="display:flex;gap:10px;align-items:center;">
+      <a class="btn btn-outline" href="/clientes/{{ cliente.id }}/pendencias">{{ icon('warning','icon icon-sm') }} Pendências</a>
       <select id="filtro-situacao" onchange="carregar()" class="select-filtro">
         <option value="">Todas as situações</option>
         <option value="ativo">Ativo</option>

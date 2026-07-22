@@ -321,11 +321,6 @@ async function renderizarParcelas(ipvaId) {
   }
 
   btnDesfazer.style.display = '';
-  const STATUS_BADGE = {
-    pendente: '<span class="badge badge-pendente">Pendente</span>',
-    vencido:  '<span class="badge badge-vencido">Vencido</span>',
-    pago:     '<span class="badge badge-pago">Pago</span>',
-  };
 
   area.innerHTML = `<table>
     <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Quitado em</th><th>Ação</th></tr></thead>
@@ -333,7 +328,7 @@ async function renderizarParcelas(ipvaId) {
       <td><strong>${p.numero}ª</strong></td>
       <td>${fmtData(p.vencimento)}</td>
       <td>${fmtMoeda(p.valor)}</td>
-      <td>${STATUS_BADGE[p.status] || p.status}</td>
+      <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
       <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
       <td>${p.status !== 'pago'
         ? `<button class="btn btn-success btn-sm" onclick="quitarParcela(${p.id})">✓ Quitar</button>`
@@ -391,8 +386,12 @@ function formIpva(r) {
   // antigo, mostrando o valor salvo como se fosse o integral, sem desconto.
   const temDetalhamento    = r?.valor_integral != null && r.valor_integral !== '';
   const valorIntegralAtual = temDetalhamento ? r.valor_integral : (r?.valor ?? '');
-  const descontoAtual      = temDetalhamento ? (r.desconto_percentual ?? '') : '';
+  const descontoPctAtual   = temDetalhamento ? (r.desconto_percentual ?? '') : '';
   const valorDescontoAtual = temDetalhamento ? (r?.valor ?? '') : '';
+  // Desconto em R$ não é salvo à parte — é sempre derivado do % na hora de exibir
+  const descontoRsAtual    = (temDetalhamento && r.desconto_percentual != null && valorIntegralAtual)
+    ? (valorIntegralAtual * (r.desconto_percentual / 100)).toFixed(2)
+    : '';
 
   return `
     <div class="row2">
@@ -411,7 +410,7 @@ function formIpva(r) {
 
     <!-- ── Seção À vista ── -->
     <div id="sec-avista" style="${modo === 'parcelado' ? 'display:none' : ''}">
-      <div class="row3">
+      <div class="row2">
         <div class="field">
           <label>Valor integral (R$)</label>
           <input id="f-valor-integral" type="number" step="0.01" min="0"
@@ -421,8 +420,16 @@ function formIpva(r) {
         <div class="field">
           <label>Desconto (%)</label>
           <input id="f-desconto-pct" type="number" step="0.01" min="0" max="100"
-                 value="${descontoAtual}"
+                 value="${descontoPctAtual}"
                  placeholder="0,00" oninput="calcularDescontoPct()">
+        </div>
+      </div>
+      <div class="row2" style="margin-top:12px;">
+        <div class="field">
+          <label>Desconto (R$)</label>
+          <input id="f-desconto-rs" type="number" step="0.01" min="0"
+                 value="${descontoRsAtual}"
+                 placeholder="0,00" oninput="calcularDescontoRs()">
         </div>
         <div class="field">
           <label>Valor com desconto (R$)</label>
@@ -432,7 +439,7 @@ function formIpva(r) {
         </div>
       </div>
       <p style="font-size:12px;color:var(--sub);margin:8px 0 14px;">
-        Preencha qualquer dois campos — o terceiro é calculado automaticamente.
+        Preencha o valor integral e mais um dos outros três — os demais são calculados automaticamente.
       </p>
       <div class="row2">
         <div class="field">
@@ -496,34 +503,49 @@ function onMudaModo() {
 }
 
 // Desconto: integral → calcula com desconto dado o %
+// Valor integral digitado → recalcula a partir do que já estiver preenchido (% tem prioridade sobre R$)
 function calcularDesconto() {
-  const integral  = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
-  const pct       = parseFloat(document.getElementById('f-desconto-pct')?.value)   || 0;
+  const integral = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
+  const pct      = parseFloat(document.getElementById('f-desconto-pct')?.value)   || 0;
+  const rs       = parseFloat(document.getElementById('f-desconto-rs')?.value)    || 0;
   if (!integral) return;
   if (pct > 0) {
-    const comDesc = integral * (1 - pct / 100);
-    document.getElementById('f-valor-desconto').value = comDesc.toFixed(2);
+    calcularDescontoPct();
+  } else if (rs > 0) {
+    calcularDescontoRs();
   }
-  // valor_integral, desconto_percentual e o valor com desconto são lidos
-  // direto dos campos na hora de montar o payload em salvar() — nada aqui
-  // precisa espelhar isso.
+  // valor_integral e desconto_percentual são lidos direto dos campos na hora
+  // de montar o payload em salvar() — nada aqui precisa espelhar isso.
 }
 
-// Desconto: % digitado → recalcula valor com desconto
+// Desconto %: recalcula desconto em R$ e valor com desconto
 function calcularDescontoPct() {
   const integral = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
   const pct      = parseFloat(document.getElementById('f-desconto-pct')?.value)   || 0;
-  if (!integral || !pct) return;
-  document.getElementById('f-valor-desconto').value = (integral * (1 - pct / 100)).toFixed(2);
+  if (!integral) return;
+  const descontoRs = integral * (pct / 100);
+  document.getElementById('f-desconto-rs').value    = descontoRs.toFixed(2);
+  document.getElementById('f-valor-desconto').value = (integral - descontoRs).toFixed(2);
 }
 
-// Desconto: valor com desconto digitado → calcula % de volta
+// Desconto R$: recalcula % e valor com desconto
+function calcularDescontoRs() {
+  const integral   = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
+  const descontoRs = parseFloat(document.getElementById('f-desconto-rs')?.value)    || 0;
+  if (!integral) return;
+  const pct = (descontoRs / integral) * 100;
+  document.getElementById('f-desconto-pct').value    = pct.toFixed(2);
+  document.getElementById('f-valor-desconto').value  = (integral - descontoRs).toFixed(2);
+}
+
+// Desconto: valor com desconto digitado → calcula % e R$ de volta
 function calcularDescontoInverso() {
-  const integral  = parseFloat(document.getElementById('f-valor-integral')?.value)  || 0;
-  const comDesconto = parseFloat(document.getElementById('f-valor-desconto')?.value) || 0;
-  if (!integral || !comDesconto) return;
-  const pct = ((integral - comDesconto) / integral) * 100;
-  document.getElementById('f-desconto-pct').value = pct.toFixed(2);
+  const integral    = parseFloat(document.getElementById('f-valor-integral')?.value)  || 0;
+  const comDesconto = parseFloat(document.getElementById('f-valor-desconto')?.value)  || 0;
+  if (!integral) return;
+  const descontoRs = integral - comDesconto;
+  document.getElementById('f-desconto-pct').value = ((descontoRs / integral) * 100).toFixed(2);
+  document.getElementById('f-desconto-rs').value   = descontoRs.toFixed(2);
 }
 
 // Parcelas: exibe preview do valor por parcela
@@ -599,8 +621,30 @@ function linhaDetalhe(label, valor) {
   return `<div class="detalhe-linha"><span class="detalhe-label">${label}</span><span class="detalhe-valor">${valor ?? '—'}</span></div>`;
 }
 
+const STATUS_BADGE_PARCELA = {
+  pendente: '<span class="badge badge-pendente">Pendente</span>',
+  vencido:  '<span class="badge badge-vencido">Vencido</span>',
+  pago:     '<span class="badge badge-pago">Pago</span>',
+};
+
+function tabelaParcelasDetalhe(parcelas) {
+  if (!parcelas || !parcelas.length) {
+    return '<p style="font-size:13px;color:var(--sub);">Parcelas ainda não configuradas.</p>';
+  }
+  return `<table style="margin-top:6px;">
+    <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Pago em</th></tr></thead>
+    <tbody>${parcelas.map(p => `<tr>
+      <td><strong>${p.numero}ª</strong></td>
+      <td>${fmtData(p.vencimento)}</td>
+      <td>${fmtMoeda(p.valor)}</td>
+      <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
+      <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
 const DETALHES = {
-  ipva: (r) => {
+  ipva: (r, parcelas) => {
     const parcelado = r.tipo_pagamento === 'parcelado';
     let corpo = `<div class="detalhes-grid">`
       + linhaDetalhe('Ano referência', r.ano_referencia)
@@ -608,17 +652,24 @@ const DETALHES = {
 
     if (parcelado) {
       corpo += linhaDetalhe('Valor total', fmtMoeda(r.valor))
-        + linhaDetalhe('Parcelas', r.num_parcelas ? `${r.num_parcelas}×` : 'Ainda não configuradas');
-    } else {
-      const temDetalhamento = r.valor_integral != null;
-      corpo += linhaDetalhe('Valor integral', temDetalhamento ? fmtMoeda(r.valor_integral) : fmtMoeda(r.valor))
-        + linhaDetalhe('Desconto', temDetalhamento && r.desconto_percentual != null ? `${r.desconto_percentual}%` : '—')
-        + linhaDetalhe('Valor a pagar', fmtMoeda(r.valor))
-        + linhaDetalhe('Vencimento', fmtData(r.vencimento))
-        + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
-        + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—');
+        + linhaDetalhe('Observação', r.observacao || '—')
+        + `</div>`
+        + tabelaParcelasDetalhe(parcelas);
+      return corpo;
     }
-    corpo += linhaDetalhe('Observação', r.observacao || '—') + `</div>`;
+
+    const temDetalhamento = r.valor_integral != null;
+    const descontoRs = (temDetalhamento && r.desconto_percentual != null)
+      ? (r.valor_integral * (r.desconto_percentual / 100))
+      : null;
+    corpo += linhaDetalhe('Valor integral', temDetalhamento ? fmtMoeda(r.valor_integral) : fmtMoeda(r.valor))
+      + linhaDetalhe('Desconto', temDetalhamento && r.desconto_percentual != null ? `${r.desconto_percentual}%` : '—')
+      + linhaDetalhe('Desconto (R$)', descontoRs != null ? fmtMoeda(descontoRs) : '—')
+      + linhaDetalhe('Valor a pagar', fmtMoeda(r.valor))
+      + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+      + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+      + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
+      + linhaDetalhe('Observação', r.observacao || '—') + `</div>`;
     return corpo;
   },
 
@@ -642,11 +693,18 @@ const DETALHES = {
     + `</div>`,
 };
 
-function visualizarDetalhes(tipo, dados) {
+async function visualizarDetalhes(tipo, dados) {
   document.getElementById('modal-titulo').textContent = 'Detalhes — ' + TITULOS[tipo];
-  document.getElementById('modal-body').innerHTML = DETALHES[tipo](dados);
   document.getElementById('btn-modal-salvar').style.display = 'none';
   document.getElementById('modal').classList.add('open');
+
+  if (tipo === 'ipva' && dados.tipo_pagamento === 'parcelado') {
+    document.getElementById('modal-body').innerHTML = '<p style="color:var(--sub);font-size:13px;">Carregando parcelas...</p>';
+    const resultado = await apiFetch(`/api/ipva/${dados.id}/parcelas`);
+    document.getElementById('modal-body').innerHTML = DETALHES.ipva(dados, resultado?.parcelas || []);
+  } else {
+    document.getElementById('modal-body').innerHTML = DETALHES[tipo](dados);
+  }
 }
 
 function editar(tipo, dados) { abrirModal(tipo, dados); }

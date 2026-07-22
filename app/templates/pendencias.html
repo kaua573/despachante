@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Pendências — {{ cliente.nome }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/clientes">Clientes</a><span class="sep">›</span>
+  <span>{{ cliente.nome }}</span><span class="sep">›</span><span>Pendências</span>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('warning') }} Pendências de <em>{{ cliente.nome }}</em></h2>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <select id="filtro-tipo" onchange="renderizar()" class="select-filtro">
+        <option value="">Todos os tipos</option>
+        <option value="ipva_avista">IPVA (à vista)</option>
+        <option value="ipva_parcela">IPVA (parcela)</option>
+        <option value="licenciamento">Licenciamento</option>
+        <option value="multa">Multa</option>
+      </select>
+      <select id="filtro-status" onchange="renderizar()" class="select-filtro">
+        <option value="">Todos os status</option>
+        <option value="pendente">Pendente</option>
+        <option value="pago">Pago</option>
+      </select>
+    </div>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th style="width:36px;"><input type="checkbox" id="chk-todos" onchange="toggleTodos()"></th>
+        <th>Placa</th><th>Tipo</th><th>Descrição</th><th>Valor</th>
+        <th>Vencimento</th><th>Status</th><th>Data de pagamento</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="barra-selecao" style="display:none;position:sticky;bottom:16px;background:var(--card-bg);border:1px solid var(--cinza2);padding:14px 20px;justify-content:space-between;align-items:center;margin-top:14px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);">
+  <span id="contagem-selecao" style="font-size:14px;font-weight:600;"></span>
+  <button class="btn btn-success" onclick="quitarSelecionados()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CLIENTE_ID = {{ cliente.id }};
+let TODOS = [];
+let SELECIONADOS = new Set();   // chave = `${tipo}:${id}`
+
+const TIPO_LABEL = {
+  ipva_avista:    'IPVA (à vista)',
+  ipva_parcela:   'IPVA (parcela)',
+  licenciamento:  'Licenciamento',
+  multa:          'Multa',
+};
+
+function chave(item) { return `${item.tipo}:${item.id}`; }
+
+async function carregar() {
+  const dados = await apiFetch(`/api/clientes/${CLIENTE_ID}/pendencias`);
+  if (!dados) return;
+  TODOS = dados;
+  renderizar();
+}
+
+function renderizar() {
+  const filtroTipo   = document.getElementById('filtro-tipo').value;
+  const filtroStatus = document.getElementById('filtro-status').value;
+
+  let itens = TODOS;
+  if (filtroTipo)   itens = itens.filter(i => i.tipo === filtroTipo);
+  if (filtroStatus) itens = itens.filter(i => (filtroStatus === 'pago') === i.pago);
+
+  const tbody = document.getElementById('tbody');
+  if (!itens.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhuma pendência encontrada</p></div></td></tr>`;
+    atualizarBarra();
+    return;
+  }
+
+  tbody.innerHTML = itens.map(item => {
+    const k = chave(item);
+    return `<tr>
+      <td><input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)"></td>
+      <td style="font-family:monospace;">${item.placa}</td>
+      <td>${TIPO_LABEL[item.tipo] || item.tipo}</td>
+      <td>${item.descricao}</td>
+      <td>${fmtMoeda(item.valor)}</td>
+      <td>${fmtData(item.vencimento)}</td>
+      <td>${statusVencimento(item.vencimento, item.pago)}</td>
+      <td>${item.data_pagamento ? fmtData(item.data_pagamento) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  atualizarBarra();
+}
+
+function toggleItem(k, marcado) {
+  if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
+  atualizarBarra();
+}
+
+function toggleTodos() {
+  const marcarTudo = document.getElementById('chk-todos').checked;
+  document.querySelectorAll('#tbody input[type=checkbox]').forEach(cb => {
+    cb.checked = marcarTudo;
+    if (marcarTudo) SELECIONADOS.add(cb.dataset.chave); else SELECIONADOS.delete(cb.dataset.chave);
+  });
+  atualizarBarra();
+}
+
+function atualizarBarra() {
+  const barra = document.getElementById('barra-selecao');
+  const n = SELECIONADOS.size;
+  document.getElementById('contagem-selecao').textContent = n === 1 ? '1 item selecionado' : `${n} itens selecionados`;
+  barra.style.display = n ? 'flex' : 'none';
+}
+
+async function quitarSelecionados() {
+  if (!SELECIONADOS.size) return;
+  if (!confirm(`Quitar ${SELECIONADOS.size} item(ns) selecionado(s)? Isso marca todos como pagos hoje.`)) return;
+
+  const itens = [...SELECIONADOS].map(k => {
+    const [tipo, id] = k.split(':');
+    return { tipo, id: parseInt(id) };
+  });
+
+  const resultado = await apiFetch(`/api/clientes/${CLIENTE_ID}/pendencias/quitar-lote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itens }),
+  });
+  if (!resultado) return;
+
+  SELECIONADOS.clear();
+  document.getElementById('chk-todos').checked = false;
+
+  if (resultado.sucesso) toast(`${resultado.sucesso} item(ns) quitado(s)!`);
+  if (resultado.falhas && resultado.falhas.length) {
+    toast(`${resultado.falhas.length} item(ns) não puderam ser quitados (verifique se já não estavam pagos ou permissão).`, 'err');
+  }
+  await carregar();
+}
+
+carregar();
+</script>
+{% endblock %}

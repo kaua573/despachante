@@ -6,7 +6,7 @@
 ; Baixe o Inno Setup em https://jrsoftware.org/isinfo.php
 
 #define MyAppName "Sistema Controle Despachante"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.11"
 #define MyAppExeName "SistemaControleDespachante.exe"
 
 [Setup]

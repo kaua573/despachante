@@ -97,6 +97,7 @@ def _registrar_blueprints(app: Flask) -> None:
     from app.routes.configuracoes import bp as config_bp
     from app.routes.relatorios import bp as relatorios_bp
     from app.routes.ipva import bp as ipva_bp
+    from app.routes.pendencias import bp as pendencias_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.admin import bp as admin_bp
 
@@ -109,6 +110,7 @@ def _registrar_blueprints(app: Flask) -> None:
     app.register_blueprint(config_bp)
     app.register_blueprint(relatorios_bp)
     app.register_blueprint(ipva_bp)
+    app.register_blueprint(pendencias_bp)
 
 
 def _registrar_handlers_erro(app: Flask) -> None:

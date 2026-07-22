@@ -130,6 +130,9 @@ class IpvaService:
                 "Quite cada parcela individualmente."
             )
 
+        if ipva.pago:
+            return False, "Este IPVA já está quitado."
+
         ipva.pago = True
         ipva.data_pagamento = date.today().isoformat()
         self._session.commit()
