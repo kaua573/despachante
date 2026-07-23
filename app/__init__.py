@@ -1,14 +1,34 @@
 import os
+import sqlite3
 from flask import Flask, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
 from markupsafe import Markup
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from config import config
 
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
+
+
+@event.listens_for(Engine, "connect")
+def _ativar_wal_sqlite(dbapi_connection, connection_record):
+    """
+    Liga o modo WAL (Write-Ahead Logging) do SQLite em toda conexão nova.
+
+    Isso ajuda em duas frentes: reduz bastante o erro "database is locked"
+    quando mais de uma pessoa usa o sistema ao mesmo tempo (acesso pela rede
+    local), e deixa leituras concorrentes (como o backup automático) mais
+    seguras enquanto o banco está sendo escrito. Não tem efeito nenhum se o
+    banco for PostgreSQL — o filtro isinstance abaixo garante isso.
+    """
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
 
 
 def create_app(config_name: str = "default") -> Flask:

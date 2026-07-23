@@ -1,4 +1,5 @@
 import os
+import secrets
 import sys
 
 
@@ -40,8 +41,42 @@ def _resolver_base_dir() -> str:
 BASE_DIR = _resolver_base_dir()
 
 
+def _resolver_secret_key() -> str:
+    """
+    Chave usada para assinar o cookie de sessão do login.
+
+    Se a variável de ambiente SECRET_KEY estiver definida, usa ela (cobre
+    deploys tipo Render/Postgres, onde isso já é configurado à parte). Caso
+    contrário, gera uma chave aleatória na primeira execução e persiste em
+    "secret.key" dentro da pasta de dados — assim cada instalação tem sua
+    própria chave, em vez de todas compartilharem um valor fixo publicado
+    junto do código-fonte.
+    """
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        return env_key
+
+    caminho = os.path.join(BASE_DIR, "secret.key")
+    if os.path.isfile(caminho):
+        try:
+            with open(caminho, "r", encoding="utf-8") as f:
+                chave_salva = f.read().strip()
+            if chave_salva:
+                return chave_salva
+        except OSError:
+            pass
+
+    chave = secrets.token_hex(32)
+    try:
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write(chave)
+    except OSError:
+        pass  # sem permissão de escrita: segue com a chave só nesta execução
+    return chave
+
+
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "despachante-local-dev-key-troque-em-producao")
+    SECRET_KEY = _resolver_secret_key()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "documentos")
     LOGO_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "logo")

@@ -3,6 +3,7 @@ Serviço de veículos e seus registros associados (IPVA, licenciamento, multas).
 """
 from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.models.veiculo import Veiculo
 from app.models.ipva import Ipva
@@ -27,10 +28,29 @@ class VeiculoService:
     def obter(self, veiculo_id: int) -> Optional[Veiculo]:
         return self._session.get(Veiculo, veiculo_id)
 
-    def criar(self, dados: dict) -> Veiculo:
+    def _placa_em_uso(self, placa: str, ignorar_id: Optional[int] = None) -> bool:
+        """
+        Só considera conflito entre veículos que NÃO estão marcados como
+        vendidos — a mesma placa pode voltar a ser cadastrada depois de uma
+        revenda, sem que o registro antigo (histórico) bloqueie o novo.
+        """
+        if not placa:
+            return False
+        q = (
+            self._session.query(Veiculo.id)
+            .filter(Veiculo.placa == placa, Veiculo.situacao != "vendido")
+        )
+        if ignorar_id:
+            q = q.filter(Veiculo.id != ignorar_id)
+        return self._session.query(q.exists()).scalar()
+
+    def criar(self, dados: dict) -> tuple[Optional[Veiculo], str]:
+        placa = dados["placa"].upper()
+        if self._placa_em_uso(placa):
+            return None, "Já existe um veículo ativo cadastrado com esta placa."
         v = Veiculo(
             cliente_id=dados["cliente_id"],
-            placa=dados["placa"].upper(),
+            placa=placa,
             renavam=dados.get("renavam", ""),
             proprietario=dados.get("proprietario", ""),
             marca_modelo=dados.get("marca_modelo", ""),
@@ -39,21 +59,33 @@ class VeiculoService:
             observacao=dados.get("observacao", ""),
         )
         self._session.add(v)
-        self._session.commit()
-        return v
+        try:
+            self._session.commit()
+        except IntegrityError:
+            self._session.rollback()
+            return None, "Já existe um veículo ativo cadastrado com esta placa."
+        return v, ""
 
     def atualizar(self, veiculo_id: int, dados: dict) -> tuple[bool, str]:
         v = self.obter(veiculo_id)
         if not v:
             return False, "Veículo não encontrado."
-        v.placa = dados["placa"].upper()
+        placa = dados["placa"].upper()
+        situacao = dados.get("situacao", "ativo")
+        if situacao != "vendido" and self._placa_em_uso(placa, ignorar_id=veiculo_id):
+            return False, "Já existe um veículo ativo cadastrado com esta placa."
+        v.placa = placa
         v.renavam = dados.get("renavam", "")
         v.proprietario = dados.get("proprietario", "")
         v.marca_modelo = dados.get("marca_modelo", "")
-        v.situacao = dados.get("situacao", "ativo")
+        v.situacao = situacao
         v.especie = dados.get("especie", "passeio")
         v.observacao = dados.get("observacao", "")
-        self._session.commit()
+        try:
+            self._session.commit()
+        except IntegrityError:
+            self._session.rollback()
+            return False, "Já existe um veículo ativo cadastrado com esta placa."
         return True, ""
 
     def excluir(self, veiculo_id: int) -> tuple[bool, str]:

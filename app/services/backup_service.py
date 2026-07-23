@@ -11,6 +11,7 @@ Cria cópias com timestamp e remove arquivos mais antigos que 5 dias.
 import glob
 import os
 import shutil
+import sqlite3
 import threading
 import time
 from datetime import datetime
@@ -48,10 +49,37 @@ class BackupService:
             if os.path.exists(db_path):
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 destino = os.path.join(self._backup_dir, f"backup_{timestamp}.db")
-                shutil.copy2(db_path, destino)
+                self._copiar_com_seguranca(db_path, destino)
 
             self._remover_antigos()
             return destino
+
+    @staticmethod
+    def _copiar_com_seguranca(origem: str, destino: str) -> None:
+        """
+        Copia o banco usando a API nativa de backup do SQLite
+        (`sqlite3.Connection.backup`) em vez de um `shutil.copy` bruto no
+        arquivo. Isso importa porque o banco pode estar em uso (o sistema
+        rodando, gravando algo) no exato momento do backup automático — a
+        API do SQLite copia as páginas de forma consistente mesmo assim,
+        enquanto uma cópia de arquivo crua pode pegar o `.db` no meio de uma
+        escrita e gerar um backup corrompido, sem nenhum aviso na hora.
+
+        Se por algum motivo a API nativa falhar, cai para a cópia direta
+        como último recurso — melhor um backup arriscado do que nenhum.
+        """
+        try:
+            origem_conn = sqlite3.connect(origem)
+            try:
+                destino_conn = sqlite3.connect(destino)
+                try:
+                    origem_conn.backup(destino_conn)
+                finally:
+                    destino_conn.close()
+            finally:
+                origem_conn.close()
+        except sqlite3.Error:
+            shutil.copy2(origem, destino)
 
     @staticmethod
     def _resolver_db_path_sqlite() -> str | None:

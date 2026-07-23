@@ -226,7 +226,9 @@
     {% if current_user.is_authenticated and current_user.tem_permissao('gerar_relatorios') %}
       <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
     {% endif %}
-    <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
+    {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
+      <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
+    {% endif %}
     {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
       <a href="/admin/usuarios" class="{{ 'ativa' if '/admin' in request.path else '' }}">{{ icon('security') }} Admin</a>
     {% endif %}
@@ -277,6 +279,19 @@ function toast(msg, tipo='ok') {
   el.textContent = msg;
   el.className = 'show ' + tipo;
   setTimeout(() => el.className = '', 3200);
+}
+
+// Escapa texto vindo do banco antes de inserir no DOM via innerHTML/template
+// literal — sem isso, um nome de cliente (ou qualquer campo de texto livre)
+// contendo HTML/JavaScript seria executado por quem visualizar a página.
+function escapeHtml(valor) {
+  if (valor === null || valor === undefined) return '';
+  return String(valor)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function fmtData(d) {

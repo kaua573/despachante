@@ -83,9 +83,9 @@ function renderizar() {
     const k = chave(item);
     return `<tr>
       <td><input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)"></td>
-      <td style="font-family:monospace;">${item.placa}</td>
+      <td style="font-family:monospace;">${escapeHtml(item.placa)}</td>
       <td>${TIPO_LABEL[item.tipo] || item.tipo}</td>
-      <td>${item.descricao}</td>
+      <td>${escapeHtml(item.descricao)}</td>
       <td>${fmtMoeda(item.valor)}</td>
       <td>${fmtData(item.vencimento)}</td>
       <td>${statusVencimento(item.vencimento, item.pago)}</td>

@@ -1,6 +1,6 @@
 import os
-from flask import Blueprint, render_template, request, jsonify, current_app
-from flask_login import login_required
+from flask import Blueprint, render_template, request, jsonify, current_app, abort
+from flask_login import login_required, current_user
 from app import db
 from app.services.configuracao_service import (
     ConfiguracaoService, PALETA_CORES, FONTES_PDF, TAMANHOS_PDF,
@@ -15,11 +15,22 @@ def _cfg() -> ConfiguracaoService:
     return ConfiguracaoService(db.session)
 
 
+def _somente_admin() -> None:
+    """
+    Configurações do sistema (senha de exclusão, backup, identidade
+    visual, personalização de PDF) afetam todo mundo que usa o sistema —
+    só administradores podem ver ou alterar essa tela.
+    """
+    if not current_user.is_authenticated or current_user.perfil != "administrador":
+        abort(403)
+
+
 # ── Página ────────────────────────────────────────────────────────────────────
 
 @bp.route("/configuracoes")
 @login_required
 def pagina_configuracoes():
+    _somente_admin()
     return render_template("configuracoes.html")
 
 
@@ -28,6 +39,7 @@ def pagina_configuracoes():
 @bp.route("/api/configuracoes", methods=["GET"])
 @login_required
 def api_get_configuracoes():
+    _somente_admin()
     cfg = _cfg()
     return jsonify({
         "backup_intervalo_min": cfg.get("backup_intervalo_min", "30"),
@@ -40,6 +52,7 @@ def api_get_configuracoes():
 @bp.route("/api/configuracoes/senha", methods=["POST"])
 @login_required
 def api_set_senha():
+    _somente_admin()
     dados = request.get_json(silent=True) or {}
     ok, msg = _cfg().trocar_senha(
         dados.get("senha_atual", ""),
@@ -53,6 +66,7 @@ def api_set_senha():
 @bp.route("/api/configuracoes/verificar-senha", methods=["POST"])
 @login_required
 def api_verificar_senha():
+    _somente_admin()
     dados = request.get_json(silent=True) or {}
     if _cfg().senha_ok(dados.get("senha", "")):
         return jsonify({"ok": True})
@@ -64,6 +78,7 @@ def api_verificar_senha():
 @bp.route("/api/configuracoes/backup-intervalo", methods=["POST"])
 @login_required
 def api_set_backup_intervalo():
+    _somente_admin()
     dados = request.get_json(silent=True) or {}
     try:
         minutos = int(dados.get("minutos", 0))
@@ -79,6 +94,7 @@ def api_set_backup_intervalo():
 @bp.route("/api/configuracoes/backup-agora", methods=["POST"])
 @login_required
 def api_backup_agora():
+    _somente_admin()
     svc = BackupService(current_app.config["BACKUP_DIR"])
     caminho = svc.fazer_backup()
     if caminho:
@@ -89,6 +105,7 @@ def api_backup_agora():
 @bp.route("/api/configuracoes/backups", methods=["GET"])
 @login_required
 def api_listar_backups():
+    _somente_admin()
     svc = BackupService(current_app.config["BACKUP_DIR"])
     return jsonify(svc.listar())
 
@@ -98,6 +115,7 @@ def api_listar_backups():
 @bp.route("/api/configuracoes/tema", methods=["GET"])
 @login_required
 def api_get_tema():
+    _somente_admin()
     cfg = _cfg()
     cor = cfg.get("tema_cor", "azul")
     return jsonify({
@@ -111,6 +129,7 @@ def api_get_tema():
 @bp.route("/api/configuracoes/tema", methods=["POST"])
 @login_required
 def api_set_tema():
+    _somente_admin()
     dados = request.get_json(silent=True) or {}
     modo = dados.get("modo")
     cor = dados.get("cor", "")
@@ -129,6 +148,7 @@ def api_set_tema():
 @bp.route("/api/configuracoes/escritorio", methods=["GET"])
 @login_required
 def api_get_escritorio():
+    _somente_admin()
     cfg = _cfg()
     nome = cfg.get("escritorio_nome", "")
     logo = cfg.get("escritorio_logo", "")
@@ -142,6 +162,7 @@ def api_get_escritorio():
 @bp.route("/api/configuracoes/escritorio", methods=["POST"])
 @login_required
 def api_set_escritorio():
+    _somente_admin()
     cfg = _cfg()
     nome = request.form.get("nome", "").strip()
     cfg.set("escritorio_nome", nome)
@@ -169,6 +190,7 @@ def api_set_escritorio():
 @bp.route("/api/configuracoes/escritorio/logo", methods=["DELETE"])
 @login_required
 def api_remover_logo():
+    _somente_admin()
     cfg = _cfg()
     logo = cfg.get("escritorio_logo", "")
     if logo:
@@ -182,6 +204,7 @@ def api_remover_logo():
 @bp.route("/api/configuracoes/pdf", methods=["GET"])
 @login_required
 def api_get_config_pdf():
+    _somente_admin()
     cfg = _cfg()
     cor = cfg.get("pdf_cor", "azul")
     return jsonify({
@@ -203,6 +226,7 @@ def api_get_config_pdf():
 @bp.route("/api/configuracoes/pdf", methods=["POST"])
 @login_required
 def api_set_config_pdf():
+    _somente_admin()
     dados = request.get_json(silent=True) or {}
     cor = dados.get("cor", "")
     validacoes = [

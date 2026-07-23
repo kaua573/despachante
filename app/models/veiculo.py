@@ -20,6 +20,18 @@ class Veiculo(db.Model):
     licenciamentos = db.relationship("Licenciamento", backref="veiculo", lazy=True, cascade="all, delete-orphan")
     multas = db.relationship("Multa", backref="veiculo", lazy=True, cascade="all, delete-orphan")
 
+    __table_args__ = (
+        # Único só ENTRE veículos não vendidos — uma placa não pode estar
+        # cadastrada duas vezes como ativa/desativada ao mesmo tempo, mas o
+        # sistema permite marcar um veículo como "vendido" e cadastrar a
+        # mesma placa de novo depois (revenda), sem que a placa antiga
+        # (histórico) bloqueie o cadastro novo.
+        db.Index(
+            "uq_veiculo_placa_ativo", "placa", unique=True,
+            sqlite_where=db.text("situacao != 'vendido'"),
+        ),
+    )
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,

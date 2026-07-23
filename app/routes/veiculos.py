@@ -65,9 +65,11 @@ def api_criar_veiculo():
     erro = _validar_e_normalizar(dados)
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
-    v = _svc().criar(dados)
+    v, erro = _svc().criar(dados)
+    if not v:
+        return jsonify({"ok": False, "erro": erro}), 400
     _log().registrar("criar_veiculo", "veiculo", v.id, {"placa": v.placa})
-    return jsonify({"ok": True}) 
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/veiculos/<int:vid>", methods=["PUT"])

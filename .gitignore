@@ -10,6 +10,7 @@ venv/
 despachante.db
 *.db
 backups/*.db
+secret.key
 app/static/uploads/documentos/*
 app/static/uploads/logo/*
 !app/static/uploads/documentos/.gitkeep

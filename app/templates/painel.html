@@ -221,10 +221,10 @@ async function carregarIpva() {
       <td>${statusVencimento(r.vencimento, r.pago)}</td>
       <td>${modoLabel}</td>
       <td>${acaoPgto}</td>
-      <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
+      <td title="${escapeHtml(r.observacao)}">${r.observacao ? escapeHtml(r.observacao.substring(0,30))+(r.observacao.length>30?'…':'') : '—'}</td>
       <td><div style="display:flex;gap:5px;">
-        <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("ipva",${JSON.stringify(r)})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
-        <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("ipva",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("ipva",${escapeHtml(JSON.stringify(r))})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("ipva",${escapeHtml(JSON.stringify(r))})'>{{ icon('edit','icon icon-sm') }}</button>
         <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('ipva',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
       </div></td>
     </tr>`;
@@ -256,10 +256,10 @@ async function carregarLicenciamento() {
     <td>${fmtData(r.vencimento)}</td>
     <td>${statusVencimento(r.vencimento, r.pago)}</td>
     <td>${fmtData(r.data_pagamento)}</td>
-    <td title="${r.observacao||''}">${r.observacao ? r.observacao.substring(0,30)+(r.observacao.length>30?'…':'') : '—'}</td>
+    <td title="${escapeHtml(r.observacao)}">${r.observacao ? escapeHtml(r.observacao.substring(0,30))+(r.observacao.length>30?'…':'') : '—'}</td>
     <td><div style="display:flex;gap:5px;">
-      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("licenciamento",${JSON.stringify(r)})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
-      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("licenciamento",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("licenciamento",${escapeHtml(JSON.stringify(r))})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("licenciamento",${escapeHtml(JSON.stringify(r))})'>{{ icon('edit','icon icon-sm') }}</button>
       <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('licenciamento',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
     </div></td>
   </tr>`).join('');
@@ -277,16 +277,16 @@ async function carregarMultas() {
     return;
   }
   tbody.innerHTML = dados.map(r => `<tr>
-    <td style="font-family:monospace;">${r.auto_infracao||'—'}</td>
+    <td style="font-family:monospace;">${escapeHtml(r.auto_infracao)||'—'}</td>
     <td>${fmtData(r.data_infracao)}</td>
-    <td>${r.descricao||'—'}</td>
+    <td>${escapeHtml(r.descricao)||'—'}</td>
     <td>${fmtMoeda(r.valor)}</td>
     <td>${fmtData(r.vencimento)}</td>
     <td>${statusVencimento(r.vencimento, r.pago)}</td>
     <td>${fmtData(r.data_pagamento)}</td>
     <td><div style="display:flex;gap:5px;">
-      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("multas",${JSON.stringify(r)})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
-      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("multas",${JSON.stringify(r)})'>{{ icon('edit','icon icon-sm') }}</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("multas",${escapeHtml(JSON.stringify(r))})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("multas",${escapeHtml(JSON.stringify(r))})'>{{ icon('edit','icon icon-sm') }}</button>
       <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('multas',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
     </div></td>
   </tr>`).join('');
@@ -492,7 +492,7 @@ function formIpva(r) {
 
     <div class="field">
       <label>Observação</label>
-      <textarea id="f-obs">${r?.observacao||''}</textarea>
+      <textarea id="f-obs">${escapeHtml(r?.observacao)}</textarea>
     </div>`;
 }
 
@@ -581,14 +581,14 @@ const FORMS = {
       </div>
     </div>
     <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
-    <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`,
+    <div class="field"><label>Observação</label><textarea id="f-obs">${escapeHtml(r?.observacao)}</textarea></div>`,
 
   multas: r => `
     <div class="row2">
-      <div class="field"><label>Auto de Infração</label><input id="f-auto" value="${r?.auto_infracao||''}" placeholder="Nº do auto"></div>
+      <div class="field"><label>Auto de Infração</label><input id="f-auto" value="${escapeHtml(r?.auto_infracao)}" placeholder="Nº do auto"></div>
       <div class="field"><label>Data da Infração</label><input id="f-dtinf" type="date" value="${r?.data_infracao||''}"></div>
     </div>
-    <div class="field"><label>Descrição</label><input id="f-desc" value="${r?.descricao||''}" placeholder="Ex: Excesso de velocidade"></div>
+    <div class="field"><label>Descrição</label><input id="f-desc" value="${escapeHtml(r?.descricao)}" placeholder="Ex: Excesso de velocidade"></div>
     <div class="row2">
       <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" value="${r?.valor||''}" placeholder="0,00"></div>
       <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
@@ -602,7 +602,7 @@ const FORMS = {
       </div>
       <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
     </div>
-    <div class="field"><label>Observação</label><textarea id="f-obs">${r?.observacao||''}</textarea></div>`,
+    <div class="field"><label>Observação</label><textarea id="f-obs">${escapeHtml(r?.observacao)}</textarea></div>`,
 };
 
 const TITULOS = { ipva: 'IPVA', licenciamento: 'Licenciamento', multas: 'Multa' };
@@ -618,7 +618,8 @@ function abrirModal(tipo, dados = null) {
 
 // ── Visualização somente leitura (IPVA / Licenciamento / Multas) ───────────────
 function linhaDetalhe(label, valor) {
-  return `<div class="detalhe-linha"><span class="detalhe-label">${label}</span><span class="detalhe-valor">${valor ?? '—'}</span></div>`;
+  const exibicao = (valor === null || valor === undefined || valor === '') ? '—' : escapeHtml(valor);
+  return `<div class="detalhe-linha"><span class="detalhe-label">${escapeHtml(label)}</span><span class="detalhe-valor">${exibicao}</span></div>`;
 }
 
 const STATUS_BADGE_PARCELA = {

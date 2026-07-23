@@ -157,6 +157,66 @@ def relatorio_cliente_pdf(cid):
     )
 
 
+# ── Importação / exportação em massa ────────────────────────────────────────
+
+@bp.route("/api/clientes/exportar")
+@login_required
+@requer_permissao("visualizar_clientes")
+def exportar_clientes():
+    from app.services.importacao_service import ImportacaoService
+    import io
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    conteudo = svc.exportar()
+    _log().registrar("exportar_clientes")
+    return send_file(
+        io.BytesIO(conteudo),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="clientes_e_veiculos.xlsx",
+    )
+
+
+@bp.route("/api/clientes/modelo-importacao")
+@login_required
+@requer_permissao("gerenciar_clientes")
+def modelo_importacao_clientes():
+    from app.services.importacao_service import ImportacaoService
+    import io
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    conteudo = svc.gerar_modelo()
+    return send_file(
+        io.BytesIO(conteudo),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="modelo_importacao_clientes.xlsx",
+    )
+
+
+@bp.route("/api/clientes/importar", methods=["POST"])
+@login_required
+@requer_permissao("gerenciar_clientes")
+def importar_clientes():
+    from app.services.importacao_service import ImportacaoService
+
+    if "arquivo" not in request.files or not request.files["arquivo"].filename:
+        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
+
+    arquivo = request.files["arquivo"]
+    if not arquivo.filename.lower().endswith(".xlsx"):
+        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
+
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    resultado = svc.importar(arquivo.read())
+    _log().registrar("importar_clientes", detalhe={
+        "clientes_criados": resultado["clientes_criados"],
+        "clientes_atualizados": resultado["clientes_atualizados"],
+        "veiculos_criados": resultado["veiculos_criados"],
+        "veiculos_atualizados": resultado["veiculos_atualizados"],
+        "erros": len(resultado["erros"]),
+    })
+    return jsonify({"ok": True, **resultado})
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _normalizar_cliente(dados: dict) -> None:

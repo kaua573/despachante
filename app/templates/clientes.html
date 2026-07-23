@@ -14,6 +14,10 @@
         <input type="text" id="busca" placeholder="Buscar por nome, CPF..." oninput="carregar()"
           style="margin-left:4px;">
       </div>
+      <a class="btn btn-outline" href="/api/clientes/exportar" title="Baixa todos os clientes e veículos em uma planilha Excel">{{ icon('dowload','icon icon-sm') }} Exportar</a>
+      <button class="btn btn-outline" onclick="document.getElementById('input-importar').click()" title="Importar clientes e veículos de uma planilha Excel">{{ icon('upload','icon icon-sm') }} Importar</button>
+      <a href="/api/clientes/modelo-importacao" style="font-size:12px;color:var(--sub);white-space:nowrap;" title="Planilha vazia, só com as colunas certas">Baixar modelo</a>
+      <input type="file" id="input-importar" accept=".xlsx" style="display:none;" onchange="importarPlanilha(this)">
       <button class="btn btn-primary" onclick="abrirModal()">{{ icon('users') }} Novo cliente</button>
     </div>
   </div>
@@ -200,6 +204,35 @@
     document.getElementById('modal').classList.add('open');
   }
 
+  async function importarPlanilha(input) {
+    const arquivo = input.files[0];
+    if (!arquivo) return;
+
+    const formData = new FormData();
+    formData.append('arquivo', arquivo);
+
+    const resultado = await apiFetch('/api/clientes/importar', { method: 'POST', body: formData });
+    input.value = '';   // permite selecionar o mesmo arquivo de novo, se precisar
+    if (!resultado) return;
+
+    mostrarResultadoImportacao(resultado);
+    carregar();
+  }
+
+  function mostrarResultadoImportacao(r) {
+    const resumo = `${r.clientes_criados} cliente(s) novo(s), ${r.clientes_atualizados} atualizado(s), `
+      + `${r.veiculos_criados} veículo(s) novo(s), ${r.veiculos_atualizados} atualizado(s).`;
+
+    if (!r.erros || !r.erros.length) {
+      toast(`Importação concluída: ${resumo}`);
+      return;
+    }
+
+    toast(`Importação concluída com ${r.erros.length} linha(s) com erro. Veja os detalhes na janela.`, 'err');
+    const detalhes = r.erros.map(e => `Linha ${e.linha}: ${e.erro}`).join('\n');
+    alert(`Importação concluída.\n\n${resumo}\n\n${r.erros.length} linha(s) não puderam ser importadas:\n${detalhes}`);
+  }
+
   async function carregar() {
     const busca = document.getElementById('busca').value;
     const dados = await apiFetch('/api/clientes?busca=' + encodeURIComponent(busca));
@@ -211,19 +244,19 @@
     }
     tbody.innerHTML = dados.map(c => `
     <tr>
-      <td><strong>${c.nome}</strong></td>
-      <td>${c.cpf || '—'}</td>
-      <td>${c.telefone || '—'}</td>
-      <td>${c.email || '—'}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.observacao || ''}">${c.observacao || '—'}</td>
+      <td><strong>${escapeHtml(c.nome)}</strong></td>
+      <td>${escapeHtml(c.cpf) || '—'}</td>
+      <td>${escapeHtml(c.telefone) || '—'}</td>
+      <td>${escapeHtml(c.email) || '—'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
       <td>
         <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
           <a class="btn btn-outline btn-sm btn-icon" title="Pendências" href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }}</a>
           <button class="btn btn-outline btn-sm btn-icon" title="Documentos" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }}</button>
-          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${c.nome.replace(/'/g, "\\'")}')">{{ icon('file','icon icon-sm') }}</button>
-          <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${JSON.stringify(c)})'>{{ icon('edit','icon icon-sm') }}</button>
-          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${c.nome.replace(/'/g, "\\'")}')">{{ icon('delete','icon icon-sm') }}</button>
+          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${escapeHtml(c.nome)}')">{{ icon('file','icon icon-sm') }}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${escapeHtml(JSON.stringify(c))})'>{{ icon('edit','icon icon-sm') }}</button>
+          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${escapeHtml(c.nome)}')">{{ icon('delete','icon icon-sm') }}</button>
         </div>
       </td>
     </tr>
@@ -332,9 +365,9 @@
     <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--cinza1);border-radius:8px;border:1px solid var(--cinza2);">
       {{ icon('file','icon') }}
       <div style="flex:1;min-width:0;">
-        <div style="font-weight:600;font-size:14px;">${d.nome}</div>
-        <div style="font-size:12px;color:var(--sub);">${CATEGORIAS_DOC[d.categoria] || d.categoria} · ${fmtData(d.data_documento)} · cadastrado em ${fmtDataHora(d.criado_em)}</div>
-        ${d.observacao ? `<div style="font-size:12px;color:var(--sub);margin-top:2px;">${d.observacao}</div>` : ''}
+        <div style="font-weight:600;font-size:14px;">${escapeHtml(d.nome)}</div>
+        <div style="font-size:12px;color:var(--sub);">${escapeHtml(CATEGORIAS_DOC[d.categoria] || d.categoria)} · ${fmtData(d.data_documento)} · cadastrado em ${fmtDataHora(d.criado_em)}</div>
+        ${d.observacao ? `<div style="font-size:12px;color:var(--sub);margin-top:2px;">${escapeHtml(d.observacao)}</div>` : ''}
       </div>
       <div style="display:flex;gap:4px;">
         ${d.arquivo ? `<a class="btn btn-ghost btn-sm btn-icon" href="/static/uploads/documentos/${d.arquivo}" title="Baixar arquivo">{{ icon('dowload','icon icon-sm') }}</a>` : ''}

@@ -3,6 +3,7 @@
 {% block breadcrumb %}<span>Início</span>{% endblock %}
 
 {% block content %}<!-- Seu comentário aqui -->
+<div id="banner-notificacao" class="banner-notificacao"></div>
 {#<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
   <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
     {{ icon('users','icon icon-lg') }}
@@ -47,6 +48,20 @@
 </div>#}
 
 <style>
+  .banner-notificacao {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 20px;
+    border-radius: 10px;
+    margin-bottom: 18px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  html[data-tema="claro"] .banner-notificacao { background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
+  html[data-tema="escuro"] .banner-notificacao { background:#3d2f0a; color:#e0a836; border:1px solid #5a4712; }
+  .banner-notificacao a { color: inherit; text-decoration: underline; font-weight: 600; white-space: nowrap; }
   .filtros-venc { display:flex; flex-wrap:wrap; gap:10px; padding:14px 20px; border-bottom:1px solid var(--cinza2); }
   .filtros-venc input { border:1px solid var(--cinza3); border-radius:6px; padding:7px 10px; font-size:13px; color:var(--texto); background:var(--input-bg); outline:none; }
   .filtros-venc input:focus { border-color:var(--azul2); box-shadow:0 0 0 3px rgba(37,99,174,.12); }
@@ -305,6 +320,52 @@
     estado.licenciamento.dados = d.licenciamento;
     renderizar('ipva');
     renderizar('licenciamento');
+    verificarNotificacoes(d);
+  }
+
+  // ── Notificação de pendências urgentes, assim que o sistema é aberto ────────
+  const DIAS_ALERTA_URGENTE = 7;   // "vencendo em breve" = até 7 dias à frente
+
+  function verificarNotificacoes(d) {
+    const hoje    = new Date().toISOString().slice(0, 10);
+    const emBreve = new Date(Date.now() + DIAS_ALERTA_URGENTE * 86400000).toISOString().slice(0, 10);
+
+    const itens      = [...d.ipva, ...d.licenciamento];
+    const vencidos   = itens.filter(i => i.vencimento && i.vencimento < hoje);
+    const vencendo   = itens.filter(i => i.vencimento && i.vencimento >= hoje && i.vencimento <= emBreve);
+    const totalUrgente = vencidos.length + vencendo.length;
+
+    const banner = document.getElementById('banner-notificacao');
+    if (!totalUrgente) {
+      banner.style.display = 'none';
+      return;
+    }
+
+    const partes = [];
+    if (vencidos.length) partes.push(`${vencidos.length} vencido(s)`);
+    if (vencendo.length) partes.push(`${vencendo.length} vencendo nos próximos ${DIAS_ALERTA_URGENTE} dias`);
+
+    banner.innerHTML = `<span>⚠️ Atenção: ${partes.join(' e ')}.</span>
+      <a href="#" onclick="document.getElementById('banner-notificacao').style.display='none';return false;">Dispensar</a>`;
+    banner.style.display = 'flex';
+
+    _notificarSistemaOperacional(totalUrgente, partes);
+  }
+
+  // Notificação nativa do Windows/SO (usa a Notification API do navegador).
+  // Só dispara se a pessoa já autorizou antes — na primeira vez, só pede
+  // permissão silenciosamente, sem interromper nada; da próxima vez que
+  // houver pendência, a notificação nativa já aparece.
+  function _notificarSistemaOperacional(totalUrgente, partes) {
+    if (!('Notification' in window)) return;
+
+    if (Notification.permission === 'granted') {
+      new Notification('Sistema Despachante', {
+        body: `${totalUrgente} pendência(s) exigem atenção: ${partes.join(', ')}.`,
+      });
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
   }
 
 

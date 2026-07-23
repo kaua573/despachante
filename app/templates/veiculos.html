@@ -179,18 +179,18 @@ async function carregar() {
   }
   tbody.innerHTML = filtrado.map(v => `
     <tr>
-      <td><strong style="font-family:monospace;font-size:15px;">${v.placa}</strong></td>
-      <td>${v.marca_modelo||'—'}</td>
-      <td>${v.proprietario||'—'}</td>
-      <td>${ESPECIE[v.especie]||v.especie||'—'}</td>
-      <td style="font-family:monospace;font-size:13px;">${v.renavam||'—'}</td>
-      <td>${SITUACAO_BADGE[v.situacao]||v.situacao||'—'}</td>
-      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${v.observacao||''}">${v.observacao||'—'}</td>
+      <td><strong style="font-family:monospace;font-size:15px;">${escapeHtml(v.placa)}</strong></td>
+      <td>${escapeHtml(v.marca_modelo)||'—'}</td>
+      <td>${escapeHtml(v.proprietario)||'—'}</td>
+      <td>${ESPECIE[v.especie]||escapeHtml(v.especie)||'—'}</td>
+      <td style="font-family:monospace;font-size:13px;">${escapeHtml(v.renavam)||'—'}</td>
+      <td>${SITUACAO_BADGE[v.situacao]||escapeHtml(v.situacao)||'—'}</td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(v.observacao)}">${escapeHtml(v.observacao)||'—'}</td>
       <td>
         <div style="display:flex;gap:5px;">
           <a class="btn btn-success btn-sm" href="/veiculos/${v.id}/painel">{{ icon('view','icon icon-sm') }} Painel</a>
-          <button class="btn btn-ghost btn-sm btn-icon" onclick='editar(${JSON.stringify(v)})'>{{ icon('edit','icon icon-sm') }}</button>
-          <button class="btn btn-danger btn-sm btn-icon" onclick="excluir(${v.id},'${v.placa}')">{{ icon('delete','icon icon-sm') }}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" onclick='editar(${escapeHtml(JSON.stringify(v))})'>{{ icon('edit','icon icon-sm') }}</button>
+          <button class="btn btn-danger btn-sm btn-icon" onclick="excluir(${v.id},'${escapeHtml(v.placa)}')">{{ icon('delete','icon icon-sm') }}</button>
         </div>
       </td>
     </tr>
