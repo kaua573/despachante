@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, send_file, current_app
 from flask_login import login_required
 from app import db
 from app.models.cliente import Cliente
@@ -252,6 +252,82 @@ def api_quitar_multa(mid):
         return jsonify({"ok": False, "erro": msg}), 400
     _log().registrar("quitar_multa", "multa", mid)
     return jsonify({"ok": True})
+
+
+# ── Importação / exportação de veículos de UM cliente ───────────────────────────
+
+@bp.route("/api/clientes/<int:cid>/veiculos/exportar")
+@login_required
+@requer_permissao("visualizar_veiculos")
+def exportar_veiculos_cliente(cid):
+    from app.services.importacao_service import ImportacaoService
+    import io as io_
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    conteudo = svc.exportar_veiculos_cliente(cid)
+    _log().registrar("exportar_veiculos_cliente", "cliente", cid)
+    return send_file(
+        io_.BytesIO(conteudo),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="veiculos.xlsx",
+    )
+
+
+@bp.route("/api/clientes/<int:cid>/veiculos/modelo-importacao")
+@login_required
+@requer_permissao("cadastrar_veiculos")
+def modelo_importacao_veiculos_cliente(cid):
+    from app.services.importacao_service import ImportacaoService
+    import io as io_
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    conteudo = svc.gerar_modelo_veiculos_cliente()
+    return send_file(
+        io_.BytesIO(conteudo),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="modelo_importacao_veiculos.xlsx",
+    )
+
+
+@bp.route("/api/clientes/<int:cid>/veiculos/pre-importar", methods=["POST"])
+@login_required
+@requer_permissao("cadastrar_veiculos")
+def pre_importar_veiculos_cliente(cid):
+    from app.services.importacao_service import ImportacaoService
+
+    if "arquivo" not in request.files or not request.files["arquivo"].filename:
+        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
+
+    arquivo = request.files["arquivo"]
+    if not arquivo.filename.lower().endswith(".xlsx"):
+        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
+
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    preview = svc.pre_visualizar_veiculos_cliente(cid, arquivo.read())
+    return jsonify({"ok": True, **preview})
+
+
+@bp.route("/api/clientes/<int:cid>/veiculos/importar", methods=["POST"])
+@login_required
+@requer_permissao("cadastrar_veiculos")
+def importar_veiculos_cliente(cid):
+    from app.services.importacao_service import ImportacaoService
+
+    if "arquivo" not in request.files or not request.files["arquivo"].filename:
+        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
+
+    arquivo = request.files["arquivo"]
+    if not arquivo.filename.lower().endswith(".xlsx"):
+        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
+
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    resultado = svc.importar_veiculos_cliente(cid, arquivo.read())
+    _log().registrar("importar_veiculos_cliente", "cliente", cid, {
+        "veiculos_criados": resultado["veiculos_criados"],
+        "veiculos_atualizados": resultado["veiculos_atualizados"],
+        "erros": len(resultado["erros"]),
+    })
+    return jsonify({"ok": True, **resultado})
 
 
 # ── Validação ─────────────────────────────────────────────────────────────────

@@ -6,10 +6,33 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  .toggle-visualizacao { display:flex; border:1px solid var(--cinza3); border-radius:8px; overflow:hidden; }
+  .toggle-visualizacao button { border:none; background:transparent; color:var(--sub); padding:7px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; transition:.15s; }
+  .toggle-visualizacao button.ativo { background:var(--azul); color:#fff; }
+  .toggle-visualizacao button:not(.ativo):hover { background:var(--cinza1); }
+
+  .seletor-ano { display:none; align-items:center; justify-content:center; gap:18px; padding:10px 14px; border-bottom:1px solid var(--cinza2); }
+  .seletor-ano button { border:1px solid var(--cinza3); background:var(--card-bg); color:var(--texto); width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; }
+  .seletor-ano button:hover { background:var(--cinza1); }
+
+  .grid-cards { display:none; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px; padding:14px; }
+  .card-mes { border:1px solid var(--cinza2); border-radius:10px; padding:10px; }
+  .card-mes-header { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin:0 0 8px; cursor:pointer; color:var(--texto); }
+  .card-mes-header .contagem { color:var(--sub); font-weight:400; }
+  .card-mes-vazio { font-size:12px; color:var(--sub); margin:0; }
+  .item-card { display:flex; gap:6px; border:1px solid var(--cinza2); border-radius:6px; padding:6px 8px; font-size:11.5px; margin-bottom:5px; cursor:pointer; }
+  .item-card:last-child { margin-bottom:0; }
+  .item-card input[type="checkbox"] { margin-top:2px; flex-shrink:0; }
+  .item-card .topo { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .item-card .placa { font-family:monospace; font-weight:700; }
+  .item-card .sub { color:var(--sub); margin-top:2px; }
+</style>
+
 <div class="card">
-  <div class="card-header">
+  <div class="card-header" style="flex-wrap:wrap;gap:10px;">
     <h2>{{ icon('warning') }} Pendências de <em>{{ cliente.nome }}</em></h2>
-    <div style="display:flex;gap:10px;align-items:center;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <select id="filtro-tipo" onchange="renderizar()" class="select-filtro">
         <option value="">Todos os tipos</option>
         <option value="ipva_avista">IPVA (à vista)</option>
@@ -22,9 +45,20 @@
         <option value="pendente">Pendente</option>
         <option value="pago">Pago</option>
       </select>
+      <div class="toggle-visualizacao">
+        <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
+        <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
+      </div>
     </div>
   </div>
-  <div class="tabela-wrap">
+
+  <div id="seletor-ano" class="seletor-ano">
+    <button type="button" onclick="mudarAno(-1)" title="Ano anterior">‹</button>
+    <strong id="ano-atual" style="font-size:14px;"></strong>
+    <button type="button" onclick="mudarAno(1)" title="Próximo ano">›</button>
+  </div>
+
+  <div id="visao-lista" class="tabela-wrap">
     <table>
       <thead><tr>
         <th style="width:36px;"><input type="checkbox" id="chk-todos" onchange="toggleTodos()"></th>
@@ -34,11 +68,34 @@
       <tbody id="tbody"></tbody>
     </table>
   </div>
+
+  <div id="grid-cards" class="grid-cards"></div>
 </div>
 
 <div id="barra-selecao" style="display:none;position:sticky;bottom:16px;background:var(--card-bg);border:1px solid var(--cinza2);padding:14px 20px;justify-content:space-between;align-items:center;margin-top:14px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);">
   <span id="contagem-selecao" style="font-size:14px;font-weight:600;"></span>
-  <button class="btn btn-success" onclick="quitarSelecionados()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
+  <button class="btn btn-success" onclick="abrirConfirmacaoQuitar()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
+</div>
+
+<div class="modal-overlay" id="modal-confirmar-quitar">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>Confirmar quitação</h3>
+      <button class="btn-close" onclick="fecharConfirmacaoQuitar()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--sub);margin:0 0 12px;">Isso marca os itens abaixo como pagos hoje. Confira antes de continuar.</p>
+      <div id="lista-confirmacao" style="border:1px solid var(--cinza2);border-radius:8px;padding:8px 10px;max-height:220px;overflow-y:auto;margin-bottom:12px;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span id="contagem-confirmacao" style="font-size:13px;color:var(--sub);"></span>
+        <strong id="total-confirmacao" style="font-size:17px;"></strong>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharConfirmacaoQuitar()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarQuitar()">{{ icon('save','icon icon-sm') }} Confirmar quitação</button>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -47,6 +104,8 @@
 const CLIENTE_ID = {{ cliente.id }};
 let TODOS = [];
 let SELECIONADOS = new Set();   // chave = `${tipo}:${id}`
+let MODO = 'lista';             // 'lista' | 'cards'
+let ANO_SELECIONADO = new Date().getFullYear();
 
 const TIPO_LABEL = {
   ipva_avista:    'IPVA (à vista)',
@@ -54,6 +113,11 @@ const TIPO_LABEL = {
   licenciamento:  'Licenciamento',
   multa:          'Multa',
 };
+
+const MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
 
 function chave(item) { return `${item.tipo}:${item.id}`; }
 
@@ -64,18 +128,32 @@ async function carregar() {
   renderizar();
 }
 
-function renderizar() {
+function itensFiltrados() {
   const filtroTipo   = document.getElementById('filtro-tipo').value;
   const filtroStatus = document.getElementById('filtro-status').value;
 
   let itens = TODOS;
   if (filtroTipo)   itens = itens.filter(i => i.tipo === filtroTipo);
   if (filtroStatus) itens = itens.filter(i => (filtroStatus === 'pago') === i.pago);
+  return itens;
+}
 
+function renderizar() {
+  if (MODO === 'lista') {
+    renderizarLista();
+  } else {
+    renderizarCards();
+  }
+  atualizarBarra();
+}
+
+// ── Modo Lista ────────────────────────────────────────────────────────────────
+
+function renderizarLista() {
+  const itens = itensFiltrados();
   const tbody = document.getElementById('tbody');
   if (!itens.length) {
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhuma pendência encontrada</p></div></td></tr>`;
-    atualizarBarra();
     return;
   }
 
@@ -92,12 +170,88 @@ function renderizar() {
       <td>${item.data_pagamento ? fmtData(item.data_pagamento) : '—'}</td>
     </tr>`;
   }).join('');
+}
 
+// ── Modo Cards (12 meses do ano selecionado) ────────────────────────────────────
+
+function renderizarCards() {
+  document.getElementById('ano-atual').textContent = ANO_SELECIONADO;
+
+  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
+  const porMes = Array.from({ length: 12 }, () => []);
+  itensDoAno.forEach(item => {
+    const mes = parseInt(item.vencimento.split('-')[1], 10) - 1;
+    if (mes >= 0 && mes <= 11) porMes[mes].push(item);
+  });
+
+  const grid = document.getElementById('grid-cards');
+  grid.innerHTML = MESES.map((nomeMes, idx) => {
+    const itensMes = porMes[idx];
+    const chavesMes = itensMes.map(chave);
+    const todosMarcados = chavesMes.length > 0 && chavesMes.every(k => SELECIONADOS.has(k));
+
+    const corpo = !itensMes.length
+      ? `<p class="card-mes-vazio">Nenhuma pendência</p>`
+      : itensMes.map(item => {
+          const k = chave(item);
+          return `<label class="item-card">
+            <input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)">
+            <div style="flex:1;min-width:0;">
+              <div class="topo">
+                <span class="placa">${escapeHtml(item.placa)}</span>
+                ${statusVencimento(item.vencimento, item.pago)}
+              </div>
+              <p class="sub">${TIPO_LABEL[item.tipo] || item.tipo} · ${escapeHtml(item.descricao)}</p>
+              <p class="sub">${fmtMoeda(item.valor)} · vence ${fmtData(item.vencimento)}</p>
+              ${item.pago && item.data_pagamento ? `<p class="sub">Pago em ${fmtData(item.data_pagamento)}</p>` : ''}
+            </div>
+          </label>`;
+        }).join('');
+
+    return `<div class="card-mes">
+      <label class="card-mes-header">
+        <input type="checkbox" ${chavesMes.length ? '' : 'disabled'} ${todosMarcados ? 'checked' : ''} onchange="toggleMes(${idx}, this.checked)">
+        ${nomeMes} <span class="contagem">· ${itensMes.length}</span>
+      </label>
+      ${corpo}
+    </div>`;
+  }).join('');
+}
+
+function toggleMes(idxMes, marcado) {
+  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
+  itensDoAno
+    .filter(i => parseInt(i.vencimento.split('-')[1], 10) - 1 === idxMes)
+    .forEach(item => {
+      const k = chave(item);
+      if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
+    });
+  renderizarCards();
   atualizarBarra();
 }
 
+function mudarAno(delta) {
+  ANO_SELECIONADO += delta;
+  renderizarCards();
+}
+
+// ── Alternância de modo de visualização ─────────────────────────────────────────
+
+function mudarModo(modo) {
+  MODO = modo;
+  document.getElementById('btn-modo-lista').classList.toggle('ativo', modo === 'lista');
+  document.getElementById('btn-modo-cards').classList.toggle('ativo', modo === 'cards');
+  document.getElementById('visao-lista').style.display  = modo === 'lista' ? '' : 'none';
+  document.getElementById('grid-cards').style.display   = modo === 'cards' ? 'grid' : 'none';
+  document.getElementById('seletor-ano').style.display  = modo === 'cards' ? 'flex' : 'none';
+  renderizar();
+}
+
+// ── Seleção (compartilhada entre os dois modos) ─────────────────────────────────
+
 function toggleItem(k, marcado) {
   if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
+  if (MODO === 'cards') renderizarCards();   // atualiza o checkbox "mês inteiro"
   atualizarBarra();
 }
 
@@ -117,10 +271,32 @@ function atualizarBarra() {
   barra.style.display = n ? 'flex' : 'none';
 }
 
-async function quitarSelecionados() {
-  if (!SELECIONADOS.size) return;
-  if (!confirm(`Quitar ${SELECIONADOS.size} item(ns) selecionado(s)? Isso marca todos como pagos hoje.`)) return;
+// ── Confirmação antes de quitar em massa ─────────────────────────────────────────
 
+function abrirConfirmacaoQuitar() {
+  if (!SELECIONADOS.size) return;
+
+  const selecionados = TODOS.filter(item => SELECIONADOS.has(chave(item)));
+  const total = selecionados.reduce((soma, item) => soma + (item.valor || 0), 0);
+
+  document.getElementById('lista-confirmacao').innerHTML = selecionados.map(item => `
+    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--cinza2);">
+      <span><span style="font-family:monospace;font-weight:700;">${escapeHtml(item.placa)}</span> · ${escapeHtml(item.descricao)}</span>
+      <span>${fmtMoeda(item.valor)}</span>
+    </div>`).join('');
+
+  document.getElementById('contagem-confirmacao').textContent =
+    selecionados.length === 1 ? '1 item selecionado' : `${selecionados.length} itens selecionados`;
+  document.getElementById('total-confirmacao').textContent = fmtMoeda(total);
+
+  document.getElementById('modal-confirmar-quitar').classList.add('open');
+}
+
+function fecharConfirmacaoQuitar() {
+  document.getElementById('modal-confirmar-quitar').classList.remove('open');
+}
+
+async function confirmarQuitar() {
   const itens = [...SELECIONADOS].map(k => {
     const [tipo, id] = k.split(':');
     return { tipo, id: parseInt(id) };
@@ -131,10 +307,13 @@ async function quitarSelecionados() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ itens }),
   });
+
+  fecharConfirmacaoQuitar();
   if (!resultado) return;
 
   SELECIONADOS.clear();
-  document.getElementById('chk-todos').checked = false;
+  const chkTodos = document.getElementById('chk-todos');
+  if (chkTodos) chkTodos.checked = false;
 
   if (resultado.sucesso) toast(`${resultado.sucesso} item(ns) quitado(s)!`);
   if (resultado.falhas && resultado.falhas.length) {
@@ -142,6 +321,12 @@ async function quitarSelecionados() {
   }
   await carregar();
 }
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && document.getElementById('modal-confirmar-quitar').classList.contains('open')) {
+    fecharConfirmacaoQuitar();
+  }
+});
 
 carregar();
 </script>

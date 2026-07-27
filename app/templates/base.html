@@ -75,6 +75,43 @@
   .nav-usuario a { color:var(--nav-fg-medio); text-decoration:none; padding:5px 10px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:5px; font-size:13px; }
   .nav-usuario a:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
 
+  .nav-notificacoes { position:relative; margin-left:6px; }
+  .btn-sino { background:transparent; border:none; cursor:pointer; padding:7px; border-radius:8px; color:var(--nav-fg-medio); display:flex; align-items:center; position:relative; transition:.15s; }
+  .btn-sino:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
+  .badge-sino {
+    position:absolute; top:1px; right:1px; background:var(--vermelho); color:#fff;
+    font-size:10px; font-weight:700; line-height:1; padding:2.5px 5px; border-radius:999px;
+    min-width:16px; text-align:center; display:none;
+  }
+  .painel-notificacoes {
+    display:none; position:absolute; top:calc(100% + 10px); right:0; width:320px; max-height:420px;
+    overflow-y:auto; background:var(--card-bg); border:1px solid var(--cinza2); border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.22); z-index:300; text-align:left;
+  }
+  .painel-notificacoes.aberto { display:block; }
+  .painel-notificacoes-header { padding:12px 14px; font-weight:700; font-size:13px; color:var(--texto); border-bottom:1px solid var(--cinza2); }
+  .painel-notificacoes-lista { padding:6px; }
+  .item-notificacao { display:block; padding:8px 10px; border-radius:8px; font-size:12px; text-decoration:none; color:var(--texto); }
+  .item-notificacao:hover { background:var(--cinza1); }
+  .item-notificacao .in-topo { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .item-notificacao .in-placa { font-family:monospace; font-weight:700; }
+  .item-notificacao .in-sub { color:var(--sub); margin-top:2px; }
+  .sem-notificacoes { padding:18px 14px; text-align:center; color:var(--sub); font-size:13px; }
+
+  .menu-acoes { position:relative; }
+  .dropdown-acoes {
+    display:none; position:absolute; top:calc(100% + 6px); right:0; min-width:200px;
+    background:var(--card-bg); border:1px solid var(--cinza2); border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.16); z-index:250; padding:6px;
+  }
+  .dropdown-acoes.aberto { display:block; }
+  .dropdown-acoes a, .dropdown-acoes button {
+    display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+    padding:8px 10px; border-radius:8px; border:none; background:transparent;
+    color:var(--texto); font-size:13px; text-decoration:none; cursor:pointer; font-family:inherit;
+  }
+  .dropdown-acoes a:hover, .dropdown-acoes button:hover { background:var(--cinza1); }
+
   nav .breadcrumb { display:flex; align-items:center; gap:6px; color:var(--nav-fg-medio); font-size:13px; }
   nav .breadcrumb a { color:var(--nav-fg-forte); text-decoration:none; }
   nav .breadcrumb a:hover { color:var(--nav-fg); text-decoration:underline; }
@@ -236,6 +273,18 @@
 
   <!-- Usuário logado -->
   {% if current_user.is_authenticated %}
+  <div class="nav-notificacoes">
+    <button type="button" class="btn-sino" onclick="toggleNotificacoes(event)" title="Notificações">
+      {{ icon('bell','icon icon-sm') }}
+      <span id="badge-notificacoes" class="badge-sino">0</span>
+    </button>
+    <div id="painel-notificacoes" class="painel-notificacoes">
+      <div class="painel-notificacoes-header">Pendências urgentes</div>
+      <div id="lista-notificacoes" class="painel-notificacoes-lista">
+        <p class="sem-notificacoes">Carregando...</p>
+      </div>
+    </div>
+  </div>
   <div class="nav-usuario">
     <span>{{ current_user.nome_completo }}</span>
     {% if current_user.perfil == 'administrador' %}
@@ -250,6 +299,25 @@
 
 <div class="container">{% block content %}{% endblock %}</div>
 <div id="toast"></div>
+
+<!-- Modal global de prévia de importação (Clientes e Veículos) -->
+<div class="modal-overlay" id="modal-preview-importacao">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <h3>{{ icon('upload') }} Prévia da importação</h3>
+      <button class="btn-close" onclick="fecharPreviewImportacao()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--sub);margin:0 0 10px;">Confira o que vai acontecer antes de confirmar. Nada foi gravado ainda.</p>
+      <p id="preview-resumo" style="font-size:13px;font-weight:600;margin:0 0 10px;"></p>
+      <div id="preview-lista" style="border:1px solid var(--cinza2);border-radius:8px;padding:8px 10px;max-height:320px;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharPreviewImportacao()">Cancelar</button>
+      <button class="btn btn-success" id="btn-confirmar-importacao" onclick="confirmarImportacao()">{{ icon('save','icon icon-sm') }} Confirmar importação</button>
+    </div>
+  </div>
+</div>
 
 <!-- Modal global de senha para exclusões -->
 <div class="modal-overlay" id="modal-senha-exclusao">
@@ -377,6 +445,177 @@ function fmtDataHora(dt) {
   const [y, m, d] = datePart.split('-');
   return `${d}/${m}/${y}${timePart ? ' ' + timePart.substring(0,5) : ''}`;
 }
+
+// ── Notificações de pendências urgentes (sino na navbar) ────────────────────
+// Roda em qualquer página (não só no dashboard) porque o sino fica sempre
+// visível na navbar. Usa os mesmos dados do /api/dashboard (contagem
+// global, todos os clientes).
+const DIAS_ALERTA_URGENTE = 7;
+
+async function _carregarNotificacoes() {
+  const badgeEl = document.getElementById('badge-notificacoes');
+  if (!badgeEl) return;   // usuário não logado — sino nem existe na página
+
+  const d = await apiFetch('/api/dashboard');
+  if (!d) return;
+
+  const hoje    = new Date().toISOString().slice(0, 10);
+  const emBreve = new Date(Date.now() + DIAS_ALERTA_URGENTE * 86400000).toISOString().slice(0, 10);
+
+  const itens = [
+      ...d.ipva.map(i => ({ ...i, _origem: 'ipva' })),
+      ...d.licenciamento.map(i => ({ ...i, _origem: 'licenciamento' })),
+    ]
+    .filter(i => i.vencimento && i.vencimento <= emBreve)
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+
+  const total = itens.length;
+  badgeEl.textContent = total > 99 ? '99+' : String(total);
+  badgeEl.style.display = total ? 'block' : 'none';
+
+  const lista = document.getElementById('lista-notificacoes');
+  if (!total) {
+    lista.innerHTML = '<p class="sem-notificacoes">Nenhuma pendência urgente 🎉</p>';
+  } else {
+    lista.innerHTML = itens.map(item => {
+      const atrasado = item.vencimento < hoje;
+      const tipo = item._origem === 'licenciamento'
+        ? 'Licenciamento'
+        : (item.ipva_id !== undefined ? `IPVA · ${item.numero}ª parcela` : 'IPVA');
+      return `<a class="item-notificacao" href="/clientes/${item.cliente_id}/pendencias">
+        <div class="in-topo">
+          <span class="in-placa">${escapeHtml(item.placa)}</span>
+          <span style="color:${atrasado ? 'var(--vermelho)' : 'var(--amarelo)'};font-weight:700;">${fmtData(item.vencimento)}</span>
+        </div>
+        <div class="in-sub">${escapeHtml(item.cliente_nome)} · ${tipo}</div>
+      </a>`;
+    }).join('');
+  }
+
+  if (itens.length) {
+    _notificarSistemaOperacional(total, itens);
+  }
+}
+
+function toggleNotificacoes(ev) {
+  ev.stopPropagation();
+  document.getElementById('painel-notificacoes').classList.toggle('aberto');
+}
+
+// ── Menu "mais ações" (usado em Clientes e Veículos, por exemplo) ───────────
+// Genérico: cada botão que abre um menu passa o id do dropdown que ele controla.
+function toggleMenuAcoes(ev, idDropdown) {
+  ev.stopPropagation();
+  document.querySelectorAll('.dropdown-acoes.aberto').forEach(el => {
+    if (el.id !== idDropdown) el.classList.remove('aberto');
+  });
+  document.getElementById(idDropdown).classList.toggle('aberto');
+}
+
+document.addEventListener('click', (ev) => {
+  const painel = document.getElementById('painel-notificacoes');
+  if (painel && painel.classList.contains('aberto') && !painel.contains(ev.target)) {
+    painel.classList.remove('aberto');
+  }
+  document.querySelectorAll('.dropdown-acoes.aberto').forEach(dropdown => {
+    if (!dropdown.parentElement.contains(ev.target)) {
+      dropdown.classList.remove('aberto');
+    }
+  });
+});
+
+// Notificação nativa do Windows/SO. Só dispara se a pessoa já autorizou
+// antes — na primeira vez só pede permissão silenciosamente, sem
+// interromper nada; da próxima vez que houver pendência já aparece.
+let _ultimoAvisoNativo = 0;
+function _notificarSistemaOperacional(total, itens) {
+  if (!total || !('Notification' in window)) return;
+
+  if (Notification.permission === 'granted') {
+    // Evita repetir a notificação nativa a cada troca de página — só
+    // dispara de novo depois de alguns minutos.
+    const agora = Date.now();
+    if (agora - _ultimoAvisoNativo < 5 * 60 * 1000) return;
+    _ultimoAvisoNativo = agora;
+    new Notification('Sistema Despachante', {
+      body: `${total} pendência(s) exigem atenção nos próximos ${DIAS_ALERTA_URGENTE} dias (ou já vencidas).`,
+    });
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission();
+  }
+}
+
+_carregarNotificacoes();
+
+// ── Prévia de importação (Clientes / Veículos) ──────────────────────────────
+// Genérico: qualquer tela chama iniciarImportacaoComPreview(input, urlPreview,
+// urlConfirmar) no onchange do <input type="file">, e define
+// window.onImportacaoConcluida(resultado) para tratar o resultado final
+// (mostrar resumo, recarregar a lista etc.) do jeito que fizer sentido ali.
+let _arquivoImportacaoPendente = null;
+let _urlConfirmarImportacaoPendente = null;
+
+const BADGE_ACAO_IMPORTACAO = {
+  criar:     '<span class="badge badge-pago">Novo</span>',
+  atualizar: '<span class="badge badge-pendente">Atualizar</span>',
+  erro:      '<span class="badge badge-vencido">Erro</span>',
+};
+
+async function iniciarImportacaoComPreview(input, urlPreview, urlConfirmar) {
+  const arquivo = input.files[0];
+  if (!arquivo) return;
+
+  _arquivoImportacaoPendente = arquivo;
+  _urlConfirmarImportacaoPendente = urlConfirmar;
+
+  const formData = new FormData();
+  formData.append('arquivo', arquivo);
+
+  const preview = await apiFetch(urlPreview, { method: 'POST', body: formData });
+  input.value = '';   // permite selecionar o mesmo arquivo de novo, se precisar
+  if (!preview) { _arquivoImportacaoPendente = null; return; }
+
+  document.getElementById('preview-resumo').textContent =
+    `${preview.contagem.criar} novo(s), ${preview.contagem.atualizar} atualizado(s), ${preview.contagem.erro} com erro.`;
+
+  document.getElementById('preview-lista').innerHTML = preview.itens.map(item => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--cinza2);font-size:12px;">
+      <span>Linha ${escapeHtml(item.linha)}: ${escapeHtml(item.resumo || item.erro || '')}</span>
+      ${BADGE_ACAO_IMPORTACAO[item.acao] || ''}
+    </div>`).join('') || '<p style="font-size:12px;color:var(--sub);">Planilha vazia — nada para importar.</p>';
+
+  document.getElementById('btn-confirmar-importacao').disabled =
+    (preview.contagem.criar + preview.contagem.atualizar) === 0;
+
+  document.getElementById('modal-preview-importacao').classList.add('open');
+}
+
+function fecharPreviewImportacao() {
+  document.getElementById('modal-preview-importacao').classList.remove('open');
+  _arquivoImportacaoPendente = null;
+  _urlConfirmarImportacaoPendente = null;
+}
+
+async function confirmarImportacao() {
+  if (!_arquivoImportacaoPendente || !_urlConfirmarImportacaoPendente) return;
+
+  const formData = new FormData();
+  formData.append('arquivo', _arquivoImportacaoPendente);
+
+  const resultado = await apiFetch(_urlConfirmarImportacaoPendente, { method: 'POST', body: formData });
+  fecharPreviewImportacao();
+  if (!resultado) return;
+
+  if (typeof window.onImportacaoConcluida === 'function') {
+    window.onImportacaoConcluida(resultado);
+  }
+}
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && document.getElementById('modal-preview-importacao').classList.contains('open')) {
+    fecharPreviewImportacao();
+  }
+});
 </script>
 {% block scripts %}{% endblock %}
 </body>

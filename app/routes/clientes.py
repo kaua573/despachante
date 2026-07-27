@@ -192,6 +192,24 @@ def modelo_importacao_clientes():
     )
 
 
+@bp.route("/api/clientes/pre-importar", methods=["POST"])
+@login_required
+@requer_permissao("gerenciar_clientes")
+def pre_importar_clientes():
+    from app.services.importacao_service import ImportacaoService
+
+    if "arquivo" not in request.files or not request.files["arquivo"].filename:
+        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
+
+    arquivo = request.files["arquivo"]
+    if not arquivo.filename.lower().endswith(".xlsx"):
+        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
+
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    preview = svc.pre_visualizar(arquivo.read())
+    return jsonify({"ok": True, **preview})
+
+
 @bp.route("/api/clientes/importar", methods=["POST"])
 @login_required
 @requer_permissao("gerenciar_clientes")

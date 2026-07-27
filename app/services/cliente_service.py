@@ -32,7 +32,7 @@ class ClienteService:
     def obter(self, cliente_id: int) -> Optional[Cliente]:
         return self._session.get(Cliente, cliente_id)
 
-    def _cpf_em_uso(self, cpf: str, ignorar_id: Optional[int] = None) -> bool:
+    def cpf_em_uso(self, cpf: str, ignorar_id: Optional[int] = None) -> bool:
         if not cpf:
             return False
         q = self._session.query(Cliente.id).filter(Cliente.cpf == cpf)
@@ -42,7 +42,7 @@ class ClienteService:
 
     def criar(self, dados: dict) -> tuple[Optional[Cliente], str]:
         cpf = dados.get("cpf", "")
-        if self._cpf_em_uso(cpf):
+        if self.cpf_em_uso(cpf):
             return None, "Já existe um cliente cadastrado com esse CPF."
         cliente = Cliente(
             nome=dados["nome"],
@@ -64,7 +64,7 @@ class ClienteService:
         if not cliente:
             return False, "Cliente não encontrado."
         cpf = dados.get("cpf", "")
-        if self._cpf_em_uso(cpf, ignorar_id=cliente_id):
+        if self.cpf_em_uso(cpf, ignorar_id=cliente_id):
             return False, "Já existe um cliente cadastrado com esse CPF."
         cliente.nome = dados["nome"]
         cliente.cpf = cpf

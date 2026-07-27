@@ -1,0 +1,1541 @@
+diff --git a/.gitignore b/.gitignore
+index a4156cf..a540911 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,6 +8,10 @@ venv/
+ 
+ # Dados locais — nunca devem ir para o repositório
+ despachante.db
++despachante.db-shm
++despachante.db-wal
++*.db-shm
++*.db-wal
+ *.db
+ backups/*.db
+ secret.key
+diff --git a/app/routes/clientes.py b/app/routes/clientes.py
+index 51d6020..46ec944 100644
+--- a/app/routes/clientes.py
++++ b/app/routes/clientes.py
+@@ -192,6 +192,24 @@ def modelo_importacao_clientes():
+     )
+ 
+ 
++@bp.route("/api/clientes/pre-importar", methods=["POST"])
++@login_required
++@requer_permissao("gerenciar_clientes")
++def pre_importar_clientes():
++    from app.services.importacao_service import ImportacaoService
++
++    if "arquivo" not in request.files or not request.files["arquivo"].filename:
++        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
++
++    arquivo = request.files["arquivo"]
++    if not arquivo.filename.lower().endswith(".xlsx"):
++        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
++
++    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
++    preview = svc.pre_visualizar(arquivo.read())
++    return jsonify({"ok": True, **preview})
++
++
+ @bp.route("/api/clientes/importar", methods=["POST"])
+ @login_required
+ @requer_permissao("gerenciar_clientes")
+diff --git a/app/routes/veiculos.py b/app/routes/veiculos.py
+index 6734842..6ceb7e9 100644
+--- a/app/routes/veiculos.py
++++ b/app/routes/veiculos.py
+@@ -1,4 +1,4 @@
+-from flask import Blueprint, render_template, request, jsonify, redirect, url_for
++from flask import Blueprint, render_template, request, jsonify, redirect, url_for, send_file, current_app
+ from flask_login import login_required
+ from app import db
+ from app.models.cliente import Cliente
+@@ -254,6 +254,82 @@ def api_quitar_multa(mid):
+     return jsonify({"ok": True})
+ 
+ 
++# ── Importação / exportação de veículos de UM cliente ───────────────────────────
++
++@bp.route("/api/clientes/<int:cid>/veiculos/exportar")
++@login_required
++@requer_permissao("visualizar_veiculos")
++def exportar_veiculos_cliente(cid):
++    from app.services.importacao_service import ImportacaoService
++    import io as io_
++    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
++    conteudo = svc.exportar_veiculos_cliente(cid)
++    _log().registrar("exportar_veiculos_cliente", "cliente", cid)
++    return send_file(
++        io_.BytesIO(conteudo),
++        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++        as_attachment=True,
++        download_name="veiculos.xlsx",
++    )
++
++
++@bp.route("/api/clientes/<int:cid>/veiculos/modelo-importacao")
++@login_required
++@requer_permissao("cadastrar_veiculos")
++def modelo_importacao_veiculos_cliente(cid):
++    from app.services.importacao_service import ImportacaoService
++    import io as io_
++    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
++    conteudo = svc.gerar_modelo_veiculos_cliente()
++    return send_file(
++        io_.BytesIO(conteudo),
++        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++        as_attachment=True,
++        download_name="modelo_importacao_veiculos.xlsx",
++    )
++
++
++@bp.route("/api/clientes/<int:cid>/veiculos/pre-importar", methods=["POST"])
++@login_required
++@requer_permissao("cadastrar_veiculos")
++def pre_importar_veiculos_cliente(cid):
++    from app.services.importacao_service import ImportacaoService
++
++    if "arquivo" not in request.files or not request.files["arquivo"].filename:
++        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
++
++    arquivo = request.files["arquivo"]
++    if not arquivo.filename.lower().endswith(".xlsx"):
++        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
++
++    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
++    preview = svc.pre_visualizar_veiculos_cliente(cid, arquivo.read())
++    return jsonify({"ok": True, **preview})
++
++
++@bp.route("/api/clientes/<int:cid>/veiculos/importar", methods=["POST"])
++@login_required
++@requer_permissao("cadastrar_veiculos")
++def importar_veiculos_cliente(cid):
++    from app.services.importacao_service import ImportacaoService
++
++    if "arquivo" not in request.files or not request.files["arquivo"].filename:
++        return jsonify({"ok": False, "erro": "Nenhum arquivo enviado."}), 400
++
++    arquivo = request.files["arquivo"]
++    if not arquivo.filename.lower().endswith(".xlsx"):
++        return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
++
++    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
++    resultado = svc.importar_veiculos_cliente(cid, arquivo.read())
++    _log().registrar("importar_veiculos_cliente", "cliente", cid, {
++        "veiculos_criados": resultado["veiculos_criados"],
++        "veiculos_atualizados": resultado["veiculos_atualizados"],
++        "erros": len(resultado["erros"]),
++    })
++    return jsonify({"ok": True, **resultado})
++
++
+ # ── Validação ─────────────────────────────────────────────────────────────────
+ 
+ def _validar_e_normalizar(dados: dict) -> str:
+diff --git a/app/services/cliente_service.py b/app/services/cliente_service.py
+index a2021ed..365a99e 100644
+--- a/app/services/cliente_service.py
++++ b/app/services/cliente_service.py
+@@ -32,7 +32,7 @@ class ClienteService:
+     def obter(self, cliente_id: int) -> Optional[Cliente]:
+         return self._session.get(Cliente, cliente_id)
+ 
+-    def _cpf_em_uso(self, cpf: str, ignorar_id: Optional[int] = None) -> bool:
++    def cpf_em_uso(self, cpf: str, ignorar_id: Optional[int] = None) -> bool:
+         if not cpf:
+             return False
+         q = self._session.query(Cliente.id).filter(Cliente.cpf == cpf)
+@@ -42,7 +42,7 @@ class ClienteService:
+ 
+     def criar(self, dados: dict) -> tuple[Optional[Cliente], str]:
+         cpf = dados.get("cpf", "")
+-        if self._cpf_em_uso(cpf):
++        if self.cpf_em_uso(cpf):
+             return None, "Já existe um cliente cadastrado com esse CPF."
+         cliente = Cliente(
+             nome=dados["nome"],
+@@ -64,7 +64,7 @@ class ClienteService:
+         if not cliente:
+             return False, "Cliente não encontrado."
+         cpf = dados.get("cpf", "")
+-        if self._cpf_em_uso(cpf, ignorar_id=cliente_id):
++        if self.cpf_em_uso(cpf, ignorar_id=cliente_id):
+             return False, "Já existe um cliente cadastrado com esse CPF."
+         cliente.nome = dados["nome"]
+         cliente.cpf = cpf
+diff --git a/app/services/importacao_service.py b/app/services/importacao_service.py
+index 03f8ce6..c6e92c7 100644
+--- a/app/services/importacao_service.py
++++ b/app/services/importacao_service.py
+@@ -1,9 +1,22 @@
+ """
+-Importação e exportação em massa de clientes (com seus veículos) via Excel.
+-
+-Reaproveita ClienteService/VeiculoService para criar/atualizar registros —
+-ou seja, passa pelas mesmas validações e regras de duplicidade (CPF, placa)
+-que já valem para o cadastro manual, sem duplicar essa lógica aqui.
++Importação e exportação em massa via Excel.
++
++- exportar()/importar(): todos os clientes + veículos do sistema, ligados
++  pelo CPF (usado na tela de Clientes).
++- exportar_veiculos_cliente()/importar_veiculos_cliente(): só os veículos de
++  UM cliente específico, sem precisar da coluna de CPF (usado na tela de
++  Veículos de um cliente — útil pra quem tem uma frota grande).
++- pre_visualizar()/pre_visualizar_veiculos_cliente(): mesma leitura e
++  validação dos métodos acima, mas SEM gravar nada no banco — só relata
++  linha a linha o que aconteceria (criar/atualizar/erro). Usado para
++  mostrar uma prévia antes do usuário confirmar a importação de verdade.
++
++Os fluxos reais reaproveitam ClienteService/VeiculoService para criar/
++atualizar registros, ou seja, passam pelas mesmas validações e regras de
++duplicidade (CPF, placa) que já valem para o cadastro manual. A prévia
++reaproveita as mesmas funções de validação e os mesmos checadores de
++duplicidade (cpf_em_uso/placa_em_uso) para nunca divergir do que a
++importação real de fato faria.
+ """
+ from __future__ import annotations
+ 
+@@ -15,6 +28,7 @@ from openpyxl.styles import Font, PatternFill
+ from sqlalchemy.orm import Session
+ 
+ from app.models.cliente import Cliente
++from app.models.veiculo import Veiculo
+ from app.services.cliente_service import ClienteService
+ from app.services.veiculo_service import VeiculoService
+ from app.services.validacao_service import (
+@@ -27,10 +41,16 @@ COLUNAS_VEICULOS = [
+     "CPF do Cliente*", "Placa*", "RENAVAM*", "Proprietário*",
+     "Marca/Modelo*", "Situação", "Espécie", "Observação",
+ ]
++COLUNAS_VEICULOS_CLIENTE = [
++    "Placa*", "RENAVAM*", "Proprietário*",
++    "Marca/Modelo*", "Situação", "Espécie", "Observação",
++]
+ 
+ SITUACOES_VALIDAS = {"ativo", "desativado", "vendido"}
+ ESPECIES_VALIDAS = {"passeio", "carga", "reboque"}
+ 
++COR_CABECALHO = "1A4F8A"
++
+ 
+ class ImportacaoService:
+     def __init__(self, session: Session, upload_dir: str = "") -> None:
+@@ -38,14 +58,12 @@ class ImportacaoService:
+         self._cliente_svc = ClienteService(session, upload_dir)
+         self._veiculo_svc = VeiculoService(session)
+ 
+-    # ── Exportação ───────────────────────────────────────────────────────────
++    # ── Exportação — todos os clientes ──────────────────────────────────────
+ 
+     def exportar(self) -> bytes:
+         """Gera um .xlsx com duas abas: Clientes e Veículos (ligados pelo CPF)."""
+         wb = Workbook()
+-
+-        fill_header = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
+-        font_header = Font(bold=True, color="FFFFFF", size=11)
++        fill_header, font_header = self._estilo_cabecalho()
+ 
+         ws_clientes = wb.active
+         ws_clientes.title = "Clientes"
+@@ -75,26 +93,14 @@ class ImportacaoService:
+                 ws_veiculos.cell(row=row_idx, column=8, value=v.observacao or "")
+                 row_idx += 1
+ 
+-        for ws, colunas in ((ws_clientes, COLUNAS_CLIENTES), (ws_veiculos, COLUNAS_VEICULOS)):
+-            for col_idx, titulo in enumerate(colunas, start=1):
+-                ws.column_dimensions[chr(64 + col_idx)].width = max(14, len(titulo) + 4)
+-
+-        buffer = io.BytesIO()
+-        wb.save(buffer)
+-        return buffer.getvalue()
+-
+-    @staticmethod
+-    def _escrever_cabecalho(ws, colunas, fill, font) -> None:
+-        for col_idx, titulo in enumerate(colunas, start=1):
+-            cell = ws.cell(row=1, column=col_idx, value=titulo)
+-            cell.fill = fill
+-            cell.font = font
++        self._ajustar_largura(ws_clientes, COLUNAS_CLIENTES)
++        self._ajustar_largura(ws_veiculos, COLUNAS_VEICULOS)
++        return self._salvar(wb)
+ 
+     def gerar_modelo(self) -> bytes:
+-        """Planilha vazia, só com os cabeçalhos — para quem for preencher do zero."""
++        """Planilha vazia (Clientes + Veículos), só com os cabeçalhos."""
+         wb = Workbook()
+-        fill_header = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
+-        font_header = Font(bold=True, color="FFFFFF", size=11)
++        fill_header, font_header = self._estilo_cabecalho()
+ 
+         ws_clientes = wb.active
+         ws_clientes.title = "Clientes"
+@@ -103,18 +109,15 @@ class ImportacaoService:
+         ws_veiculos = wb.create_sheet("Veiculos")
+         self._escrever_cabecalho(ws_veiculos, COLUNAS_VEICULOS, fill_header, font_header)
+ 
+-        buffer = io.BytesIO()
+-        wb.save(buffer)
+-        return buffer.getvalue()
+-
+-    # ── Importação ───────────────────────────────────────────────────────────
++        return self._salvar(wb)
+ 
+     def importar(self, conteudo_arquivo: bytes) -> dict:
+         """
+         Lê um .xlsx no mesmo formato do exportar() e cria/atualiza clientes e
+-        veículos. Cliente é identificado pelo CPF; veículo, pela placa dentro
+-        do mesmo cliente. Continua processando mesmo se uma linha falhar —
+-        cada erro é reportado, sem travar o restante do arquivo.
++        veículos de verdade. Cliente é identificado pelo CPF; veículo, pela
++        placa dentro do mesmo cliente. Continua processando mesmo se uma
++        linha falhar — cada erro é reportado, sem travar o restante do
++        arquivo.
+         """
+         resultado = {
+             "clientes_criados": 0, "clientes_atualizados": 0,
+@@ -122,10 +125,9 @@ class ImportacaoService:
+             "erros": [],
+         }
+ 
+-        try:
+-            wb = load_workbook(io.BytesIO(conteudo_arquivo), read_only=True, data_only=True)
+-        except Exception:
+-            resultado["erros"].append({"linha": "-", "erro": "Arquivo inválido. Envie um .xlsx no formato do modelo."})
++        wb, erro_abertura = self._abrir_planilha(conteudo_arquivo)
++        if wb is None:
++            resultado["erros"].append({"linha": "-", "erro": erro_abertura})
+             return resultado
+ 
+         if "Clientes" not in wb.sheetnames:
+@@ -140,6 +142,219 @@ class ImportacaoService:
+ 
+         return resultado
+ 
++    # ── Prévia — todos os clientes (dry-run, não grava nada) ────────────────
++
++    def pre_visualizar(self, conteudo_arquivo: bytes) -> dict:
++        preview = {"itens": [], "contagem": {"criar": 0, "atualizar": 0, "erro": 0}}
++
++        wb, erro_abertura = self._abrir_planilha(conteudo_arquivo)
++        if wb is None:
++            self._add_item(preview, "-", "erro", erro=erro_abertura)
++            return preview
++
++        if "Clientes" not in wb.sheetnames:
++            self._add_item(preview, "-", "erro", erro='Aba "Clientes" não encontrada na planilha.')
++            return preview
++
++        cpfs_no_arquivo: set = set()
++        self._pre_visualizar_clientes(wb["Clientes"], preview, cpfs_no_arquivo)
++
++        if "Veiculos" in wb.sheetnames:
++            self._pre_visualizar_veiculos(wb["Veiculos"], preview, cpfs_no_arquivo)
++
++        return preview
++
++    def _pre_visualizar_clientes(self, ws, preview: dict, cpfs_no_arquivo: set) -> None:
++        linhas = ws.iter_rows(min_row=2, values_only=True)
++        for numero_linha, linha in enumerate(linhas, start=2):
++            if linha is None or not any(linha):
++                continue
++            nome, cpf, telefone, email, observacao = (list(linha) + [None] * 5)[:5]
++
++            dados = {
++                "nome": str(nome or "").strip(),
++                "cpf": normalizar_cpf(str(cpf or "")),
++                "telefone": normalizar_telefone(str(telefone or "")),
++                "email": str(email or "").strip(),
++                "observacao": str(observacao or "").strip(),
++            }
++
++            erro = validar_campos_cliente(dados)
++            if erro:
++                self._add_item(preview, numero_linha, "erro", erro=f"[Clientes] {erro}")
++                continue
++
++            existente = self._session.query(Cliente).filter(Cliente.cpf == dados["cpf"]).first()
++            acao = "atualizar" if existente else "criar"
++            cpfs_no_arquivo.add(dados["cpf"])
++            self._add_item(preview, numero_linha, acao, resumo=f"{dados['nome']} — CPF {dados['cpf']}")
++
++    def _pre_visualizar_veiculos(self, ws, preview: dict, cpfs_no_arquivo: set) -> None:
++        linhas = ws.iter_rows(min_row=2, values_only=True)
++        for numero_linha, linha in enumerate(linhas, start=2):
++            if linha is None or not any(linha):
++                continue
++            cpf, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
++                list(linha) + [None] * 8
++            )[:8]
++
++            cpf_normalizado = normalizar_cpf(str(cpf or ""))
++            cliente = self._session.query(Cliente).filter(Cliente.cpf == cpf_normalizado).first()
++            if not cliente and cpf_normalizado not in cpfs_no_arquivo:
++                self._add_item(preview, numero_linha, "erro",
++                                erro=f"[Veículos] Nenhum cliente encontrado com o CPF '{cpf}'.")
++                continue
++
++            erro, dados = self._preparar_linha_veiculo(placa, renavam, proprietario, marca_modelo, situacao, especie, observacao)
++            if erro:
++                self._add_item(preview, numero_linha, "erro", erro=f"[Veículos] {erro}")
++                continue
++
++            cliente_id = cliente.id if cliente else None
++            acao, erro_duplicidade = self._determinar_acao_veiculo(cliente_id, dados)
++            if erro_duplicidade:
++                self._add_item(preview, numero_linha, "erro", erro=f"[Veículos] {erro_duplicidade}")
++                continue
++
++            self._add_item(preview, numero_linha, acao,
++                            resumo=f"{dados['placa']} — {dados['marca_modelo'] or 'sem marca/modelo informada'}")
++
++    # ── Exportação — veículos de UM cliente ─────────────────────────────────
++
++    def exportar_veiculos_cliente(self, cliente_id: int) -> bytes:
++        """Só os veículos do cliente indicado — sem coluna de CPF, já que o escopo é um só cliente."""
++        wb = Workbook()
++        fill_header, font_header = self._estilo_cabecalho()
++
++        ws = wb.active
++        ws.title = "Veiculos"
++        self._escrever_cabecalho(ws, COLUNAS_VEICULOS_CLIENTE, fill_header, font_header)
++
++        veiculos = (
++            self._session.query(Veiculo)
++            .filter_by(cliente_id=cliente_id)
++            .order_by(Veiculo.placa)
++            .all()
++        )
++        for row_idx, v in enumerate(veiculos, start=2):
++            ws.cell(row=row_idx, column=1, value=v.placa)
++            ws.cell(row=row_idx, column=2, value=v.renavam or "")
++            ws.cell(row=row_idx, column=3, value=v.proprietario or "")
++            ws.cell(row=row_idx, column=4, value=v.marca_modelo or "")
++            ws.cell(row=row_idx, column=5, value=v.situacao or "ativo")
++            ws.cell(row=row_idx, column=6, value=v.especie or "passeio")
++            ws.cell(row=row_idx, column=7, value=v.observacao or "")
++
++        self._ajustar_largura(ws, COLUNAS_VEICULOS_CLIENTE)
++        return self._salvar(wb)
++
++    def gerar_modelo_veiculos_cliente(self) -> bytes:
++        """Planilha vazia, só com os cabeçalhos dos veículos (sem coluna de CPF)."""
++        wb = Workbook()
++        fill_header, font_header = self._estilo_cabecalho()
++        ws = wb.active
++        ws.title = "Veiculos"
++        self._escrever_cabecalho(ws, COLUNAS_VEICULOS_CLIENTE, fill_header, font_header)
++        return self._salvar(wb)
++
++    def importar_veiculos_cliente(self, cliente_id: int, conteudo_arquivo: bytes) -> dict:
++        """
++        Lê um .xlsx no formato do exportar_veiculos_cliente() e cria/atualiza
++        veículos DESSE cliente de verdade. Identificado pela placa (dentro do
++        escopo desse cliente só). Não mexe em veículos de outros clientes.
++        """
++        resultado = {"veiculos_criados": 0, "veiculos_atualizados": 0, "erros": []}
++
++        wb, erro_abertura = self._abrir_planilha(conteudo_arquivo)
++        if wb is None:
++            resultado["erros"].append({"linha": "-", "erro": erro_abertura})
++            return resultado
++
++        nome_aba = "Veiculos" if "Veiculos" in wb.sheetnames else wb.sheetnames[0]
++        self._importar_veiculos_de_um_cliente(wb[nome_aba], cliente_id, resultado)
++        return resultado
++
++    # ── Prévia — veículos de UM cliente (dry-run, não grava nada) ────────────
++
++    def pre_visualizar_veiculos_cliente(self, cliente_id: int, conteudo_arquivo: bytes) -> dict:
++        preview = {"itens": [], "contagem": {"criar": 0, "atualizar": 0, "erro": 0}}
++
++        wb, erro_abertura = self._abrir_planilha(conteudo_arquivo)
++        if wb is None:
++            self._add_item(preview, "-", "erro", erro=erro_abertura)
++            return preview
++
++        nome_aba = "Veiculos" if "Veiculos" in wb.sheetnames else wb.sheetnames[0]
++        linhas = wb[nome_aba].iter_rows(min_row=2, values_only=True)
++        for numero_linha, linha in enumerate(linhas, start=2):
++            if linha is None or not any(linha):
++                continue
++            placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
++                list(linha) + [None] * 7
++            )[:7]
++
++            erro, dados = self._preparar_linha_veiculo(placa, renavam, proprietario, marca_modelo, situacao, especie, observacao)
++            if erro:
++                self._add_item(preview, numero_linha, "erro", erro=f"[Veículos] {erro}")
++                continue
++
++            acao, erro_duplicidade = self._determinar_acao_veiculo(cliente_id, dados)
++            if erro_duplicidade:
++                self._add_item(preview, numero_linha, "erro", erro=f"[Veículos] {erro_duplicidade}")
++                continue
++
++            self._add_item(preview, numero_linha, acao,
++                            resumo=f"{dados['placa']} — {dados['marca_modelo'] or 'sem marca/modelo informada'}")
++
++        return preview
++
++    # ── Helpers de planilha ──────────────────────────────────────────────────
++
++    @staticmethod
++    def _estilo_cabecalho():
++        return (
++            PatternFill(start_color=COR_CABECALHO, end_color=COR_CABECALHO, fill_type="solid"),
++            Font(bold=True, color="FFFFFF", size=11),
++        )
++
++    @staticmethod
++    def _escrever_cabecalho(ws, colunas, fill, font) -> None:
++        for col_idx, titulo in enumerate(colunas, start=1):
++            cell = ws.cell(row=1, column=col_idx, value=titulo)
++            cell.fill = fill
++            cell.font = font
++
++    @staticmethod
++    def _ajustar_largura(ws, colunas) -> None:
++        for col_idx, titulo in enumerate(colunas, start=1):
++            ws.column_dimensions[chr(64 + col_idx)].width = max(14, len(titulo) + 4)
++
++    @staticmethod
++    def _salvar(wb: Workbook) -> bytes:
++        buffer = io.BytesIO()
++        wb.save(buffer)
++        return buffer.getvalue()
++
++    @staticmethod
++    def _abrir_planilha(conteudo_arquivo: bytes):
++        """Retorna (workbook, None) em caso de sucesso, ou (None, mensagem_de_erro)."""
++        try:
++            return load_workbook(io.BytesIO(conteudo_arquivo), read_only=True, data_only=True), None
++        except Exception:
++            return None, "Arquivo inválido. Envie um .xlsx no formato do modelo."
++
++    @staticmethod
++    def _add_item(preview: dict, linha, acao: str, resumo: str = "", erro: str = "") -> None:
++        item = {"linha": linha, "acao": acao}
++        if acao == "erro":
++            item["erro"] = erro
++        else:
++            item["resumo"] = resumo
++        preview["itens"].append(item)
++        preview["contagem"][acao] += 1
++
++    # ── Importação — clientes ────────────────────────────────────────────────
++
+     def _importar_clientes(self, ws, resultado: dict, cpf_para_cliente_id: dict) -> None:
+         linhas = ws.iter_rows(min_row=2, values_only=True)
+         for numero_linha, linha in enumerate(linhas, start=2):
+@@ -180,7 +395,10 @@ class ImportacaoService:
+                 cpf_para_cliente_id[dados["cpf"]] = cliente.id
+                 resultado["clientes_criados"] += 1
+ 
++    # ── Importação — veículos ────────────────────────────────────────────────
++
+     def _importar_veiculos(self, ws, resultado: dict, cpf_para_cliente_id: dict) -> None:
++        """Planilha com coluna de CPF (usada na importação global de clientes)."""
+         linhas = ws.iter_rows(min_row=2, values_only=True)
+         for numero_linha, linha in enumerate(linhas, start=2):
+             if linha is None or not any(linha):
+@@ -207,44 +425,96 @@ class ImportacaoService:
+                 })
+                 continue
+ 
+-            situacao = str(situacao or "ativo").strip().lower() or "ativo"
+-            especie = str(especie or "passeio").strip().lower() or "passeio"
+-            if situacao not in SITUACOES_VALIDAS:
+-                situacao = "ativo"
+-            if especie not in ESPECIES_VALIDAS:
+-                especie = "passeio"
+-
+-            dados = {
+-                "cliente_id": cliente_id,
+-                "placa": str(placa or "").strip(),
+-                "renavam": str(renavam or "").strip(),
+-                "proprietario": str(proprietario or "").strip(),
+-                "marca_modelo": str(marca_modelo or "").strip(),
+-                "situacao": situacao,
+-                "especie": especie,
+-                "observacao": str(observacao or "").strip(),
+-            }
++            self._upsert_veiculo(
++                cliente_id, placa, renavam, proprietario, marca_modelo,
++                situacao, especie, observacao, numero_linha, resultado,
++            )
+ 
+-            erro = validar_campos_veiculo(dados)
+-            if erro:
+-                resultado["erros"].append({"linha": numero_linha, "erro": f"[Veículos] {erro}"})
++    def _importar_veiculos_de_um_cliente(self, ws, cliente_id: int, resultado: dict) -> None:
++        """Planilha sem coluna de CPF — todo mundo pertence ao mesmo cliente_id."""
++        linhas = ws.iter_rows(min_row=2, values_only=True)
++        for numero_linha, linha in enumerate(linhas, start=2):
++            if linha is None or not any(linha):
+                 continue
++            placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
++                list(linha) + [None] * 7
++            )[:7]
++
++            self._upsert_veiculo(
++                cliente_id, placa, renavam, proprietario, marca_modelo,
++                situacao, especie, observacao, numero_linha, resultado,
++            )
+ 
+-            from app.models.veiculo import Veiculo
++    def _preparar_linha_veiculo(self, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao):
++        """Normaliza e valida uma linha de veículo (sem cliente_id ainda). Retorna (erro_ou_None, dados)."""
++        situacao = str(situacao or "ativo").strip().lower() or "ativo"
++        especie = str(especie or "passeio").strip().lower() or "passeio"
++        if situacao not in SITUACOES_VALIDAS:
++            situacao = "ativo"
++        if especie not in ESPECIES_VALIDAS:
++            especie = "passeio"
++
++        dados = {
++            "placa": str(placa or "").strip(),
++            "renavam": str(renavam or "").strip(),
++            "proprietario": str(proprietario or "").strip(),
++            "marca_modelo": str(marca_modelo or "").strip(),
++            "situacao": situacao,
++            "especie": especie,
++            "observacao": str(observacao or "").strip(),
++        }
++        erro = validar_campos_veiculo(dados)
++        return erro, dados
++
++    def _determinar_acao_veiculo(self, cliente_id: Optional[int], dados: dict):
++        """
++        Decide se a linha seria 'criar' ou 'atualizar', e detecta conflito de
++        placa duplicada — usando exatamente a mesma regra (placa_em_uso) que
++        VeiculoService.criar()/atualizar() usam de verdade. Retorna
++        (acao, erro_ou_None).
++        """
++        placa_normalizada = dados["placa"].upper()
++        existente = None
++        if cliente_id:
+             existente = (
+                 self._session.query(Veiculo)
+-                .filter(Veiculo.cliente_id == cliente_id, Veiculo.placa == dados["placa"].upper())
++                .filter(Veiculo.cliente_id == cliente_id, Veiculo.placa == placa_normalizada)
+                 .first()
+             )
+-            if existente:
+-                ok, erro = self._veiculo_svc.atualizar(existente.id, dados)
+-                if not ok:
+-                    resultado["erros"].append({"linha": numero_linha, "erro": f"[Veículos] {erro}"})
+-                    continue
+-                resultado["veiculos_atualizados"] += 1
+-            else:
+-                veiculo, erro = self._veiculo_svc.criar(dados)
+-                if not veiculo:
+-                    resultado["erros"].append({"linha": numero_linha, "erro": f"[Veículos] {erro}"})
+-                    continue
+-                resultado["veiculos_criados"] += 1
++
++        if existente:
++            if dados["situacao"] != "vendido" and self._veiculo_svc.placa_em_uso(placa_normalizada, ignorar_id=existente.id):
++                return "erro", "Já existe outro veículo ativo cadastrado com esta placa."
++            return "atualizar", None
++
++        if dados["situacao"] != "vendido" and self._veiculo_svc.placa_em_uso(placa_normalizada):
++            return "erro", "Já existe um veículo ativo cadastrado com esta placa."
++        return "criar", None
++
++    def _upsert_veiculo(
++        self, cliente_id: int, placa, renavam, proprietario, marca_modelo,
++        situacao, especie, observacao, numero_linha: int, resultado: dict,
++    ) -> None:
++        erro, dados = self._preparar_linha_veiculo(placa, renavam, proprietario, marca_modelo, situacao, especie, observacao)
++        if erro:
++            resultado["erros"].append({"linha": numero_linha, "erro": f"[Veículos] {erro}"})
++            return
++        dados["cliente_id"] = cliente_id
++
++        existente = (
++            self._session.query(Veiculo)
++            .filter(Veiculo.cliente_id == cliente_id, Veiculo.placa == dados["placa"].upper())
++            .first()
++        )
++        if existente:
++            ok, erro = self._veiculo_svc.atualizar(existente.id, dados)
++            if not ok:
++                resultado["erros"].append({"linha": numero_linha, "erro": f"[Veículos] {erro}"})
++                return
++            resultado["veiculos_atualizados"] += 1
++        else:
++            veiculo, erro = self._veiculo_svc.criar(dados)
++            if not veiculo:
++                resultado["erros"].append({"linha": numero_linha, "erro": f"[Veículos] {erro}"})
++                return
++            resultado["veiculos_criados"] += 1
+diff --git a/app/services/veiculo_service.py b/app/services/veiculo_service.py
+index ac98923..f59629e 100644
+--- a/app/services/veiculo_service.py
++++ b/app/services/veiculo_service.py
+@@ -28,7 +28,7 @@ class VeiculoService:
+     def obter(self, veiculo_id: int) -> Optional[Veiculo]:
+         return self._session.get(Veiculo, veiculo_id)
+ 
+-    def _placa_em_uso(self, placa: str, ignorar_id: Optional[int] = None) -> bool:
++    def placa_em_uso(self, placa: str, ignorar_id: Optional[int] = None) -> bool:
+         """
+         Só considera conflito entre veículos que NÃO estão marcados como
+         vendidos — a mesma placa pode voltar a ser cadastrada depois de uma
+@@ -46,7 +46,7 @@ class VeiculoService:
+ 
+     def criar(self, dados: dict) -> tuple[Optional[Veiculo], str]:
+         placa = dados["placa"].upper()
+-        if self._placa_em_uso(placa):
++        if self.placa_em_uso(placa):
+             return None, "Já existe um veículo ativo cadastrado com esta placa."
+         v = Veiculo(
+             cliente_id=dados["cliente_id"],
+@@ -72,7 +72,7 @@ class VeiculoService:
+             return False, "Veículo não encontrado."
+         placa = dados["placa"].upper()
+         situacao = dados.get("situacao", "ativo")
+-        if situacao != "vendido" and self._placa_em_uso(placa, ignorar_id=veiculo_id):
++        if situacao != "vendido" and self.placa_em_uso(placa, ignorar_id=veiculo_id):
+             return False, "Já existe um veículo ativo cadastrado com esta placa."
+         v.placa = placa
+         v.renavam = dados.get("renavam", "")
+diff --git a/app/static/icons/bell.svg b/app/static/icons/bell.svg
+new file mode 100644
+index 0000000..3c04daa
+--- /dev/null
++++ b/app/static/icons/bell.svg
+@@ -0,0 +1 @@
++<svg fill="currentColor" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path d="M16 3c-1.105 0-2 0.895-2 2v1.09c-4.834 0.552-8.5 4.573-8.5 9.41v5.5l-2.207 2.207c-0.63 0.63-0.184 1.707 0.707 1.707h24c0.891 0 1.337-1.077 0.707-1.707l-2.207-2.207v-5.5c0-4.837-3.666-8.858-8.5-9.41v-1.09c0-1.105-0.895-2-2-2zM16 28.5c1.657 0 3-1.343 3-3h-6c0 1.657 1.343 3 3 3z"/></svg>
+diff --git a/app/static/icons/more.svg b/app/static/icons/more.svg
+new file mode 100644
+index 0000000..9d94a82
+--- /dev/null
++++ b/app/static/icons/more.svg
+@@ -0,0 +1 @@
++<svg fill="currentColor" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="6.5" r="3.2"/><circle cx="16" cy="16" r="3.2"/><circle cx="16" cy="25.5" r="3.2"/></svg>
+diff --git a/app/templates/base.html b/app/templates/base.html
+index 8b916ad..2e5954b 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -75,6 +75,43 @@
+   .nav-usuario a { color:var(--nav-fg-medio); text-decoration:none; padding:5px 10px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:5px; font-size:13px; }
+   .nav-usuario a:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
+ 
++  .nav-notificacoes { position:relative; margin-left:6px; }
++  .btn-sino { background:transparent; border:none; cursor:pointer; padding:7px; border-radius:8px; color:var(--nav-fg-medio); display:flex; align-items:center; position:relative; transition:.15s; }
++  .btn-sino:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
++  .badge-sino {
++    position:absolute; top:1px; right:1px; background:var(--vermelho); color:#fff;
++    font-size:10px; font-weight:700; line-height:1; padding:2.5px 5px; border-radius:999px;
++    min-width:16px; text-align:center; display:none;
++  }
++  .painel-notificacoes {
++    display:none; position:absolute; top:calc(100% + 10px); right:0; width:320px; max-height:420px;
++    overflow-y:auto; background:var(--card-bg); border:1px solid var(--cinza2); border-radius:10px;
++    box-shadow:0 10px 28px rgba(0,0,0,.22); z-index:300; text-align:left;
++  }
++  .painel-notificacoes.aberto { display:block; }
++  .painel-notificacoes-header { padding:12px 14px; font-weight:700; font-size:13px; color:var(--texto); border-bottom:1px solid var(--cinza2); }
++  .painel-notificacoes-lista { padding:6px; }
++  .item-notificacao { display:block; padding:8px 10px; border-radius:8px; font-size:12px; text-decoration:none; color:var(--texto); }
++  .item-notificacao:hover { background:var(--cinza1); }
++  .item-notificacao .in-topo { display:flex; justify-content:space-between; align-items:center; gap:8px; }
++  .item-notificacao .in-placa { font-family:monospace; font-weight:700; }
++  .item-notificacao .in-sub { color:var(--sub); margin-top:2px; }
++  .sem-notificacoes { padding:18px 14px; text-align:center; color:var(--sub); font-size:13px; }
++
++  .menu-acoes { position:relative; }
++  .dropdown-acoes {
++    display:none; position:absolute; top:calc(100% + 6px); right:0; min-width:200px;
++    background:var(--card-bg); border:1px solid var(--cinza2); border-radius:10px;
++    box-shadow:0 8px 24px rgba(0,0,0,.16); z-index:250; padding:6px;
++  }
++  .dropdown-acoes.aberto { display:block; }
++  .dropdown-acoes a, .dropdown-acoes button {
++    display:flex; align-items:center; gap:8px; width:100%; text-align:left;
++    padding:8px 10px; border-radius:8px; border:none; background:transparent;
++    color:var(--texto); font-size:13px; text-decoration:none; cursor:pointer; font-family:inherit;
++  }
++  .dropdown-acoes a:hover, .dropdown-acoes button:hover { background:var(--cinza1); }
++
+   nav .breadcrumb { display:flex; align-items:center; gap:6px; color:var(--nav-fg-medio); font-size:13px; }
+   nav .breadcrumb a { color:var(--nav-fg-forte); text-decoration:none; }
+   nav .breadcrumb a:hover { color:var(--nav-fg); text-decoration:underline; }
+@@ -236,6 +273,18 @@
+ 
+   <!-- Usuário logado -->
+   {% if current_user.is_authenticated %}
++  <div class="nav-notificacoes">
++    <button type="button" class="btn-sino" onclick="toggleNotificacoes(event)" title="Notificações">
++      {{ icon('bell','icon icon-sm') }}
++      <span id="badge-notificacoes" class="badge-sino">0</span>
++    </button>
++    <div id="painel-notificacoes" class="painel-notificacoes">
++      <div class="painel-notificacoes-header">Pendências urgentes</div>
++      <div id="lista-notificacoes" class="painel-notificacoes-lista">
++        <p class="sem-notificacoes">Carregando...</p>
++      </div>
++    </div>
++  </div>
+   <div class="nav-usuario">
+     <span>{{ current_user.nome_completo }}</span>
+     {% if current_user.perfil == 'administrador' %}
+@@ -251,6 +300,25 @@
+ <div class="container">{% block content %}{% endblock %}</div>
+ <div id="toast"></div>
+ 
++<!-- Modal global de prévia de importação (Clientes e Veículos) -->
++<div class="modal-overlay" id="modal-preview-importacao">
++  <div class="modal" style="max-width:480px;">
++    <div class="modal-header">
++      <h3>{{ icon('upload') }} Prévia da importação</h3>
++      <button class="btn-close" onclick="fecharPreviewImportacao()">✕</button>
++    </div>
++    <div class="modal-body">
++      <p style="font-size:13px;color:var(--sub);margin:0 0 10px;">Confira o que vai acontecer antes de confirmar. Nada foi gravado ainda.</p>
++      <p id="preview-resumo" style="font-size:13px;font-weight:600;margin:0 0 10px;"></p>
++      <div id="preview-lista" style="border:1px solid var(--cinza2);border-radius:8px;padding:8px 10px;max-height:320px;overflow-y:auto;"></div>
++    </div>
++    <div class="modal-footer">
++      <button class="btn btn-ghost" onclick="fecharPreviewImportacao()">Cancelar</button>
++      <button class="btn btn-success" id="btn-confirmar-importacao" onclick="confirmarImportacao()">{{ icon('save','icon icon-sm') }} Confirmar importação</button>
++    </div>
++  </div>
++</div>
++
+ <!-- Modal global de senha para exclusões -->
+ <div class="modal-overlay" id="modal-senha-exclusao">
+   <div class="modal" style="max-width:380px;">
+@@ -377,6 +445,177 @@ function fmtDataHora(dt) {
+   const [y, m, d] = datePart.split('-');
+   return `${d}/${m}/${y}${timePart ? ' ' + timePart.substring(0,5) : ''}`;
+ }
++
++// ── Notificações de pendências urgentes (sino na navbar) ────────────────────
++// Roda em qualquer página (não só no dashboard) porque o sino fica sempre
++// visível na navbar. Usa os mesmos dados do /api/dashboard (contagem
++// global, todos os clientes).
++const DIAS_ALERTA_URGENTE = 7;
++
++async function _carregarNotificacoes() {
++  const badgeEl = document.getElementById('badge-notificacoes');
++  if (!badgeEl) return;   // usuário não logado — sino nem existe na página
++
++  const d = await apiFetch('/api/dashboard');
++  if (!d) return;
++
++  const hoje    = new Date().toISOString().slice(0, 10);
++  const emBreve = new Date(Date.now() + DIAS_ALERTA_URGENTE * 86400000).toISOString().slice(0, 10);
++
++  const itens = [
++      ...d.ipva.map(i => ({ ...i, _origem: 'ipva' })),
++      ...d.licenciamento.map(i => ({ ...i, _origem: 'licenciamento' })),
++    ]
++    .filter(i => i.vencimento && i.vencimento <= emBreve)
++    .sort((a, b) => a.vencimento.localeCompare(b.vencimento));
++
++  const total = itens.length;
++  badgeEl.textContent = total > 99 ? '99+' : String(total);
++  badgeEl.style.display = total ? 'block' : 'none';
++
++  const lista = document.getElementById('lista-notificacoes');
++  if (!total) {
++    lista.innerHTML = '<p class="sem-notificacoes">Nenhuma pendência urgente 🎉</p>';
++  } else {
++    lista.innerHTML = itens.map(item => {
++      const atrasado = item.vencimento < hoje;
++      const tipo = item._origem === 'licenciamento'
++        ? 'Licenciamento'
++        : (item.ipva_id !== undefined ? `IPVA · ${item.numero}ª parcela` : 'IPVA');
++      return `<a class="item-notificacao" href="/clientes/${item.cliente_id}/pendencias">
++        <div class="in-topo">
++          <span class="in-placa">${escapeHtml(item.placa)}</span>
++          <span style="color:${atrasado ? 'var(--vermelho)' : 'var(--amarelo)'};font-weight:700;">${fmtData(item.vencimento)}</span>
++        </div>
++        <div class="in-sub">${escapeHtml(item.cliente_nome)} · ${tipo}</div>
++      </a>`;
++    }).join('');
++  }
++
++  if (itens.length) {
++    _notificarSistemaOperacional(total, itens);
++  }
++}
++
++function toggleNotificacoes(ev) {
++  ev.stopPropagation();
++  document.getElementById('painel-notificacoes').classList.toggle('aberto');
++}
++
++// ── Menu "mais ações" (usado em Clientes e Veículos, por exemplo) ───────────
++// Genérico: cada botão que abre um menu passa o id do dropdown que ele controla.
++function toggleMenuAcoes(ev, idDropdown) {
++  ev.stopPropagation();
++  document.querySelectorAll('.dropdown-acoes.aberto').forEach(el => {
++    if (el.id !== idDropdown) el.classList.remove('aberto');
++  });
++  document.getElementById(idDropdown).classList.toggle('aberto');
++}
++
++document.addEventListener('click', (ev) => {
++  const painel = document.getElementById('painel-notificacoes');
++  if (painel && painel.classList.contains('aberto') && !painel.contains(ev.target)) {
++    painel.classList.remove('aberto');
++  }
++  document.querySelectorAll('.dropdown-acoes.aberto').forEach(dropdown => {
++    if (!dropdown.parentElement.contains(ev.target)) {
++      dropdown.classList.remove('aberto');
++    }
++  });
++});
++
++// Notificação nativa do Windows/SO. Só dispara se a pessoa já autorizou
++// antes — na primeira vez só pede permissão silenciosamente, sem
++// interromper nada; da próxima vez que houver pendência já aparece.
++let _ultimoAvisoNativo = 0;
++function _notificarSistemaOperacional(total, itens) {
++  if (!total || !('Notification' in window)) return;
++
++  if (Notification.permission === 'granted') {
++    // Evita repetir a notificação nativa a cada troca de página — só
++    // dispara de novo depois de alguns minutos.
++    const agora = Date.now();
++    if (agora - _ultimoAvisoNativo < 5 * 60 * 1000) return;
++    _ultimoAvisoNativo = agora;
++    new Notification('Sistema Despachante', {
++      body: `${total} pendência(s) exigem atenção nos próximos ${DIAS_ALERTA_URGENTE} dias (ou já vencidas).`,
++    });
++  } else if (Notification.permission !== 'denied') {
++    Notification.requestPermission();
++  }
++}
++
++_carregarNotificacoes();
++
++// ── Prévia de importação (Clientes / Veículos) ──────────────────────────────
++// Genérico: qualquer tela chama iniciarImportacaoComPreview(input, urlPreview,
++// urlConfirmar) no onchange do <input type="file">, e define
++// window.onImportacaoConcluida(resultado) para tratar o resultado final
++// (mostrar resumo, recarregar a lista etc.) do jeito que fizer sentido ali.
++let _arquivoImportacaoPendente = null;
++let _urlConfirmarImportacaoPendente = null;
++
++const BADGE_ACAO_IMPORTACAO = {
++  criar:     '<span class="badge badge-pago">Novo</span>',
++  atualizar: '<span class="badge badge-pendente">Atualizar</span>',
++  erro:      '<span class="badge badge-vencido">Erro</span>',
++};
++
++async function iniciarImportacaoComPreview(input, urlPreview, urlConfirmar) {
++  const arquivo = input.files[0];
++  if (!arquivo) return;
++
++  _arquivoImportacaoPendente = arquivo;
++  _urlConfirmarImportacaoPendente = urlConfirmar;
++
++  const formData = new FormData();
++  formData.append('arquivo', arquivo);
++
++  const preview = await apiFetch(urlPreview, { method: 'POST', body: formData });
++  input.value = '';   // permite selecionar o mesmo arquivo de novo, se precisar
++  if (!preview) { _arquivoImportacaoPendente = null; return; }
++
++  document.getElementById('preview-resumo').textContent =
++    `${preview.contagem.criar} novo(s), ${preview.contagem.atualizar} atualizado(s), ${preview.contagem.erro} com erro.`;
++
++  document.getElementById('preview-lista').innerHTML = preview.itens.map(item => `
++    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--cinza2);font-size:12px;">
++      <span>Linha ${escapeHtml(item.linha)}: ${escapeHtml(item.resumo || item.erro || '')}</span>
++      ${BADGE_ACAO_IMPORTACAO[item.acao] || ''}
++    </div>`).join('') || '<p style="font-size:12px;color:var(--sub);">Planilha vazia — nada para importar.</p>';
++
++  document.getElementById('btn-confirmar-importacao').disabled =
++    (preview.contagem.criar + preview.contagem.atualizar) === 0;
++
++  document.getElementById('modal-preview-importacao').classList.add('open');
++}
++
++function fecharPreviewImportacao() {
++  document.getElementById('modal-preview-importacao').classList.remove('open');
++  _arquivoImportacaoPendente = null;
++  _urlConfirmarImportacaoPendente = null;
++}
++
++async function confirmarImportacao() {
++  if (!_arquivoImportacaoPendente || !_urlConfirmarImportacaoPendente) return;
++
++  const formData = new FormData();
++  formData.append('arquivo', _arquivoImportacaoPendente);
++
++  const resultado = await apiFetch(_urlConfirmarImportacaoPendente, { method: 'POST', body: formData });
++  fecharPreviewImportacao();
++  if (!resultado) return;
++
++  if (typeof window.onImportacaoConcluida === 'function') {
++    window.onImportacaoConcluida(resultado);
++  }
++}
++
++document.addEventListener('keydown', (ev) => {
++  if (ev.key === 'Escape' && document.getElementById('modal-preview-importacao').classList.contains('open')) {
++    fecharPreviewImportacao();
++  }
++});
+ </script>
+ {% block scripts %}{% endblock %}
+ </body>
+diff --git a/app/templates/clientes.html b/app/templates/clientes.html
+index 4888920..57dbd2e 100644
+--- a/app/templates/clientes.html
++++ b/app/templates/clientes.html
+@@ -14,10 +14,15 @@
+         <input type="text" id="busca" placeholder="Buscar por nome, CPF..." oninput="carregar()"
+           style="margin-left:4px;">
+       </div>
+-      <a class="btn btn-outline" href="/api/clientes/exportar" title="Baixa todos os clientes e veículos em uma planilha Excel">{{ icon('dowload','icon icon-sm') }} Exportar</a>
+-      <button class="btn btn-outline" onclick="document.getElementById('input-importar').click()" title="Importar clientes e veículos de uma planilha Excel">{{ icon('upload','icon icon-sm') }} Importar</button>
+-      <a href="/api/clientes/modelo-importacao" style="font-size:12px;color:var(--sub);white-space:nowrap;" title="Planilha vazia, só com as colunas certas">Baixar modelo</a>
+-      <input type="file" id="input-importar" accept=".xlsx" style="display:none;" onchange="importarPlanilha(this)">
++      <div class="menu-acoes">
++        <button type="button" class="btn btn-outline btn-icon" onclick="toggleMenuAcoes(event,'dropdown-acoes-clientes')" title="Mais ações">{{ icon('more','icon icon-sm') }}</button>
++        <div id="dropdown-acoes-clientes" class="dropdown-acoes">
++          <a href="/api/clientes/exportar">{{ icon('dowload','icon icon-sm') }} Exportar</a>
++          <button type="button" onclick="document.getElementById('input-importar').click()">{{ icon('upload','icon icon-sm') }} Importar</button>
++          <a href="/api/clientes/modelo-importacao">{{ icon('file','icon icon-sm') }} Baixar modelo</a>
++        </div>
++      </div>
++      <input type="file" id="input-importar" accept=".xlsx" style="display:none;" onchange="iniciarImportacaoComPreview(this,'/api/clientes/pre-importar','/api/clientes/importar')">
+       <button class="btn btn-primary" onclick="abrirModal()">{{ icon('users') }} Novo cliente</button>
+     </div>
+   </div>
+@@ -204,34 +209,19 @@
+     document.getElementById('modal').classList.add('open');
+   }
+ 
+-  async function importarPlanilha(input) {
+-    const arquivo = input.files[0];
+-    if (!arquivo) return;
+-
+-    const formData = new FormData();
+-    formData.append('arquivo', arquivo);
+-
+-    const resultado = await apiFetch('/api/clientes/importar', { method: 'POST', body: formData });
+-    input.value = '';   // permite selecionar o mesmo arquivo de novo, se precisar
+-    if (!resultado) return;
+-
+-    mostrarResultadoImportacao(resultado);
+-    carregar();
+-  }
+-
+-  function mostrarResultadoImportacao(r) {
++  window.onImportacaoConcluida = function (r) {
+     const resumo = `${r.clientes_criados} cliente(s) novo(s), ${r.clientes_atualizados} atualizado(s), `
+       + `${r.veiculos_criados} veículo(s) novo(s), ${r.veiculos_atualizados} atualizado(s).`;
+ 
+     if (!r.erros || !r.erros.length) {
+       toast(`Importação concluída: ${resumo}`);
+-      return;
++    } else {
++      toast(`Importação concluída com ${r.erros.length} linha(s) com erro. Veja os detalhes na janela.`, 'err');
++      const detalhes = r.erros.map(e => `Linha ${e.linha}: ${e.erro}`).join('\n');
++      alert(`Importação concluída.\n\n${resumo}\n\n${r.erros.length} linha(s) não puderam ser importadas:\n${detalhes}`);
+     }
+-
+-    toast(`Importação concluída com ${r.erros.length} linha(s) com erro. Veja os detalhes na janela.`, 'err');
+-    const detalhes = r.erros.map(e => `Linha ${e.linha}: ${e.erro}`).join('\n');
+-    alert(`Importação concluída.\n\n${resumo}\n\n${r.erros.length} linha(s) não puderam ser importadas:\n${detalhes}`);
+-  }
++    carregar();
++  };
+ 
+   async function carregar() {
+     const busca = document.getElementById('busca').value;
+diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
+index a382d70..d0e453b 100644
+--- a/app/templates/dashboard.html
++++ b/app/templates/dashboard.html
+@@ -3,7 +3,6 @@
+ {% block breadcrumb %}<span>Início</span>{% endblock %}
+ 
+ {% block content %}<!-- Seu comentário aqui -->
+-<div id="banner-notificacao" class="banner-notificacao"></div>
+ {#<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
+   <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;">
+     {{ icon('users','icon icon-lg') }}
+@@ -48,20 +47,6 @@
+ </div>#}
+ 
+ <style>
+-  .banner-notificacao {
+-    display: none;
+-    align-items: center;
+-    justify-content: space-between;
+-    gap: 14px;
+-    padding: 13px 20px;
+-    border-radius: 10px;
+-    margin-bottom: 18px;
+-    font-size: 14px;
+-    font-weight: 600;
+-  }
+-  html[data-tema="claro"] .banner-notificacao { background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
+-  html[data-tema="escuro"] .banner-notificacao { background:#3d2f0a; color:#e0a836; border:1px solid #5a4712; }
+-  .banner-notificacao a { color: inherit; text-decoration: underline; font-weight: 600; white-space: nowrap; }
+   .filtros-venc { display:flex; flex-wrap:wrap; gap:10px; padding:14px 20px; border-bottom:1px solid var(--cinza2); }
+   .filtros-venc input { border:1px solid var(--cinza3); border-radius:6px; padding:7px 10px; font-size:13px; color:var(--texto); background:var(--input-bg); outline:none; }
+   .filtros-venc input:focus { border-color:var(--azul2); box-shadow:0 0 0 3px rgba(37,99,174,.12); }
+@@ -320,55 +305,8 @@
+     estado.licenciamento.dados = d.licenciamento;
+     renderizar('ipva');
+     renderizar('licenciamento');
+-    verificarNotificacoes(d);
+   }
+ 
+-  // ── Notificação de pendências urgentes, assim que o sistema é aberto ────────
+-  const DIAS_ALERTA_URGENTE = 7;   // "vencendo em breve" = até 7 dias à frente
+-
+-  function verificarNotificacoes(d) {
+-    const hoje    = new Date().toISOString().slice(0, 10);
+-    const emBreve = new Date(Date.now() + DIAS_ALERTA_URGENTE * 86400000).toISOString().slice(0, 10);
+-
+-    const itens      = [...d.ipva, ...d.licenciamento];
+-    const vencidos   = itens.filter(i => i.vencimento && i.vencimento < hoje);
+-    const vencendo   = itens.filter(i => i.vencimento && i.vencimento >= hoje && i.vencimento <= emBreve);
+-    const totalUrgente = vencidos.length + vencendo.length;
+-
+-    const banner = document.getElementById('banner-notificacao');
+-    if (!totalUrgente) {
+-      banner.style.display = 'none';
+-      return;
+-    }
+-
+-    const partes = [];
+-    if (vencidos.length) partes.push(`${vencidos.length} vencido(s)`);
+-    if (vencendo.length) partes.push(`${vencendo.length} vencendo nos próximos ${DIAS_ALERTA_URGENTE} dias`);
+-
+-    banner.innerHTML = `<span>⚠️ Atenção: ${partes.join(' e ')}.</span>
+-      <a href="#" onclick="document.getElementById('banner-notificacao').style.display='none';return false;">Dispensar</a>`;
+-    banner.style.display = 'flex';
+-
+-    _notificarSistemaOperacional(totalUrgente, partes);
+-  }
+-
+-  // Notificação nativa do Windows/SO (usa a Notification API do navegador).
+-  // Só dispara se a pessoa já autorizou antes — na primeira vez, só pede
+-  // permissão silenciosamente, sem interromper nada; da próxima vez que
+-  // houver pendência, a notificação nativa já aparece.
+-  function _notificarSistemaOperacional(totalUrgente, partes) {
+-    if (!('Notification' in window)) return;
+-
+-    if (Notification.permission === 'granted') {
+-      new Notification('Sistema Despachante', {
+-        body: `${totalUrgente} pendência(s) exigem atenção: ${partes.join(', ')}.`,
+-      });
+-    } else if (Notification.permission !== 'denied') {
+-      Notification.requestPermission();
+-    }
+-  }
+-
+-
+   // ── Clientes (consulta rápida — cadastro/edição continuam em /clientes) ──────
+   async function carregarClientesDash() {
+     const busca = document.getElementById('busca-clientes-dash').value;
+@@ -376,11 +314,11 @@
+     if (!dados) return;
+     const tbody = document.getElementById('tbody-clientes-dash');
+     tbody.innerHTML = dados.length ? dados.map(c => `<tr>
+-      <td><strong>${c.nome}</strong></td>
+-      <td>${c.cpf || '—'}</td>
+-      <td>${c.telefone || '—'}</td>
+-      <td>${c.email || '—'}</td>
+-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.observacao || ''}">${c.observacao || '—'}</td>
++      <td><strong>${escapeHtml(c.nome)}</strong></td>
++      <td>${escapeHtml(c.cpf) || '—'}</td>
++      <td>${escapeHtml(c.telefone) || '—'}</td>
++      <td>${escapeHtml(c.email) || '—'}</td>
++      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
+       <td><a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a></td>
+     </tr>`).join('') : `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
+   }
+diff --git a/app/templates/pendencias.html b/app/templates/pendencias.html
+index aebd812..ad9d047 100644
+--- a/app/templates/pendencias.html
++++ b/app/templates/pendencias.html
+@@ -6,10 +6,33 @@
+ {% endblock %}
+ 
+ {% block content %}
++<style>
++  .toggle-visualizacao { display:flex; border:1px solid var(--cinza3); border-radius:8px; overflow:hidden; }
++  .toggle-visualizacao button { border:none; background:transparent; color:var(--sub); padding:7px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; transition:.15s; }
++  .toggle-visualizacao button.ativo { background:var(--azul); color:#fff; }
++  .toggle-visualizacao button:not(.ativo):hover { background:var(--cinza1); }
++
++  .seletor-ano { display:none; align-items:center; justify-content:center; gap:18px; padding:10px 14px; border-bottom:1px solid var(--cinza2); }
++  .seletor-ano button { border:1px solid var(--cinza3); background:var(--card-bg); color:var(--texto); width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; }
++  .seletor-ano button:hover { background:var(--cinza1); }
++
++  .grid-cards { display:none; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px; padding:14px; }
++  .card-mes { border:1px solid var(--cinza2); border-radius:10px; padding:10px; }
++  .card-mes-header { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin:0 0 8px; cursor:pointer; color:var(--texto); }
++  .card-mes-header .contagem { color:var(--sub); font-weight:400; }
++  .card-mes-vazio { font-size:12px; color:var(--sub); margin:0; }
++  .item-card { display:flex; gap:6px; border:1px solid var(--cinza2); border-radius:6px; padding:6px 8px; font-size:11.5px; margin-bottom:5px; cursor:pointer; }
++  .item-card:last-child { margin-bottom:0; }
++  .item-card input[type="checkbox"] { margin-top:2px; flex-shrink:0; }
++  .item-card .topo { display:flex; justify-content:space-between; align-items:center; gap:6px; }
++  .item-card .placa { font-family:monospace; font-weight:700; }
++  .item-card .sub { color:var(--sub); margin-top:2px; }
++</style>
++
+ <div class="card">
+-  <div class="card-header">
++  <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+     <h2>{{ icon('warning') }} Pendências de <em>{{ cliente.nome }}</em></h2>
+-    <div style="display:flex;gap:10px;align-items:center;">
++    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+       <select id="filtro-tipo" onchange="renderizar()" class="select-filtro">
+         <option value="">Todos os tipos</option>
+         <option value="ipva_avista">IPVA (à vista)</option>
+@@ -22,9 +45,20 @@
+         <option value="pendente">Pendente</option>
+         <option value="pago">Pago</option>
+       </select>
++      <div class="toggle-visualizacao">
++        <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
++        <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
++      </div>
+     </div>
+   </div>
+-  <div class="tabela-wrap">
++
++  <div id="seletor-ano" class="seletor-ano">
++    <button type="button" onclick="mudarAno(-1)" title="Ano anterior">‹</button>
++    <strong id="ano-atual" style="font-size:14px;"></strong>
++    <button type="button" onclick="mudarAno(1)" title="Próximo ano">›</button>
++  </div>
++
++  <div id="visao-lista" class="tabela-wrap">
+     <table>
+       <thead><tr>
+         <th style="width:36px;"><input type="checkbox" id="chk-todos" onchange="toggleTodos()"></th>
+@@ -34,11 +68,34 @@
+       <tbody id="tbody"></tbody>
+     </table>
+   </div>
++
++  <div id="grid-cards" class="grid-cards"></div>
+ </div>
+ 
+ <div id="barra-selecao" style="display:none;position:sticky;bottom:16px;background:var(--card-bg);border:1px solid var(--cinza2);padding:14px 20px;justify-content:space-between;align-items:center;margin-top:14px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);">
+   <span id="contagem-selecao" style="font-size:14px;font-weight:600;"></span>
+-  <button class="btn btn-success" onclick="quitarSelecionados()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
++  <button class="btn btn-success" onclick="abrirConfirmacaoQuitar()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
++</div>
++
++<div class="modal-overlay" id="modal-confirmar-quitar">
++  <div class="modal" style="max-width:420px;">
++    <div class="modal-header">
++      <h3>Confirmar quitação</h3>
++      <button class="btn-close" onclick="fecharConfirmacaoQuitar()">✕</button>
++    </div>
++    <div class="modal-body">
++      <p style="font-size:13px;color:var(--sub);margin:0 0 12px;">Isso marca os itens abaixo como pagos hoje. Confira antes de continuar.</p>
++      <div id="lista-confirmacao" style="border:1px solid var(--cinza2);border-radius:8px;padding:8px 10px;max-height:220px;overflow-y:auto;margin-bottom:12px;"></div>
++      <div style="display:flex;justify-content:space-between;align-items:baseline;">
++        <span id="contagem-confirmacao" style="font-size:13px;color:var(--sub);"></span>
++        <strong id="total-confirmacao" style="font-size:17px;"></strong>
++      </div>
++    </div>
++    <div class="modal-footer">
++      <button class="btn btn-ghost" onclick="fecharConfirmacaoQuitar()">Cancelar</button>
++      <button class="btn btn-success" onclick="confirmarQuitar()">{{ icon('save','icon icon-sm') }} Confirmar quitação</button>
++    </div>
++  </div>
+ </div>
+ {% endblock %}
+ 
+@@ -47,6 +104,8 @@
+ const CLIENTE_ID = {{ cliente.id }};
+ let TODOS = [];
+ let SELECIONADOS = new Set();   // chave = `${tipo}:${id}`
++let MODO = 'lista';             // 'lista' | 'cards'
++let ANO_SELECIONADO = new Date().getFullYear();
+ 
+ const TIPO_LABEL = {
+   ipva_avista:    'IPVA (à vista)',
+@@ -55,6 +114,11 @@ const TIPO_LABEL = {
+   multa:          'Multa',
+ };
+ 
++const MESES = [
++  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
++  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
++];
++
+ function chave(item) { return `${item.tipo}:${item.id}`; }
+ 
+ async function carregar() {
+@@ -64,18 +128,32 @@ async function carregar() {
+   renderizar();
+ }
+ 
+-function renderizar() {
++function itensFiltrados() {
+   const filtroTipo   = document.getElementById('filtro-tipo').value;
+   const filtroStatus = document.getElementById('filtro-status').value;
+ 
+   let itens = TODOS;
+   if (filtroTipo)   itens = itens.filter(i => i.tipo === filtroTipo);
+   if (filtroStatus) itens = itens.filter(i => (filtroStatus === 'pago') === i.pago);
++  return itens;
++}
++
++function renderizar() {
++  if (MODO === 'lista') {
++    renderizarLista();
++  } else {
++    renderizarCards();
++  }
++  atualizarBarra();
++}
++
++// ── Modo Lista ────────────────────────────────────────────────────────────────
+ 
++function renderizarLista() {
++  const itens = itensFiltrados();
+   const tbody = document.getElementById('tbody');
+   if (!itens.length) {
+     tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhuma pendência encontrada</p></div></td></tr>`;
+-    atualizarBarra();
+     return;
+   }
+ 
+@@ -92,12 +170,88 @@ function renderizar() {
+       <td>${item.data_pagamento ? fmtData(item.data_pagamento) : '—'}</td>
+     </tr>`;
+   }).join('');
++}
++
++// ── Modo Cards (12 meses do ano selecionado) ────────────────────────────────────
++
++function renderizarCards() {
++  document.getElementById('ano-atual').textContent = ANO_SELECIONADO;
++
++  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
++  const porMes = Array.from({ length: 12 }, () => []);
++  itensDoAno.forEach(item => {
++    const mes = parseInt(item.vencimento.split('-')[1], 10) - 1;
++    if (mes >= 0 && mes <= 11) porMes[mes].push(item);
++  });
++
++  const grid = document.getElementById('grid-cards');
++  grid.innerHTML = MESES.map((nomeMes, idx) => {
++    const itensMes = porMes[idx];
++    const chavesMes = itensMes.map(chave);
++    const todosMarcados = chavesMes.length > 0 && chavesMes.every(k => SELECIONADOS.has(k));
++
++    const corpo = !itensMes.length
++      ? `<p class="card-mes-vazio">Nenhuma pendência</p>`
++      : itensMes.map(item => {
++          const k = chave(item);
++          return `<label class="item-card">
++            <input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)">
++            <div style="flex:1;min-width:0;">
++              <div class="topo">
++                <span class="placa">${escapeHtml(item.placa)}</span>
++                ${statusVencimento(item.vencimento, item.pago)}
++              </div>
++              <p class="sub">${TIPO_LABEL[item.tipo] || item.tipo} · ${escapeHtml(item.descricao)}</p>
++              <p class="sub">${fmtMoeda(item.valor)} · vence ${fmtData(item.vencimento)}</p>
++              ${item.pago && item.data_pagamento ? `<p class="sub">Pago em ${fmtData(item.data_pagamento)}</p>` : ''}
++            </div>
++          </label>`;
++        }).join('');
++
++    return `<div class="card-mes">
++      <label class="card-mes-header">
++        <input type="checkbox" ${chavesMes.length ? '' : 'disabled'} ${todosMarcados ? 'checked' : ''} onchange="toggleMes(${idx}, this.checked)">
++        ${nomeMes} <span class="contagem">· ${itensMes.length}</span>
++      </label>
++      ${corpo}
++    </div>`;
++  }).join('');
++}
+ 
++function toggleMes(idxMes, marcado) {
++  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
++  itensDoAno
++    .filter(i => parseInt(i.vencimento.split('-')[1], 10) - 1 === idxMes)
++    .forEach(item => {
++      const k = chave(item);
++      if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
++    });
++  renderizarCards();
+   atualizarBarra();
+ }
+ 
++function mudarAno(delta) {
++  ANO_SELECIONADO += delta;
++  renderizarCards();
++}
++
++// ── Alternância de modo de visualização ─────────────────────────────────────────
++
++function mudarModo(modo) {
++  MODO = modo;
++  document.getElementById('btn-modo-lista').classList.toggle('ativo', modo === 'lista');
++  document.getElementById('btn-modo-cards').classList.toggle('ativo', modo === 'cards');
++  document.getElementById('visao-lista').style.display  = modo === 'lista' ? '' : 'none';
++  document.getElementById('grid-cards').style.display   = modo === 'cards' ? 'grid' : 'none';
++  document.getElementById('seletor-ano').style.display  = modo === 'cards' ? 'flex' : 'none';
++  renderizar();
++}
++
++// ── Seleção (compartilhada entre os dois modos) ─────────────────────────────────
++
+ function toggleItem(k, marcado) {
+   if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
++  if (MODO === 'cards') renderizarCards();   // atualiza o checkbox "mês inteiro"
+   atualizarBarra();
+ }
+ 
+@@ -117,10 +271,32 @@ function atualizarBarra() {
+   barra.style.display = n ? 'flex' : 'none';
+ }
+ 
+-async function quitarSelecionados() {
++// ── Confirmação antes de quitar em massa ─────────────────────────────────────────
++
++function abrirConfirmacaoQuitar() {
+   if (!SELECIONADOS.size) return;
+-  if (!confirm(`Quitar ${SELECIONADOS.size} item(ns) selecionado(s)? Isso marca todos como pagos hoje.`)) return;
+ 
++  const selecionados = TODOS.filter(item => SELECIONADOS.has(chave(item)));
++  const total = selecionados.reduce((soma, item) => soma + (item.valor || 0), 0);
++
++  document.getElementById('lista-confirmacao').innerHTML = selecionados.map(item => `
++    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--cinza2);">
++      <span><span style="font-family:monospace;font-weight:700;">${escapeHtml(item.placa)}</span> · ${escapeHtml(item.descricao)}</span>
++      <span>${fmtMoeda(item.valor)}</span>
++    </div>`).join('');
++
++  document.getElementById('contagem-confirmacao').textContent =
++    selecionados.length === 1 ? '1 item selecionado' : `${selecionados.length} itens selecionados`;
++  document.getElementById('total-confirmacao').textContent = fmtMoeda(total);
++
++  document.getElementById('modal-confirmar-quitar').classList.add('open');
++}
++
++function fecharConfirmacaoQuitar() {
++  document.getElementById('modal-confirmar-quitar').classList.remove('open');
++}
++
++async function confirmarQuitar() {
+   const itens = [...SELECIONADOS].map(k => {
+     const [tipo, id] = k.split(':');
+     return { tipo, id: parseInt(id) };
+@@ -131,10 +307,13 @@ async function quitarSelecionados() {
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ itens }),
+   });
++
++  fecharConfirmacaoQuitar();
+   if (!resultado) return;
+ 
+   SELECIONADOS.clear();
+-  document.getElementById('chk-todos').checked = false;
++  const chkTodos = document.getElementById('chk-todos');
++  if (chkTodos) chkTodos.checked = false;
+ 
+   if (resultado.sucesso) toast(`${resultado.sucesso} item(ns) quitado(s)!`);
+   if (resultado.falhas && resultado.falhas.length) {
+@@ -143,6 +322,12 @@ async function quitarSelecionados() {
+   await carregar();
+ }
+ 
++document.addEventListener('keydown', (ev) => {
++  if (ev.key === 'Escape' && document.getElementById('modal-confirmar-quitar').classList.contains('open')) {
++    fecharConfirmacaoQuitar();
++  }
++});
++
+ carregar();
+ </script>
+ {% endblock %}
+diff --git a/app/templates/veiculos.html b/app/templates/veiculos.html
+index 834d859..982560a 100644
+--- a/app/templates/veiculos.html
++++ b/app/templates/veiculos.html
+@@ -14,6 +14,15 @@
+     <h2>{{ icon('car') }} Veículos de <em>{{ cliente.nome }}</em></h2>
+     <div style="display:flex;gap:10px;align-items:center;">
+       <a class="btn btn-outline" href="/clientes/{{ cliente.id }}/pendencias">{{ icon('warning','icon icon-sm') }} Pendências</a>
++      <div class="menu-acoes">
++        <button type="button" class="btn btn-outline btn-icon" onclick="toggleMenuAcoes(event,'dropdown-acoes-veiculos')" title="Mais ações">{{ icon('more','icon icon-sm') }}</button>
++        <div id="dropdown-acoes-veiculos" class="dropdown-acoes">
++          <a href="/api/clientes/{{ cliente.id }}/veiculos/exportar">{{ icon('dowload','icon icon-sm') }} Exportar veículos</a>
++          <button type="button" onclick="document.getElementById('input-importar-veiculos').click()">{{ icon('upload','icon icon-sm') }} Importar veículos</button>
++          <a href="/api/clientes/{{ cliente.id }}/veiculos/modelo-importacao">{{ icon('file','icon icon-sm') }} Baixar modelo</a>
++        </div>
++      </div>
++      <input type="file" id="input-importar-veiculos" accept=".xlsx" style="display:none;" onchange="iniciarImportacaoComPreview(this,`/api/clientes/${CLIENTE_ID}/veiculos/pre-importar`,`/api/clientes/${CLIENTE_ID}/veiculos/importar`)">
+       <select id="filtro-situacao" onchange="carregar()" class="select-filtro">
+         <option value="">Todas as situações</option>
+         <option value="ativo">Ativo</option>
+@@ -167,6 +176,18 @@ function obterProprietario() {
+ }
+ 
+ // ── Tabela de veículos ────────────────────────────────────────────────────────
++window.onImportacaoConcluida = function (resultado) {
++  const resumo = `${resultado.veiculos_criados} veículo(s) novo(s), ${resultado.veiculos_atualizados} atualizado(s).`;
++  if (!resultado.erros || !resultado.erros.length) {
++    toast(`Importação concluída: ${resumo}`);
++  } else {
++    toast(`Importação concluída com ${resultado.erros.length} linha(s) com erro. Veja os detalhes na janela.`, 'err');
++    const detalhes = resultado.erros.map(e => `Linha ${e.linha}: ${e.erro}`).join('\n');
++    alert(`Importação concluída.\n\n${resumo}\n\n${resultado.erros.length} linha(s) não puderam ser importadas:\n${detalhes}`);
++  }
++  carregar();
++};
++
+ async function carregar() {
+   const dados = await apiFetch(`/api/clientes/${CLIENTE_ID}/veiculos`);
+   if (!dados) return;
+diff --git a/despachante.db-shm b/despachante.db-shm
+deleted file mode 100644
+index 23df2c142af17ef005798b003dc4b81fabb93691..0000000000000000000000000000000000000000
+GIT binary patch
+literal 0
+HcmV?d00001
+
+literal 32768
+zcmeI*u?Ye(6b9fZf?y#c7S}j}Yg}b@IK`=j!&qC0gV<O)gxw7x`XX}JT6%szg!dA{
+zE4~4e;<iXR{aC$}Cb`aHt?!rluG$|)+xl2um#gM{8kC!9U3_^zM!k~fK0fk3Zp$#b
+zal6wHAV7cs0RjXF5FkK+009C72oNAZfB*pk1PBlyK!5-N0t5&UAV7cs0RjXF5FkK+
+z009C72oNAZfB*pk1PBlyK!5-N0t5&UAV7cs0RjXF5FkK+009C72oNCfn*#C5sSqGQ
+zfB*pk1PBlyK!5-N0t5&UAV8oa0{QPHAwYlt0RjXF5FkK+009C72oNAZfB=F25_kf^
+C#U!Nw
+
+diff --git a/despachante.db-wal b/despachante.db-wal
+deleted file mode 100644
+index 8fe4bee68799374b584fa04c89d3ec84350a48ed..0000000000000000000000000000000000000000
+GIT binary patch
+literal 0
+HcmV?d00001
+
+literal 8272
+zcmeI$KWh|06aer!1LjWf&O(e3V!{!*>Xw-||F;Q?Xc2587HSjbW@pVBZ#V8<Fd`xx
+z;y17q3%`QBot4;H3Vsj8xnL|LR#xJByR!@LEsw`<s~P?L?3|3hUMA!MS;V>NgSR(6
+z-MoFYbFlW}<)v;+Eys27B;SAk{qyVPkLCH8?DW5ocw?Xd3ZMWApa2S>01BW03ZMWA
+zpuoQ>Fu&3nkd@JVXVmMGF3GaY<<qjt7LT%>H7>84);CWMW+?})OlnfL`S|)|Z~snK
+z&#o2sc$MAVbgq!xI&C#ImTBo-kSu^;!kLh3m^ca(puun&c&@nuO+g1smEbu@A-Oh|
+z3(qBJkVR2=1uAD=hxnydUKq}Ki0!;*hPzmsfY&)NO08u=9?yI-E>KWos>i@L7^H%x
+zR3=7&RQk6Hq(GCHwNjp5p;VgqWBYOaIu}^`@NNIit6Ps2=K@QE5gEK2wDE<30w{n2
+zD1ZVefC4Ch0w{n2D1ZY0v%vOJkMvdu*;>yY*7wWm>9DG&VfU~-bWK?g(~aTr-hKFt
+zflg?=*r{7_BL%ZtXJW6bt39%w&6?V~X15L1p8MJBPYq}aHUR*|VY~B}!_buR#7Iqr
+F_yN|on^ph-
+

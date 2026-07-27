@@ -8,6 +8,10 @@ venv/
 
 # Dados locais — nunca devem ir para o repositório
 despachante.db
+despachante.db-shm
+despachante.db-wal
+*.db-shm
+*.db-wal
 *.db
 backups/*.db
 secret.key

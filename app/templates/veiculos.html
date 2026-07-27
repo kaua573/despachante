@@ -14,6 +14,15 @@
     <h2>{{ icon('car') }} Veículos de <em>{{ cliente.nome }}</em></h2>
     <div style="display:flex;gap:10px;align-items:center;">
       <a class="btn btn-outline" href="/clientes/{{ cliente.id }}/pendencias">{{ icon('warning','icon icon-sm') }} Pendências</a>
+      <div class="menu-acoes">
+        <button type="button" class="btn btn-outline btn-icon" onclick="toggleMenuAcoes(event,'dropdown-acoes-veiculos')" title="Mais ações">{{ icon('more','icon icon-sm') }}</button>
+        <div id="dropdown-acoes-veiculos" class="dropdown-acoes">
+          <a href="/api/clientes/{{ cliente.id }}/veiculos/exportar">{{ icon('dowload','icon icon-sm') }} Exportar veículos</a>
+          <button type="button" onclick="document.getElementById('input-importar-veiculos').click()">{{ icon('upload','icon icon-sm') }} Importar veículos</button>
+          <a href="/api/clientes/{{ cliente.id }}/veiculos/modelo-importacao">{{ icon('file','icon icon-sm') }} Baixar modelo</a>
+        </div>
+      </div>
+      <input type="file" id="input-importar-veiculos" accept=".xlsx" style="display:none;" onchange="iniciarImportacaoComPreview(this,`/api/clientes/${CLIENTE_ID}/veiculos/pre-importar`,`/api/clientes/${CLIENTE_ID}/veiculos/importar`)">
       <select id="filtro-situacao" onchange="carregar()" class="select-filtro">
         <option value="">Todas as situações</option>
         <option value="ativo">Ativo</option>
@@ -167,6 +176,18 @@ function obterProprietario() {
 }
 
 // ── Tabela de veículos ────────────────────────────────────────────────────────
+window.onImportacaoConcluida = function (resultado) {
+  const resumo = `${resultado.veiculos_criados} veículo(s) novo(s), ${resultado.veiculos_atualizados} atualizado(s).`;
+  if (!resultado.erros || !resultado.erros.length) {
+    toast(`Importação concluída: ${resumo}`);
+  } else {
+    toast(`Importação concluída com ${resultado.erros.length} linha(s) com erro. Veja os detalhes na janela.`, 'err');
+    const detalhes = resultado.erros.map(e => `Linha ${e.linha}: ${e.erro}`).join('\n');
+    alert(`Importação concluída.\n\n${resumo}\n\n${resultado.erros.length} linha(s) não puderam ser importadas:\n${detalhes}`);
+  }
+  carregar();
+};
+
 async function carregar() {
   const dados = await apiFetch(`/api/clientes/${CLIENTE_ID}/veiculos`);
   if (!dados) return;

@@ -28,7 +28,7 @@ class VeiculoService:
     def obter(self, veiculo_id: int) -> Optional[Veiculo]:
         return self._session.get(Veiculo, veiculo_id)
 
-    def _placa_em_uso(self, placa: str, ignorar_id: Optional[int] = None) -> bool:
+    def placa_em_uso(self, placa: str, ignorar_id: Optional[int] = None) -> bool:
         """
         Só considera conflito entre veículos que NÃO estão marcados como
         vendidos — a mesma placa pode voltar a ser cadastrada depois de uma
@@ -46,7 +46,7 @@ class VeiculoService:
 
     def criar(self, dados: dict) -> tuple[Optional[Veiculo], str]:
         placa = dados["placa"].upper()
-        if self._placa_em_uso(placa):
+        if self.placa_em_uso(placa):
             return None, "Já existe um veículo ativo cadastrado com esta placa."
         v = Veiculo(
             cliente_id=dados["cliente_id"],
@@ -72,7 +72,7 @@ class VeiculoService:
             return False, "Veículo não encontrado."
         placa = dados["placa"].upper()
         situacao = dados.get("situacao", "ativo")
-        if situacao != "vendido" and self._placa_em_uso(placa, ignorar_id=veiculo_id):
+        if situacao != "vendido" and self.placa_em_uso(placa, ignorar_id=veiculo_id):
             return False, "Já existe um veículo ativo cadastrado com esta placa."
         v.placa = placa
         v.renavam = dados.get("renavam", "")
