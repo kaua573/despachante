@@ -668,7 +668,7 @@ const DETALHES = {
       + linhaDetalhe('Desconto (R$)', descontoRs != null ? fmtMoeda(descontoRs) : '—')
       + linhaDetalhe('Valor a pagar', fmtMoeda(r.valor))
       + linhaDetalhe('Vencimento', fmtData(r.vencimento))
-      + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+      + linhaDetalhe('Status', statusVencimentoTexto(r.vencimento, r.pago))
       + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
       + linhaDetalhe('Observação', r.observacao || '—') + `</div>`;
     return corpo;
@@ -678,7 +678,7 @@ const DETALHES = {
     + linhaDetalhe('Ano referência', r.ano_referencia)
     + linhaDetalhe('Valor', fmtMoeda(r.valor))
     + linhaDetalhe('Vencimento', fmtData(r.vencimento))
-    + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+    + linhaDetalhe('Status', statusVencimentoTexto(r.vencimento, r.pago))
     + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
     + linhaDetalhe('Observação', r.observacao || '—')
     + `</div>`,
@@ -689,7 +689,7 @@ const DETALHES = {
     + linhaDetalhe('Descrição', r.descricao || '—')
     + linhaDetalhe('Valor', fmtMoeda(r.valor))
     + linhaDetalhe('Vencimento', fmtData(r.vencimento))
-    + linhaDetalhe('Status', r.pago ? 'Pago' : 'Pendente')
+    + linhaDetalhe('Status', statusVencimentoTexto(r.vencimento, r.pago))
     + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
     + `</div>`,
 };

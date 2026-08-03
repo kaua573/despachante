@@ -154,11 +154,13 @@
   .badge { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap; }
   html[data-tema="claro"] .badge-pago     { background:#d1fae5; color:#065f46; }
   html[data-tema="claro"] .badge-pendente { background:#fef3c7; color:#92400e; }
+  html[data-tema="claro"] .badge-a-vencer { background:#dbeafe; color:#1e40af; }
   html[data-tema="claro"] .badge-vencido  { background:#fee2e2; color:#991b1b; }
   html[data-tema="claro"] .badge-ativo    { background:#dbeafe; color:#1e40af; }
   html[data-tema="claro"] .badge-inativo  { background:#f3f4f6; color:#6b7280; }
   html[data-tema="escuro"] .badge-pago     { background:#0f3d29; color:#34c97f; }
   html[data-tema="escuro"] .badge-pendente { background:#3d2f0a; color:#e0a836; }
+  html[data-tema="escuro"] .badge-a-vencer { background:#16243d; color:#6fa8e8; }
   html[data-tema="escuro"] .badge-vencido  { background:#3d1815; color:#f3685f; }
   html[data-tema="escuro"] .badge-ativo    { background:#16243d; color:#6fa8e8; }
   html[data-tema="escuro"] .badge-inativo  { background:#262d3d; color:#9aa4ba; }
@@ -374,13 +376,19 @@ function fmtMoeda(v) {
   return 'R$ ' + Number(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-function statusVencimento(venc, pago) {
-  if (pago) return '<span class="badge badge-pago">Pago</span>';
-  if (!venc) return '<span class="badge badge-pendente">Pendente</span>';
+function statusVencimentoTexto(venc, pago) {
+  if (pago) return 'Pago';
+  if (!venc) return 'Pendente';
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const d = new Date(venc + 'T00:00:00');
-  if (d < hoje) return '<span class="badge badge-vencido">Vencido</span>';
-  return '<span class="badge badge-pendente">Pendente</span>';
+  if (d < hoje) return 'Vencido';
+  return 'A Vencer';
+}
+
+function statusVencimento(venc, pago) {
+  const texto = statusVencimentoTexto(venc, pago);
+  const classe = { 'Pago': 'pago', 'Vencido': 'vencido', 'A Vencer': 'a-vencer', 'Pendente': 'pendente' }[texto];
+  return `<span class="badge badge-${classe}">${texto}</span>`;
 }
 
 async function apiFetch(url, opcoes = {}) {

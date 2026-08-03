@@ -21,7 +21,7 @@
 const CONFIG = {{ config | tojson }};
 
 async function carregar() {
-  if (!CONFIG || !CONFIG.tipo) {
+  if (!CONFIG || !CONFIG.tipos || !CONFIG.tipos.length) {
     document.getElementById('conteudo').innerHTML = '<div class="empty-state"><p>Configuração inválida. <a href="/relatorios">Voltar</a></p></div>';
     return;
   }
@@ -73,7 +73,8 @@ function renderTabela(dados, campos, totais) {
       if (c.id === 'valor') val = fmtMoeda(val === '—' ? null : val);
       else if (['vencimento','data_pagamento','data_infracao'].includes(c.id)) val = fmtData(String(val));
       else if (c.id === 'status_pag') {
-        const badge = val === 'Pago' ? 'pago' : val === 'Vencido' ? 'vencido' : 'pendente';
+        const mapaBadge = { 'PAGO': 'pago', 'VENCIDO': 'vencido', 'A VENCER': 'a-vencer', 'PENDENTE': 'pendente' };
+        const badge = mapaBadge[val] || 'pendente';
         val = `<span class="badge badge-${badge}">${val}</span>`;
       }
       return `<td>${val}</td>`;

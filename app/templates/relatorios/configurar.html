@@ -24,12 +24,12 @@
       <div class="card-header"><h2>{{ icon('file') }} Tipo de relatório</h2></div>
       <div class="card-body" style="gap:10px;display:flex;flex-direction:column;">
         <div class="field">
-          <label>Domínio</label>
-          <select id="cfg-tipo" onchange="onTipoChange()">
-            <option value="ipva">IPVA</option>
-            <option value="licenciamento">Licenciamento</option>
-            <option value="multas">Multas</option>
-          </select>
+          <label>Domínio (selecione um ou mais)</label>
+          <div class="check-group" id="cfg-tipos">
+            <label class="check-item"><input type="checkbox" value="ipva" checked onchange="onTiposChange()"> IPVA</label>
+            <label class="check-item"><input type="checkbox" value="licenciamento" onchange="onTiposChange()"> Licenciamento</label>
+            <label class="check-item"><input type="checkbox" value="multas" onchange="onTiposChange()"> Multas</label>
+          </div>
         </div>
       </div>
     </div>
@@ -48,6 +48,7 @@
             <option value="">Todos</option>
             <option value="pago">Pago</option>
             <option value="pendente">Pendente</option>
+            <option value="a_vencer">A Vencer</option>
             <option value="vencido">Vencido</option>
           </select>
         </div>
@@ -174,16 +175,45 @@ let templateIdAtual = null;
 
 // ── Inicialização ─────────────────────────────────────────────────────────────
 async function init() {
-  await onTipoChange();
+  await onTiposChange();
   await carregarTemplates();
 }
 
-async function onTipoChange() {
-  const tipo = document.getElementById('cfg-tipo').value;
-  const campos = await apiFetch(`/api/relatorios/campos/${tipo}`);
-  if (!campos) return;
+function obterTiposSelecionados() {
+  return Array.from(document.querySelectorAll('#cfg-tipos input[type="checkbox"]:checked')).map(el => el.value);
+}
+
+async function onTiposChange() {
+  const tipos = obterTiposSelecionados();
+  if (!tipos.length) {
+    camposDisponiveis = [];
+    camposAtivos = [];
+    renderCampos();
+    return;
+  }
+
+  // Busca os campos de cada domínio selecionado e junta tudo numa lista só,
+  // sem repetir campos que aparecem em mais de um domínio (ex: "Cliente").
+  const listasCampos = await Promise.all(tipos.map(t => apiFetch(`/api/relatorios/campos/${t}`)));
+  const campos = [];
+  const idsVistos = new Set();
+  listasCampos.forEach(lista => {
+    (lista || []).forEach(c => {
+      if (!idsVistos.has(c.id)) {
+        idsVistos.add(c.id);
+        campos.push(c);
+      }
+    });
+  });
+
+  // Com mais de um domínio, cada linha do relatório precisa dizer de onde veio.
+  if (tipos.length > 1) {
+    campos.unshift({ id: 'tipo_registro', label: 'Tipo de Registro' });
+  }
+
   camposDisponiveis = campos;
-  camposAtivos = campos.map(c => ({ ...c, visivel: true }));
+  const anteriores = new Map(camposAtivos.map(c => [c.id, c.visivel]));
+  camposAtivos = campos.map(c => ({ ...c, visivel: anteriores.has(c.id) ? anteriores.get(c.id) : true }));
   renderCampos();
 }
 
@@ -236,7 +266,7 @@ function marcarTodos(visivel) {
 // ── Construção da configuração atual ─────────────────────────────────────────
 function obterConfig() {
   return {
-    tipo:           document.getElementById('cfg-tipo').value,
+    tipos:          obterTiposSelecionados(),
     filtros: {
       data_inicio:  document.getElementById('cfg-data-inicio').value || null,
       data_fim:     document.getElementById('cfg-data-fim').value || null,
@@ -259,6 +289,7 @@ function obterCamposVisiveis() {
 // ── Visualização na tela ──────────────────────────────────────────────────────
 async function visualizar() {
   const config = obterConfig();
+  if (!config.tipos.length) { toast('Selecione ao menos um domínio de relatório.', 'err'); return; }
   const camposVisiveis = obterCamposVisiveis();
   if (!camposVisiveis.length) { toast('Selecione ao menos um campo.', 'err'); return; }
 
@@ -293,6 +324,7 @@ async function visualizar() {
       <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Valor total</div><div style="font-size:20px;font-weight:700;color:var(--azul);">${fmtMoeda(t.total_valor)}</div></div>
       <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Pagos</div><div style="font-size:20px;font-weight:700;color:var(--verde);">${t.total_pago}</div></div>
       <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Pendentes</div><div style="font-size:20px;font-weight:700;color:var(--amarelo);">${t.total_pendente}</div></div>
+      <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">A Vencer</div><div style="font-size:20px;font-weight:700;color:var(--azul);">${t.total_a_vencer}</div></div>
       <div><div style="font-size:11px;color:var(--sub);text-transform:uppercase;font-weight:700;">Vencidos</div><div style="font-size:20px;font-weight:700;color:var(--vermelho);">${t.total_vencido}</div></div>
     </div>`;
   }
@@ -317,7 +349,8 @@ function renderTabelaPrevia(dados, campos, config, totais) {
       if (c.id === 'valor') val = fmtMoeda(val === '—' ? null : val);
       else if (['vencimento','data_pagamento','data_infracao'].includes(c.id)) val = fmtData(val);
       else if (c.id === 'status_pag') {
-        const badge = val === 'Pago' ? 'pago' : val === 'Vencido' ? 'vencido' : 'pendente';
+        const mapaBadge = { 'PAGO': 'pago', 'VENCIDO': 'vencido', 'A VENCER': 'a-vencer', 'PENDENTE': 'pendente' };
+        const badge = mapaBadge[val] || 'pendente';
         val = `<span class="badge badge-${badge}">${val}</span>`;
       }
       return `<td>${val}</td>`;
@@ -341,6 +374,7 @@ function renderTabelaPrevia(dados, campos, config, totais) {
 // ── Exportação ────────────────────────────────────────────────────────────────
 async function exportar(formato) {
   const config = obterConfig();
+  if (!config.tipos.length) { toast('Selecione ao menos um domínio de relatório.', 'err'); return; }
   const camposVisiveis = obterCamposVisiveis();
   if (!camposVisiveis.length) { toast('Selecione ao menos um campo.', 'err'); return; }
 
@@ -360,7 +394,7 @@ async function exportar(formato) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `relatorio_${config.tipo}.${formato === 'excel' ? 'xlsx' : 'pdf'}`;
+    a.download = `relatorio_${config.tipos.join('-')}.${formato === 'excel' ? 'xlsx' : 'pdf'}`;
     a.click();
     URL.revokeObjectURL(url);
     toast(`${formato.toUpperCase()} baixado!`);
@@ -396,8 +430,11 @@ async function carregarTemplate(id) {
 }
 
 function aplicarConfig(cfg) {
-  document.getElementById('cfg-tipo').value = cfg.tipo || 'ipva';
-  onTipoChange().then(() => {
+  const tipos = (cfg.tipos && cfg.tipos.length) ? cfg.tipos : (cfg.tipo ? [cfg.tipo] : ['ipva']);
+  document.querySelectorAll('#cfg-tipos input[type="checkbox"]').forEach(el => {
+    el.checked = tipos.includes(el.value);
+  });
+  onTiposChange().then(() => {
     if (cfg.filtros) {
       document.getElementById('cfg-data-inicio').value = cfg.filtros.data_inicio || '';
       document.getElementById('cfg-data-fim').value    = cfg.filtros.data_fim    || '';

@@ -7,7 +7,7 @@ from flask_login import login_required
 from app import db
 from app.services.auth_service import requer_permissao
 from app.services.log_service import LogService
-from app.services.relatorio_service import RelatorioService, CAMPOS_POR_TIPO
+from app.services.relatorio_service import RelatorioService, CAMPOS_POR_TIPO, tipos_do_config, tipos_label
 from app.services.configuracao_service import ConfiguracaoService
 
 bp = Blueprint("relatorios", __name__)
@@ -117,11 +117,11 @@ def api_exportar_pdf():
     }
 
     pdf_bytes  = svc.gerar_pdf(dados, campos_visiveis, config, cfg_pdf)
-    tipo_label = _tipo_label(config.get("tipo", "ipva"))
+    tipo_label = _tipo_label(config)
 
     _log().registrar(
         "exportar_relatorio_pdf",
-        detalhe={"tipo": config.get("tipo"), "registros": len(dados)},
+        detalhe={"tipos": tipos_do_config(config), "registros": len(dados)},
     )
 
     return send_file(
@@ -151,11 +151,11 @@ def api_exportar_excel():
     svc         = _svc()
     dados       = svc.buscar_dados(config)
     excel_bytes = svc.gerar_excel(dados, campos_visiveis, config)
-    tipo_label  = _tipo_label(config.get("tipo", "ipva"))
+    tipo_label  = _tipo_label(config)
 
     _log().registrar(
         "exportar_relatorio_excel",
-        detalhe={"tipo": config.get("tipo"), "registros": len(dados)},
+        detalhe={"tipos": tipos_do_config(config), "registros": len(dados)},
     )
 
     return send_file(
@@ -217,10 +217,10 @@ def api_excluir_template(tid):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _validar_config(config: dict) -> str:
-    if config.get("tipo") not in ("ipva", "licenciamento", "multas"):
-        return "Tipo de relatório inválido."
+    if not tipos_do_config(config):
+        return "Selecione ao menos um domínio de relatório (IPVA, Licenciamento ou Multas)."
     return ""
 
 
-def _tipo_label(tipo: str) -> str:
-    return {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(tipo, "relatorio")
+def _tipo_label(config: dict) -> str:
+    return tipos_label(tipos_do_config(config)).replace(" ", "_")

@@ -78,6 +78,33 @@ CAMPOS_POR_TIPO = {
     "multas":        CAMPOS_MULTAS,
 }
 
+TIPOS_VALIDOS = ("ipva", "licenciamento", "multas")
+
+TIPO_LABEL = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}
+
+
+def tipos_do_config(config: dict) -> list[str]:
+    """
+    Normaliza a lista de domínios (ipva/licenciamento/multas) selecionados no
+    relatório. Aceita a chave nova 'tipos' (lista, seleção múltipla) e mantém
+    compatibilidade com a chave antiga 'tipo' (string, seleção única) usada
+    por templates salvos antes da seleção múltipla existir.
+    """
+    tipos = config.get("tipos")
+    if not tipos and config.get("tipo"):
+        tipos = [config["tipo"]]
+    if not tipos:
+        return []
+    vistos: list[str] = []
+    for t in tipos:
+        if t in TIPOS_VALIDOS and t not in vistos:
+            vistos.append(t)
+    return vistos
+
+
+def tipos_label(tipos: list[str]) -> str:
+    return " + ".join(TIPO_LABEL.get(t, t) for t in tipos) or "Relatório"
+
 
 class RelatorioService:
     def __init__(self, session: Session) -> None:
@@ -120,19 +147,48 @@ class RelatorioService:
         """
         Executa a query de acordo com a configuração passada.
         Retorna todos os campos — a filtragem de colunas visíveis é feita na renderização.
+
+        Suporta selecionar mais de um domínio (ipva/licenciamento/multas) ao
+        mesmo tempo: os resultados de cada domínio são concatenados e, quando
+        há mais de um domínio selecionado, cada linha ganha o campo
+        'tipo_registro' para identificar de onde ela veio.
         """
-        tipo           = config.get("tipo", "ipva")
+        tipos          = tipos_do_config(config)
         filtros        = config.get("filtros", {})
         ordenar_por    = config.get("ordenar_por", "vencimento")
         ordem_direcao  = config.get("ordem_direcao", "asc")
+        multiplos      = len(tipos) > 1
 
-        if tipo == "ipva":
-            return self._buscar_ipva(filtros, ordenar_por, ordem_direcao)
-        if tipo == "licenciamento":
-            return self._buscar_licenciamento(filtros, ordenar_por, ordem_direcao)
-        if tipo == "multas":
-            return self._buscar_multas(filtros, ordenar_por, ordem_direcao)
-        return []
+        dados: list[dict] = []
+        for tipo in tipos:
+            if tipo == "ipva":
+                linhas = self._buscar_ipva(filtros, ordenar_por, ordem_direcao)
+            elif tipo == "licenciamento":
+                linhas = self._buscar_licenciamento(filtros, ordenar_por, ordem_direcao)
+            elif tipo == "multas":
+                linhas = self._buscar_multas(filtros, ordenar_por, ordem_direcao)
+            else:
+                continue
+            if multiplos:
+                for linha in linhas:
+                    linha["tipo_registro"] = TIPO_LABEL.get(tipo, tipo).upper()
+            dados.extend(linhas)
+
+        if multiplos:
+            dados = self._ordenar_combinado(dados, ordenar_por, ordem_direcao)
+        return dados
+
+    @staticmethod
+    def _ordenar_combinado(dados: list[dict], campo: str, direcao: str) -> list[dict]:
+        """
+        Reordena a lista já combinada de mais de um domínio, já que cada
+        domínio foi ordenado individualmente na consulta ao banco.
+        """
+        def chave(linha: dict):
+            valor = linha.get(campo)
+            return (valor is None, valor if valor is not None else "")
+
+        return sorted(dados, key=chave, reverse=(direcao == "desc"))
 
     def _buscar_ipva(self, filtros: dict, ordenar_por: str, direcao: str) -> list[dict]:
         q = (
@@ -171,10 +227,13 @@ class RelatorioService:
             q = q.filter(modelo.vencimento <= filtros["data_fim"])
         if filtros.get("status") == "pago":
             q = q.filter(modelo.pago == True)
-        elif filtros.get("status") in ("pendente", "vencido"):
+        elif filtros.get("status") in ("pendente", "vencido", "a_vencer"):
             q = q.filter(modelo.pago == False)
+            hoje = date.today().isoformat()
             if filtros["status"] == "vencido":
-                q = q.filter(modelo.vencimento < date.today().isoformat())
+                q = q.filter(modelo.vencimento < hoje)
+            elif filtros["status"] == "a_vencer":
+                q = q.filter(modelo.vencimento >= hoje)
         if filtros.get("placa"):
             q = q.filter(Veiculo.placa.ilike(f"%{filtros['placa']}%"))
         if filtros.get("cliente_nome"):
@@ -188,10 +247,13 @@ class RelatorioService:
             q = q.filter(Multa.data_infracao <= filtros["data_fim"])
         if filtros.get("status") == "pago":
             q = q.filter(Multa.pago == True)
-        elif filtros.get("status") in ("pendente", "vencido"):
+        elif filtros.get("status") in ("pendente", "vencido", "a_vencer"):
             q = q.filter(Multa.pago == False)
+            hoje = date.today().isoformat()
             if filtros["status"] == "vencido":
-                q = q.filter(Multa.vencimento < date.today().isoformat())
+                q = q.filter(Multa.vencimento < hoje)
+            elif filtros["status"] == "a_vencer":
+                q = q.filter(Multa.vencimento >= hoje)
         if filtros.get("placa"):
             q = q.filter(Veiculo.placa.ilike(f"%{filtros['placa']}%"))
         if filtros.get("cliente_nome"):
@@ -225,12 +287,12 @@ class RelatorioService:
             "placa":          v.placa,
             "proprietario":   v.proprietario or "",
             "marca_modelo":   v.marca_modelo or "",
-            "especie":        v.especie or "",
-            "situacao":       v.situacao or "",
+            "especie":        (v.especie or "").upper(),
+            "situacao":       (v.situacao or "").upper(),
             "ano_referencia": r.ano_referencia,
             "valor":          float(r.valor) if r.valor is not None else None,
             "vencimento":     r.vencimento or "",
-            "status_pag":     "Pago" if r.pago else self._status_vencimento(r.vencimento),
+            "status_pag":     ("Pago" if r.pago else self._status_vencimento(r.vencimento)).upper(),
             "data_pagamento": r.data_pagamento or "",
             "observacao":     r.observacao or "",
         }
@@ -241,12 +303,12 @@ class RelatorioService:
             "placa":          v.placa,
             "proprietario":   v.proprietario or "",
             "marca_modelo":   v.marca_modelo or "",
-            "especie":        v.especie or "",
-            "situacao":       v.situacao or "",
+            "especie":        (v.especie or "").upper(),
+            "situacao":       (v.situacao or "").upper(),
             "ano_referencia": r.ano_referencia,
             "valor":          float(r.valor) if r.valor is not None else None,
             "vencimento":     r.vencimento or "",
-            "status_pag":     "Pago" if r.pago else self._status_vencimento(r.vencimento),
+            "status_pag":     ("Pago" if r.pago else self._status_vencimento(r.vencimento)).upper(),
             "data_pagamento": r.data_pagamento or "",
             "observacao":     r.observacao or "",
         }
@@ -257,13 +319,13 @@ class RelatorioService:
             "placa":          v.placa,
             "proprietario":   v.proprietario or "",
             "marca_modelo":   v.marca_modelo or "",
-            "especie":        v.especie or "",
+            "especie":        (v.especie or "").upper(),
             "auto_infracao":  r.auto_infracao or "",
             "data_infracao":  r.data_infracao or "",
             "descricao":      r.descricao or "",
             "valor":          float(r.valor) if r.valor is not None else None,
             "vencimento":     r.vencimento or "",
-            "status_pag":     "Pago" if r.pago else self._status_vencimento(r.vencimento),
+            "status_pag":     ("Pago" if r.pago else self._status_vencimento(r.vencimento)).upper(),
             "data_pagamento": r.data_pagamento or "",
             "observacao":     r.observacao or "",
         }
@@ -272,7 +334,7 @@ class RelatorioService:
     def _status_vencimento(vencimento: Optional[str]) -> str:
         if not vencimento:
             return "Pendente"
-        return "Vencido" if vencimento < date.today().isoformat() else "Pendente"
+        return "Vencido" if vencimento < date.today().isoformat() else "A Vencer"
 
     # ── Agrupamento ─────────────────────────────────────────────────────────
 
@@ -289,17 +351,19 @@ class RelatorioService:
 
     @staticmethod
     def calcular_totais(dados: list[dict]) -> dict:
-        total_valor    = sum(float(r.get("valor") or 0) for r in dados)
-        total_pago     = sum(1 for r in dados if r.get("status_pag") == "Pago")
-        total_pendente = sum(1 for r in dados if r.get("status_pag") == "Pendente")
-        total_vencido  = sum(1 for r in dados if r.get("status_pag") == "Vencido")
-        valor_pago     = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") == "Pago")
-        valor_pendente = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") != "Pago")
+        total_valor     = sum(float(r.get("valor") or 0) for r in dados)
+        total_pago      = sum(1 for r in dados if r.get("status_pag") == "PAGO")
+        total_pendente  = sum(1 for r in dados if r.get("status_pag") == "PENDENTE")
+        total_a_vencer  = sum(1 for r in dados if r.get("status_pag") == "A VENCER")
+        total_vencido   = sum(1 for r in dados if r.get("status_pag") == "VENCIDO")
+        valor_pago      = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") == "PAGO")
+        valor_pendente  = sum(float(r.get("valor") or 0) for r in dados if r.get("status_pag") != "PAGO")
         return {
             "total_registros": len(dados),
             "total_valor":     total_valor,
             "total_pago":      total_pago,
             "total_pendente":  total_pendente,
+            "total_a_vencer":  total_a_vencer,
             "total_vencido":   total_vencido,
             "valor_pago":      valor_pago,
             "valor_pendente":  valor_pendente,
@@ -410,9 +474,7 @@ class RelatorioService:
         elif nome_escritorio:
             story.append(Paragraph(nome_escritorio, sEscrit))
 
-        tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(
-            config.get("tipo", "ipva"), "Relatório"
-        )
+        tipo_label = tipos_label(tipos_do_config(config))
         story.append(Paragraph(f"Relatório — {tipo_label}", sTitulo))
         if mostrar_data:
             story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}", sSub))
@@ -427,6 +489,7 @@ class RelatorioService:
                 [Paragraph("Valor total",         sHead), Paragraph(self._fmt_moeda(totais["total_valor"]),  sTotal)],
                 [Paragraph("Pagos",               sHead), Paragraph(f"{totais['total_pago']} ({self._fmt_moeda(totais['valor_pago'])})", sTotal)],
                 [Paragraph("Pendentes",           sHead), Paragraph(str(totais["total_pendente"]), sTotal)],
+                [Paragraph("A Vencer",            sHead), Paragraph(str(totais["total_a_vencer"]), sTotal)],
                 [Paragraph("Vencidos",            sHead), Paragraph(f"{totais['total_vencido']} ({self._fmt_moeda(totais['valor_pendente'])})", sTotal)],
             ]
             t_resumo = Table(resumo_data, colWidths=["40%", "60%"])
@@ -520,10 +583,8 @@ class RelatorioService:
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        tipo_label = {"ipva": "IPVA", "licenciamento": "Licenciamento", "multas": "Multas"}.get(
-            config.get("tipo", "ipva"), "Relatório"
-        )
-        ws.title = tipo_label
+        tipo_label = tipos_label(tipos_do_config(config))
+        ws.title = tipo_label[:31]  # Excel limita o nome da aba a 31 caracteres
 
         fill_header = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
         font_header = Font(bold=True, color="FFFFFF", size=11)
