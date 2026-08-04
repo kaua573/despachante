@@ -1,0 +1,291 @@
+diff --git a/app/services/importacao_service.py b/app/services/importacao_service.py
+index c6e92c7..21140c1 100644
+--- a/app/services/importacao_service.py
++++ b/app/services/importacao_service.py
+@@ -2,10 +2,10 @@
+ Importação e exportação em massa via Excel.
+ 
+ - exportar()/importar(): todos os clientes + veículos do sistema, ligados
+-  pelo CPF (usado na tela de Clientes).
++  pelo CPF ou CNPJ do cliente (usado na tela de Clientes).
+ - exportar_veiculos_cliente()/importar_veiculos_cliente(): só os veículos de
+-  UM cliente específico, sem precisar da coluna de CPF (usado na tela de
+-  Veículos de um cliente — útil pra quem tem uma frota grande).
++  UM cliente específico, sem precisar da coluna de documento (usado na tela
++  de Veículos de um cliente — útil pra quem tem uma frota grande).
+ - pre_visualizar()/pre_visualizar_veiculos_cliente(): mesma leitura e
+   validação dos métodos acima, mas SEM gravar nada no banco — só relata
+   linha a linha o que aconteceria (criar/atualizar/erro). Usado para
+@@ -13,14 +13,15 @@ Importação e exportação em massa via Excel.
+ 
+ Os fluxos reais reaproveitam ClienteService/VeiculoService para criar/
+ atualizar registros, ou seja, passam pelas mesmas validações e regras de
+-duplicidade (CPF, placa) que já valem para o cadastro manual. A prévia
++duplicidade (CPF/CNPJ, placa) que já valem para o cadastro manual. A prévia
+ reaproveita as mesmas funções de validação e os mesmos checadores de
+-duplicidade (cpf_em_uso/placa_em_uso) para nunca divergir do que a
+-importação real de fato faria.
++duplicidade (cpf_em_uso/cnpj_em_uso/placa_em_uso) para nunca divergir do que
++a importação real de fato faria.
+ """
+ from __future__ import annotations
+ 
+ import io
++import re
+ from typing import Optional
+ 
+ from openpyxl import Workbook, load_workbook
+@@ -33,12 +34,12 @@ from app.services.cliente_service import ClienteService
+ from app.services.veiculo_service import VeiculoService
+ from app.services.validacao_service import (
+     validar_campos_cliente, validar_campos_veiculo,
+-    normalizar_cpf, normalizar_telefone,
++    normalizar_cpf, normalizar_cnpj, normalizar_telefone,
+ )
+ 
+-COLUNAS_CLIENTES = ["Nome*", "CPF*", "Telefone*", "Email", "Observação"]
++COLUNAS_CLIENTES = ["Nome/Razão Social*", "Tipo (PF/PJ)*", "CPF", "CNPJ", "Telefone*", "Email", "Observação"]
+ COLUNAS_VEICULOS = [
+-    "CPF do Cliente*", "Placa*", "RENAVAM*", "Proprietário*",
++    "CPF/CNPJ do Cliente*", "Placa*", "RENAVAM*", "Proprietário*",
+     "Marca/Modelo*", "Situação", "Espécie", "Observação",
+ ]
+ COLUNAS_VEICULOS_CLIENTE = [
+@@ -72,18 +73,21 @@ class ImportacaoService:
+         clientes = self._session.query(Cliente).order_by(Cliente.nome).all()
+         for row_idx, c in enumerate(clientes, start=2):
+             ws_clientes.cell(row=row_idx, column=1, value=c.nome)
+-            ws_clientes.cell(row=row_idx, column=2, value=c.cpf or "")
+-            ws_clientes.cell(row=row_idx, column=3, value=c.telefone or "")
+-            ws_clientes.cell(row=row_idx, column=4, value=c.email or "")
+-            ws_clientes.cell(row=row_idx, column=5, value=c.observacao or "")
++            ws_clientes.cell(row=row_idx, column=2, value=c.tipo_pessoa or "PF")
++            ws_clientes.cell(row=row_idx, column=3, value=c.cpf or "")
++            ws_clientes.cell(row=row_idx, column=4, value=c.cnpj or "")
++            ws_clientes.cell(row=row_idx, column=5, value=c.telefone or "")
++            ws_clientes.cell(row=row_idx, column=6, value=c.email or "")
++            ws_clientes.cell(row=row_idx, column=7, value=c.observacao or "")
+ 
+         ws_veiculos = wb.create_sheet("Veiculos")
+         self._escrever_cabecalho(ws_veiculos, COLUNAS_VEICULOS, fill_header, font_header)
+ 
+         row_idx = 2
+         for c in clientes:
++            documento = c.cnpj if c.tipo_pessoa == "PJ" else c.cpf
+             for v in sorted(c.veiculos, key=lambda x: x.placa):
+-                ws_veiculos.cell(row=row_idx, column=1, value=c.cpf or "")
++                ws_veiculos.cell(row=row_idx, column=1, value=documento or "")
+                 ws_veiculos.cell(row=row_idx, column=2, value=v.placa)
+                 ws_veiculos.cell(row=row_idx, column=3, value=v.renavam or "")
+                 ws_veiculos.cell(row=row_idx, column=4, value=v.proprietario or "")
+@@ -134,11 +138,11 @@ class ImportacaoService:
+             resultado["erros"].append({"linha": "-", "erro": 'Aba "Clientes" não encontrada na planilha.'})
+             return resultado
+ 
+-        cpf_para_cliente_id: dict[str, int] = {}
+-        self._importar_clientes(wb["Clientes"], resultado, cpf_para_cliente_id)
++        documento_para_cliente_id: dict[str, int] = {}
++        self._importar_clientes(wb["Clientes"], resultado, documento_para_cliente_id)
+ 
+         if "Veiculos" in wb.sheetnames:
+-            self._importar_veiculos(wb["Veiculos"], resultado, cpf_para_cliente_id)
++            self._importar_veiculos(wb["Veiculos"], resultado, documento_para_cliente_id)
+ 
+         return resultado
+ 
+@@ -156,53 +160,50 @@ class ImportacaoService:
+             self._add_item(preview, "-", "erro", erro='Aba "Clientes" não encontrada na planilha.')
+             return preview
+ 
+-        cpfs_no_arquivo: set = set()
+-        self._pre_visualizar_clientes(wb["Clientes"], preview, cpfs_no_arquivo)
++        documentos_no_arquivo: set = set()
++        self._pre_visualizar_clientes(wb["Clientes"], preview, documentos_no_arquivo)
+ 
+         if "Veiculos" in wb.sheetnames:
+-            self._pre_visualizar_veiculos(wb["Veiculos"], preview, cpfs_no_arquivo)
++            self._pre_visualizar_veiculos(wb["Veiculos"], preview, documentos_no_arquivo)
+ 
+         return preview
+ 
+-    def _pre_visualizar_clientes(self, ws, preview: dict, cpfs_no_arquivo: set) -> None:
++    def _pre_visualizar_clientes(self, ws, preview: dict, documentos_no_arquivo: set) -> None:
+         linhas = ws.iter_rows(min_row=2, values_only=True)
+         for numero_linha, linha in enumerate(linhas, start=2):
+             if linha is None or not any(linha):
+                 continue
+-            nome, cpf, telefone, email, observacao = (list(linha) + [None] * 5)[:5]
++            nome, tipo_pessoa, cpf, cnpj, telefone, email, observacao = (list(linha) + [None] * 7)[:7]
+ 
+-            dados = {
+-                "nome": str(nome or "").strip(),
+-                "cpf": normalizar_cpf(str(cpf or "")),
+-                "telefone": normalizar_telefone(str(telefone or "")),
+-                "email": str(email or "").strip(),
+-                "observacao": str(observacao or "").strip(),
+-            }
++            dados = self._montar_dados_cliente(nome, tipo_pessoa, cpf, cnpj, telefone, email, observacao)
+ 
+             erro = validar_campos_cliente(dados)
+             if erro:
+                 self._add_item(preview, numero_linha, "erro", erro=f"[Clientes] {erro}")
+                 continue
+ 
+-            existente = self._session.query(Cliente).filter(Cliente.cpf == dados["cpf"]).first()
++            documento = dados["cpf"] if dados["tipo_pessoa"] == "PF" else dados["cnpj"]
++            campo = Cliente.cpf if dados["tipo_pessoa"] == "PF" else Cliente.cnpj
++            existente = self._session.query(Cliente).filter(campo == documento).first()
+             acao = "atualizar" if existente else "criar"
+-            cpfs_no_arquivo.add(dados["cpf"])
+-            self._add_item(preview, numero_linha, acao, resumo=f"{dados['nome']} — CPF {dados['cpf']}")
++            documentos_no_arquivo.add(documento)
++            rotulo_doc = "CNPJ" if dados["tipo_pessoa"] == "PJ" else "CPF"
++            self._add_item(preview, numero_linha, acao, resumo=f"{dados['nome']} — {rotulo_doc} {documento}")
+ 
+-    def _pre_visualizar_veiculos(self, ws, preview: dict, cpfs_no_arquivo: set) -> None:
++    def _pre_visualizar_veiculos(self, ws, preview: dict, documentos_no_arquivo: set) -> None:
+         linhas = ws.iter_rows(min_row=2, values_only=True)
+         for numero_linha, linha in enumerate(linhas, start=2):
+             if linha is None or not any(linha):
+                 continue
+-            cpf, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
++            documento, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
+                 list(linha) + [None] * 8
+             )[:8]
+ 
+-            cpf_normalizado = normalizar_cpf(str(cpf or ""))
+-            cliente = self._session.query(Cliente).filter(Cliente.cpf == cpf_normalizado).first()
+-            if not cliente and cpf_normalizado not in cpfs_no_arquivo:
++            documento_normalizado = self._normalizar_documento(documento)
++            cliente = self._localizar_cliente_por_documento(documento_normalizado)
++            if not cliente and documento_normalizado not in documentos_no_arquivo:
+                 self._add_item(preview, numero_linha, "erro",
+-                                erro=f"[Veículos] Nenhum cliente encontrado com o CPF '{cpf}'.")
++                                erro=f"[Veículos] Nenhum cliente encontrado com o CPF/CNPJ '{documento}'.")
+                 continue
+ 
+             erro, dados = self._preparar_linha_veiculo(placa, renavam, proprietario, marca_modelo, situacao, especie, observacao)
+@@ -343,6 +344,35 @@ class ImportacaoService:
+         except Exception:
+             return None, "Arquivo inválido. Envie um .xlsx no formato do modelo."
+ 
++    @staticmethod
++    def _normalizar_documento(v) -> str:
++        """Só dígitos — serve tanto pra CPF (11) quanto CNPJ (14), usados como chave de junção."""
++        return re.sub(r"\D", "", str(v or ""))
++
++    @staticmethod
++    def _montar_dados_cliente(nome, tipo_pessoa, cpf, cnpj, telefone, email, observacao) -> dict:
++        tipo_pessoa = str(tipo_pessoa or "PF").strip().upper()
++        if tipo_pessoa not in ("PF", "PJ"):
++            tipo_pessoa = "PF"
++        return {
++            "nome": str(nome or "").strip(),
++            "tipo_pessoa": tipo_pessoa,
++            "cpf": normalizar_cpf(str(cpf or "")) if tipo_pessoa == "PF" else "",
++            "cnpj": normalizar_cnpj(str(cnpj or "")) if tipo_pessoa == "PJ" else "",
++            "telefone": normalizar_telefone(str(telefone or "")),
++            "email": str(email or "").strip(),
++            "observacao": str(observacao or "").strip(),
++        }
++
++    def _localizar_cliente_por_documento(self, documento_normalizado: str) -> Optional[Cliente]:
++        if not documento_normalizado:
++            return None
++        return (
++            self._session.query(Cliente)
++            .filter((Cliente.cpf == documento_normalizado) | (Cliente.cnpj == documento_normalizado))
++            .first()
++        )
++
+     @staticmethod
+     def _add_item(preview: dict, linha, acao: str, resumo: str = "", erro: str = "") -> None:
+         item = {"linha": linha, "acao": acao}
+@@ -355,72 +385,60 @@ class ImportacaoService:
+ 
+     # ── Importação — clientes ────────────────────────────────────────────────
+ 
+-    def _importar_clientes(self, ws, resultado: dict, cpf_para_cliente_id: dict) -> None:
++    def _importar_clientes(self, ws, resultado: dict, documento_para_cliente_id: dict) -> None:
+         linhas = ws.iter_rows(min_row=2, values_only=True)
+         for numero_linha, linha in enumerate(linhas, start=2):
+             if linha is None or not any(linha):
+                 continue
+-            nome, cpf, telefone, email, observacao = (list(linha) + [None] * 5)[:5]
++            nome, tipo_pessoa, cpf, cnpj, telefone, email, observacao = (list(linha) + [None] * 7)[:7]
+ 
+-            dados = {
+-                "nome": str(nome or "").strip(),
+-                "cpf": normalizar_cpf(str(cpf or "")),
+-                "telefone": normalizar_telefone(str(telefone or "")),
+-                "email": str(email or "").strip(),
+-                "observacao": str(observacao or "").strip(),
+-            }
++            dados = self._montar_dados_cliente(nome, tipo_pessoa, cpf, cnpj, telefone, email, observacao)
+ 
+             erro = validar_campos_cliente(dados)
+             if erro:
+                 resultado["erros"].append({"linha": numero_linha, "erro": f"[Clientes] {erro}"})
+                 continue
+ 
+-            existente = (
+-                self._session.query(Cliente)
+-                .filter(Cliente.cpf == dados["cpf"])
+-                .first()
+-            )
++            documento = dados["cpf"] if dados["tipo_pessoa"] == "PF" else dados["cnpj"]
++            campo = Cliente.cpf if dados["tipo_pessoa"] == "PF" else Cliente.cnpj
++            existente = self._session.query(Cliente).filter(campo == documento).first()
+             if existente:
+                 ok, erro = self._cliente_svc.atualizar(existente.id, dados)
+                 if not ok:
+                     resultado["erros"].append({"linha": numero_linha, "erro": f"[Clientes] {erro}"})
+                     continue
+-                cpf_para_cliente_id[dados["cpf"]] = existente.id
++                documento_para_cliente_id[documento] = existente.id
+                 resultado["clientes_atualizados"] += 1
+             else:
+                 cliente, erro = self._cliente_svc.criar(dados)
+                 if not cliente:
+                     resultado["erros"].append({"linha": numero_linha, "erro": f"[Clientes] {erro}"})
+                     continue
+-                cpf_para_cliente_id[dados["cpf"]] = cliente.id
++                documento_para_cliente_id[documento] = cliente.id
+                 resultado["clientes_criados"] += 1
+ 
+     # ── Importação — veículos ────────────────────────────────────────────────
+ 
+-    def _importar_veiculos(self, ws, resultado: dict, cpf_para_cliente_id: dict) -> None:
+-        """Planilha com coluna de CPF (usada na importação global de clientes)."""
++    def _importar_veiculos(self, ws, resultado: dict, documento_para_cliente_id: dict) -> None:
++        """Planilha com coluna de CPF/CNPJ (usada na importação global de clientes)."""
+         linhas = ws.iter_rows(min_row=2, values_only=True)
+         for numero_linha, linha in enumerate(linhas, start=2):
+             if linha is None or not any(linha):
+                 continue
+-            cpf, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
++            documento, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao = (
+                 list(linha) + [None] * 8
+             )[:8]
+ 
+-            cpf_normalizado = normalizar_cpf(str(cpf or ""))
+-            cliente_id = cpf_para_cliente_id.get(cpf_normalizado)
++            documento_normalizado = self._normalizar_documento(documento)
++            cliente_id = documento_para_cliente_id.get(documento_normalizado)
+             if not cliente_id:
+-                cliente = (
+-                    self._session.query(Cliente)
+-                    .filter(Cliente.cpf == cpf_normalizado)
+-                    .first()
+-                )
++                cliente = self._localizar_cliente_por_documento(documento_normalizado)
+                 cliente_id = cliente.id if cliente else None
+ 
+             if not cliente_id:
+                 resultado["erros"].append({
+                     "linha": numero_linha,
+-                    "erro": f"[Veículos] Nenhum cliente encontrado com o CPF '{cpf}'. "
++                    "erro": f"[Veículos] Nenhum cliente encontrado com o CPF/CNPJ '{documento}'. "
+                             f"Cadastre o cliente antes (ou inclua-o na aba Clientes desta planilha).",
+                 })
+                 continue
