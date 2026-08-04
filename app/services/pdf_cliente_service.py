@@ -16,6 +16,7 @@ from app.models.veiculo import Veiculo
 from app.services.configuracao_service import (
     ConfiguracaoService, FONTES_PDF, TAMANHOS_PDF, resolver_cor
 )
+from app.services.validacao_service import formatar_cpf, formatar_cnpj
 
 
 class PdfClienteService:
@@ -153,9 +154,17 @@ class PdfClienteService:
             bloco = []
             if "dados" in incluir:
                 bloco.append(Paragraph("Dados do Cliente", sSecao))
-                campos = [
-                    ("Nome", cliente.nome),
-                    ("CPF", cliente.cpf or "—"),
+                if cliente.tipo_pessoa == "PJ":
+                    campos = [
+                        ("Razão Social", cliente.nome),
+                        ("CNPJ", formatar_cnpj(cliente.cnpj) if cliente.cnpj else "—"),
+                    ]
+                else:
+                    campos = [
+                        ("Nome", cliente.nome),
+                        ("CPF", formatar_cpf(cliente.cpf) if cliente.cpf else "—"),
+                    ]
+                campos += [
                     ("Telefone", cliente.telefone or "—"),
                     ("E-mail", cliente.email or "—"),
                     ("Observação", cliente.observacao or "—"),

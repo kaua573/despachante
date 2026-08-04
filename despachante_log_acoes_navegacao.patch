@@ -1,0 +1,52 @@
+diff --git a/app/templates/admin/log.html b/app/templates/admin/log.html
+index bbe97db..79439e3 100644
+--- a/app/templates/admin/log.html
++++ b/app/templates/admin/log.html
+@@ -3,6 +3,10 @@
+ {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Log</span>{% endblock %}
+ 
+ {% block content %}
++<div style="display:flex;gap:8px;margin-bottom:14px;">
++  <a href="/admin/usuarios" class="btn btn-outline btn-sm">{{ icon('users','icon icon-sm') }} Usuários</a>
++  <a href="/admin/log" class="btn btn-primary btn-sm">{{ icon('security','icon icon-sm') }} Log de ações</a>
++</div>
+ <div class="card">
+   <div class="card-header">
+     <h2>{{ icon('security') }} Log de ações</h2>
+@@ -40,7 +44,7 @@
+ 
+   <div class="tabela-wrap">
+     <table>
+-      <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>ID</th><th>IP</th></tr></thead>
++      <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>ID</th><th>Detalhe</th><th>IP</th></tr></thead>
+       <tbody>
+       {% for r in registros %}
+         <tr>
+@@ -49,10 +53,11 @@
+           <td><code style="font-size:12px;background:var(--cinza1);padding:2px 6px;border-radius:4px;">{{ r.acao }}</code></td>
+           <td>{{ r.entidade or '—' }}</td>
+           <td>{{ r.entidade_id or '—' }}</td>
++          <td style="max-width:340px;white-space:normal;word-break:break-word;font-size:12px;color:var(--sub);">{{ r.detalhe or '—' }}</td>
+           <td style="font-size:12px;color:var(--sub);">{{ r.ip or '—' }}</td>
+         </tr>
+       {% else %}
+-        <tr><td colspan="6"><div class="empty-state"><p>Nenhum registro encontrado.</p></div></td></tr>
++        <tr><td colspan="7"><div class="empty-state"><p>Nenhum registro encontrado.</p></div></td></tr>
+       {% endfor %}
+       </tbody>
+     </table>
+diff --git a/app/templates/admin/usuarios.html b/app/templates/admin/usuarios.html
+index ef2fb03..f8537d5 100644
+--- a/app/templates/admin/usuarios.html
++++ b/app/templates/admin/usuarios.html
+@@ -3,6 +3,10 @@
+ {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Usuários</span>{% endblock %}
+ 
+ {% block content %}
++<div style="display:flex;gap:8px;margin-bottom:14px;">
++  <a href="/admin/usuarios" class="btn btn-primary btn-sm">{{ icon('users','icon icon-sm') }} Usuários</a>
++  <a href="/admin/log" class="btn btn-outline btn-sm">{{ icon('security','icon icon-sm') }} Log de ações</a>
++</div>
+ <div class="card">
+   <div class="card-header">
+     <h2>{{ icon('users') }} Usuários do sistema</h2>

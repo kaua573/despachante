@@ -3,7 +3,7 @@ Ponto de entrada do Sistema Despachante.
 Uso: python run.py
 """
 import os
-from app import create_app, db
+from app import create_app, db, aplicar_migracoes_leves
 from app.models import (
     Cliente, Veiculo, Ipva, Licenciamento,
     Multa, Documento, Configuracao, TemplateRelatorio,
@@ -29,6 +29,7 @@ def init_db():
     """Cria tabelas, aplica valores padrão de configuração e cria admin padrão."""
     with app.app_context():
         db.create_all()
+        aplicar_migracoes_leves(app)
         ConfiguracaoService(db.session).seed_defaults()
         AuthService(db.session).seed_admin()
 

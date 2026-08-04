@@ -3,15 +3,35 @@
 {% block breadcrumb %}<span>Clientes</span>{% endblock %}
 
 {% block content %}
-<!-- Inputmask para máscaras de CPF e telefone -->
+<!-- Inputmask para máscaras de CPF, CNPJ e telefone -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/inputmask.min.js"></script>
+<style>
+  /* Página de clientes: tabela ocupa a viewport inteira (largura e altura) */
+  .clientes-full {
+    width: 100vw;
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+    box-sizing: border-box;
+  }
+  .clientes-full .card {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 104px);
+  }
+  .clientes-full .card-header { flex: 0 0 auto; }
+  .clientes-full .tabela-wrap { flex: 1 1 auto; overflow-y: auto; }
+  .clientes-full thead th { position: sticky; top: 0; z-index: 1; }
+  .clientes-full .col-obs { white-space: normal; word-break: break-word; min-width: 260px; }
+</style>
+<div class="clientes-full">
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('users') }} Clientes cadastrados</h2>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <div class="search-box">
         {{ icon('find','icon icon-sm') }}
-        <input type="text" id="busca" placeholder="Buscar por nome, CPF..." oninput="carregar()"
+        <input type="text" id="busca" placeholder="Buscar por nome, CPF ou CNPJ..." oninput="carregar()"
           style="margin-left:4px;">
       </div>
       <div class="menu-acoes">
@@ -30,8 +50,8 @@
     <table>
       <thead>
         <tr>
-          <th>Nome</th>
-          <th>CPF</th>
+          <th>Nome / Razão Social</th>
+          <th>CPF / CNPJ</th>
           <th>Telefone</th>
           <th>Email</th>
           <th>Obs.</th>
@@ -41,6 +61,7 @@
       <tbody id="tbody"></tbody>
     </table>
   </div>
+</div>
 </div>
 
 <!-- Modal cliente -->
@@ -57,12 +78,24 @@
         icon('folder','icon icon-sm') }} Documentos</button>
     </div>
     <div class="modal-body" id="painel-tab-dados">
-      <div class="field"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+      <div class="field">
+        <label>Tipo de cliente *</label>
+        <select id="f-tipo-pessoa" onchange="alternarTipoPessoa()">
+          <option value="PF">Pessoa Física</option>
+          <option value="PJ">Pessoa Jurídica</option>
+        </select>
+      </div>
+      <div class="field"><label id="lbl-nome">Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
       <div class="row2">
-        <div class="field">
+        <div class="field" id="grupo-cpf">
           <label>CPF *</label>
           <input id="f-cpf" placeholder="000.000.000-00" data-inputmask="'mask': '999.999.999-99'">
           <span id="erro-cpf" style="color:var(--vermelho);font-size:12px;display:none;">CPF inválido.</span>
+        </div>
+        <div class="field" id="grupo-cnpj" style="display:none;">
+          <label>CNPJ *</label>
+          <input id="f-cnpj" placeholder="00.000.000/0000-00" data-inputmask="'mask': '99.999.999/9999-99'">
+          <span id="erro-cnpj" style="color:var(--vermelho);font-size:12px;display:none;">CNPJ inválido.</span>
         </div>
         <div class="field">
           <label>Telefone *</label>
@@ -168,8 +201,21 @@
   function iniciarMascaras() {
     if (typeof Inputmask === 'undefined') return;
     Inputmask({ mask: '999.999.999-99' }).mask(document.getElementById('f-cpf'));
+    Inputmask({ mask: '99.999.999/9999-99' }).mask(document.getElementById('f-cnpj'));
     Inputmask({ mask: ['(99) 9999-9999', '(99) 99999-9999'], keepStatic: false })
       .mask(document.getElementById('f-tel'));
+  }
+
+  // Alterna os campos do modal entre Pessoa Física e Pessoa Jurídica
+  function alternarTipoPessoa() {
+    const tipo = document.getElementById('f-tipo-pessoa').value;
+    const ehPJ = tipo === 'PJ';
+    document.getElementById('grupo-cpf').style.display = ehPJ ? 'none' : '';
+    document.getElementById('grupo-cnpj').style.display = ehPJ ? '' : 'none';
+    document.getElementById('lbl-nome').textContent = ehPJ ? 'Razão Social *' : 'Nome *';
+    document.getElementById('f-nome').placeholder = ehPJ ? 'Razão social da empresa' : 'Nome completo';
+    mostrarErro('erro-cpf', '', false);
+    mostrarErro('erro-cnpj', '', false);
   }
 
   // Valida CPF matematicamente no frontend (espelho do backend)
@@ -183,6 +229,21 @@
       return r < 2 ? 0 : 11 - r;
     };
     return parseInt(d[9]) === calc(10) && parseInt(d[10]) === calc(11);
+  }
+
+  // Valida CNPJ matematicamente no frontend (espelho do backend)
+  function validarCnpjFrontend(cnpj) {
+    const d = cnpj.replace(/\D/g, '');
+    if (d.length !== 14 || /^(.)\1+$/.test(d)) return false;
+    const calc = (pesos) => {
+      let s = 0;
+      for (let i = 0; i < pesos.length; i++) s += parseInt(d[i]) * pesos[i];
+      const r = s % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    const d1 = calc([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const d2 = calc([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return parseInt(d[12]) === d1 && parseInt(d[13]) === d2;
   }
 
   function validarEmailFrontend(email) {
@@ -234,11 +295,11 @@
     }
     tbody.innerHTML = dados.map(c => `
     <tr>
-      <td><strong>${escapeHtml(c.nome)}</strong></td>
-      <td>${escapeHtml(c.cpf) || '—'}</td>
+      <td><strong>${escapeHtml(c.nome)}</strong>${c.tipo_pessoa === 'PJ' ? ' <span class="badge badge-inativo">PJ</span>' : ''}</td>
+      <td>${c.tipo_pessoa === 'PJ' ? (escapeHtml(formatarCnpjExibicao(c.cnpj)) || '—') : (escapeHtml(formatarCpfExibicao(c.cpf)) || '—')}</td>
       <td>${escapeHtml(c.telefone) || '—'}</td>
       <td>${escapeHtml(c.email) || '—'}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
+      <td class="col-obs" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
       <td>
         <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
@@ -253,6 +314,14 @@
   `).join('');
   }
 
+  function formatarCpfExibicao(cpf) {
+    return cpf ? cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
+  }
+
+  function formatarCnpjExibicao(cnpj) {
+    return cnpj ? cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : '';
+  }
+
   function mudarTabModal(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
     document.querySelector(`[data-tab="${tab}"]`).classList.add('ativa');
@@ -263,8 +332,10 @@
   function abrirModal() {
     editId = null;
     document.getElementById('modal-titulo').textContent = 'Novo cliente';
-    ['f-nome', 'f-cpf', 'f-tel', 'f-email', 'f-obs'].forEach(id => document.getElementById(id).value = '');
-    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    ['f-nome', 'f-cpf', 'f-cnpj', 'f-tel', 'f-email', 'f-obs'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f-tipo-pessoa').value = 'PF';
+    alternarTipoPessoa();
+    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
     document.getElementById('tab-doc-btn').style.display = 'none';
     mudarTabModal('dados');
     document.getElementById('modal').classList.add('open');
@@ -274,13 +345,16 @@
   async function editar(c) {
     editId = c.id;
     document.getElementById('modal-titulo').textContent = 'Editar cliente';
+    document.getElementById('f-tipo-pessoa').value = c.tipo_pessoa || 'PF';
+    alternarTipoPessoa();
     document.getElementById('f-nome').value = c.nome || '';
-    // Exibe CPF e telefone formatados na edição
-    document.getElementById('f-cpf').value = c.cpf ? c.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
+    // Exibe CPF/CNPJ e telefone formatados na edição
+    document.getElementById('f-cpf').value = formatarCpfExibicao(c.cpf);
+    document.getElementById('f-cnpj').value = formatarCnpjExibicao(c.cnpj);
     document.getElementById('f-tel').value = c.telefone ? formatarTelExibicao(c.telefone) : '';
     document.getElementById('f-email').value = c.email || '';
     document.getElementById('f-obs').value = c.observacao || '';
-    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
     document.getElementById('tab-doc-btn').style.display = '';
     docClienteId = c.id;
     await carregarDocumentos();
@@ -299,19 +373,29 @@
   function fecharModal() { document.getElementById('modal').classList.remove('open'); }
 
   async function salvar() {
+    const tipoPessoa = document.getElementById('f-tipo-pessoa').value;
+    const ehPJ = tipoPessoa === 'PJ';
     const nome = document.getElementById('f-nome').value.trim();
     const cpf = document.getElementById('f-cpf').value.trim();
+    const cnpj = document.getElementById('f-cnpj').value.trim();
     const tel = document.getElementById('f-tel').value.trim();
     const email = document.getElementById('f-email').value.trim();
 
     // Limpa erros anteriores
-    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
 
     let invalido = false;
-    if (!nome) { toast('Nome é obrigatório.', 'err'); return; }
-    if (!validarCpfFrontend(cpf)) {
-      mostrarErro('erro-cpf', 'CPF inválido.', true);
-      invalido = true;
+    if (!nome) { toast(ehPJ ? 'Razão social é obrigatória.' : 'Nome é obrigatório.', 'err'); return; }
+    if (ehPJ) {
+      if (!validarCnpjFrontend(cnpj)) {
+        mostrarErro('erro-cnpj', 'CNPJ inválido.', true);
+        invalido = true;
+      }
+    } else {
+      if (!validarCpfFrontend(cpf)) {
+        mostrarErro('erro-cpf', 'CPF inválido.', true);
+        invalido = true;
+      }
     }
     if (tel.replace(/\D/g, '').length < 10) {
       mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
@@ -323,7 +407,11 @@
     }
     if (invalido) return;
 
-    const payload = { nome, cpf, telefone: tel, email, observacao: document.getElementById('f-obs').value.trim() };
+    const payload = {
+      nome, tipo_pessoa: tipoPessoa,
+      cpf: ehPJ ? '' : cpf, cnpj: ehPJ ? cnpj : '',
+      telefone: tel, email, observacao: document.getElementById('f-obs').value.trim()
+    };
     const url = editId ? `/api/clientes/${editId}` : '/api/clientes';
     const method = editId ? 'PUT' : 'POST';
     const data = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });

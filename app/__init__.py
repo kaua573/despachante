@@ -109,6 +109,42 @@ def _registrar_helpers_jinja(app: Flask) -> None:
         }
 
 
+def aplicar_migracoes_leves(app: Flask) -> None:
+    """
+    Aplica migrações leves e idempotentes de schema (adicionar colunas que
+    ainda não existem) diretamente via SQLite, sem depender do Flask-Migrate/
+    Alembic estar configurado com `flask db init`.
+
+    Motivo de existir: a instalação empacotada (.exe) não tem Python nem
+    Flask CLI disponíveis na máquina do cliente, então `flask db upgrade`
+    não é uma opção lá. Chamando esta função a cada start-up (logo após
+    `db.create_all()`), a correção de schema vem embutida no próprio
+    executável — o usuário só precisa instalar a versão nova por cima.
+
+    Seguro de rodar repetidas vezes: cada bloco só altera a tabela se a
+    coluna ainda não existir.
+    """
+    from sqlalchemy import inspect, text
+
+    with app.app_context():
+        inspector = inspect(db.engine)
+        if "clientes" not in inspector.get_table_names():
+            return  # instalação nova — create_all() já cria com o schema atual
+
+        colunas = {c["name"] for c in inspector.get_columns("clientes")}
+
+        with db.engine.begin() as conn:
+            if "tipo_pessoa" not in colunas:
+                conn.execute(text(
+                    "ALTER TABLE clientes ADD COLUMN tipo_pessoa VARCHAR(2) NOT NULL DEFAULT 'PF'"
+                ))
+            if "cnpj" not in colunas:
+                conn.execute(text("ALTER TABLE clientes ADD COLUMN cnpj VARCHAR(20)"))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_cnpj ON clientes (cnpj)"
+                ))
+
+
 def _registrar_blueprints(app: Flask) -> None:
     from app.routes.main import bp as main_bp
     from app.routes.clientes import bp as clientes_bp

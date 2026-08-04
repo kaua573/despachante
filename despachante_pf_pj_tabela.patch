@@ -1,0 +1,654 @@
+diff --git a/app/__init__.py b/app/__init__.py
+index ba47040..cdb79d6 100644
+--- a/app/__init__.py
++++ b/app/__init__.py
+@@ -109,6 +109,42 @@ def _registrar_helpers_jinja(app: Flask) -> None:
+         }
+ 
+ 
++def aplicar_migracoes_leves(app: Flask) -> None:
++    """
++    Aplica migrações leves e idempotentes de schema (adicionar colunas que
++    ainda não existem) diretamente via SQLite, sem depender do Flask-Migrate/
++    Alembic estar configurado com `flask db init`.
++
++    Motivo de existir: a instalação empacotada (.exe) não tem Python nem
++    Flask CLI disponíveis na máquina do cliente, então `flask db upgrade`
++    não é uma opção lá. Chamando esta função a cada start-up (logo após
++    `db.create_all()`), a correção de schema vem embutida no próprio
++    executável — o usuário só precisa instalar a versão nova por cima.
++
++    Seguro de rodar repetidas vezes: cada bloco só altera a tabela se a
++    coluna ainda não existir.
++    """
++    from sqlalchemy import inspect, text
++
++    with app.app_context():
++        inspector = inspect(db.engine)
++        if "clientes" not in inspector.get_table_names():
++            return  # instalação nova — create_all() já cria com o schema atual
++
++        colunas = {c["name"] for c in inspector.get_columns("clientes")}
++
++        with db.engine.begin() as conn:
++            if "tipo_pessoa" not in colunas:
++                conn.execute(text(
++                    "ALTER TABLE clientes ADD COLUMN tipo_pessoa VARCHAR(2) NOT NULL DEFAULT 'PF'"
++                ))
++            if "cnpj" not in colunas:
++                conn.execute(text("ALTER TABLE clientes ADD COLUMN cnpj VARCHAR(20)"))
++                conn.execute(text(
++                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_cnpj ON clientes (cnpj)"
++                ))
++
++
+ def _registrar_blueprints(app: Flask) -> None:
+     from app.routes.main import bp as main_bp
+     from app.routes.clientes import bp as clientes_bp
+diff --git a/app/models/cliente.py b/app/models/cliente.py
+index 9955bb8..2a408fd 100644
+--- a/app/models/cliente.py
++++ b/app/models/cliente.py
+@@ -7,7 +7,9 @@ class Cliente(db.Model):
+ 
+     id = db.Column(db.Integer, primary_key=True)
+     nome = db.Column(db.String(200), nullable=False)
++    tipo_pessoa = db.Column(db.String(2), nullable=False, default="PF", server_default="PF")
+     cpf = db.Column(db.String(20), unique=True)
++    cnpj = db.Column(db.String(20), unique=True)
+     telefone = db.Column(db.String(30))
+     email = db.Column(db.String(100))
+     observacao = db.Column(db.Text)
+@@ -20,7 +22,9 @@ class Cliente(db.Model):
+         return {
+             "id": self.id,
+             "nome": self.nome,
++            "tipo_pessoa": self.tipo_pessoa or "PF",
+             "cpf": self.cpf or "",
++            "cnpj": self.cnpj or "",
+             "telefone": self.telefone or "",
+             "email": self.email or "",
+             "observacao": self.observacao or "",
+diff --git a/app/routes/clientes.py b/app/routes/clientes.py
+index 46ec944..65b29fc 100644
+--- a/app/routes/clientes.py
++++ b/app/routes/clientes.py
+@@ -6,7 +6,7 @@ from app.services.cliente_service import ClienteService
+ from app.services.log_service import LogService
+ from app.services.pdf_cliente_service import PdfClienteService
+ from app.services.validacao_service import (
+-    validar_campos_cliente, normalizar_cpf, normalizar_telefone,
++    validar_campos_cliente, normalizar_cpf, normalizar_cnpj, normalizar_telefone,
+ )
+ 
+ bp = Blueprint("clientes", __name__)
+@@ -240,5 +240,7 @@ def importar_clientes():
+ def _normalizar_cliente(dados: dict) -> None:
+     if dados.get("cpf"):
+         dados["cpf"] = normalizar_cpf(dados["cpf"])
++    if dados.get("cnpj"):
++        dados["cnpj"] = normalizar_cnpj(dados["cnpj"])
+     if dados.get("telefone"):
+         dados["telefone"] = normalizar_telefone(dados["telefone"])
+diff --git a/app/services/cliente_service.py b/app/services/cliente_service.py
+index 365a99e..a1c4516 100644
+--- a/app/services/cliente_service.py
++++ b/app/services/cliente_service.py
+@@ -25,6 +25,7 @@ class ClienteService:
+             q = q.filter(
+                 Cliente.nome.ilike(termo)
+                 | Cliente.cpf.ilike(termo)
++                | Cliente.cnpj.ilike(termo)
+                 | Cliente.telefone.ilike(termo)
+             )
+         return q.order_by(Cliente.nome).all()
+@@ -40,13 +41,29 @@ class ClienteService:
+             q = q.filter(Cliente.id != ignorar_id)
+         return self._session.query(q.exists()).scalar()
+ 
++    def cnpj_em_uso(self, cnpj: str, ignorar_id: Optional[int] = None) -> bool:
++        if not cnpj:
++            return False
++        q = self._session.query(Cliente.id).filter(Cliente.cnpj == cnpj)
++        if ignorar_id:
++            q = q.filter(Cliente.id != ignorar_id)
++        return self._session.query(q.exists()).scalar()
++
+     def criar(self, dados: dict) -> tuple[Optional[Cliente], str]:
+-        cpf = dados.get("cpf", "")
+-        if self.cpf_em_uso(cpf):
++        tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
++        # Guarda None (não string vazia) para o campo que não se aplica,
++        # senão dois clientes PJ sem CPF colidiriam na constraint UNIQUE.
++        cpf = dados.get("cpf") or None if tipo_pessoa == "PF" else None
++        cnpj = dados.get("cnpj") or None if tipo_pessoa == "PJ" else None
++        if tipo_pessoa == "PF" and self.cpf_em_uso(cpf):
+             return None, "Já existe um cliente cadastrado com esse CPF."
++        if tipo_pessoa == "PJ" and self.cnpj_em_uso(cnpj):
++            return None, "Já existe um cliente cadastrado com esse CNPJ."
+         cliente = Cliente(
+             nome=dados["nome"],
++            tipo_pessoa=tipo_pessoa,
+             cpf=cpf,
++            cnpj=cnpj,
+             telefone=dados.get("telefone", ""),
+             email=dados.get("email", ""),
+             observacao=dados.get("observacao", ""),
+@@ -56,18 +73,26 @@ class ClienteService:
+             self._session.commit()
+         except IntegrityError:
+             self._session.rollback()
+-            return None, "Já existe um cliente cadastrado com esse CPF."
++            msg = "Já existe um cliente cadastrado com esse CNPJ." if tipo_pessoa == "PJ" \
++                else "Já existe um cliente cadastrado com esse CPF."
++            return None, msg
+         return cliente, ""
+ 
+     def atualizar(self, cliente_id: int, dados: dict) -> tuple[bool, str]:
+         cliente = self.obter(cliente_id)
+         if not cliente:
+             return False, "Cliente não encontrado."
+-        cpf = dados.get("cpf", "")
+-        if self.cpf_em_uso(cpf, ignorar_id=cliente_id):
++        tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
++        cpf = dados.get("cpf") or None if tipo_pessoa == "PF" else None
++        cnpj = dados.get("cnpj") or None if tipo_pessoa == "PJ" else None
++        if tipo_pessoa == "PF" and self.cpf_em_uso(cpf, ignorar_id=cliente_id):
+             return False, "Já existe um cliente cadastrado com esse CPF."
++        if tipo_pessoa == "PJ" and self.cnpj_em_uso(cnpj, ignorar_id=cliente_id):
++            return False, "Já existe um cliente cadastrado com esse CNPJ."
+         cliente.nome = dados["nome"]
++        cliente.tipo_pessoa = tipo_pessoa
+         cliente.cpf = cpf
++        cliente.cnpj = cnpj
+         cliente.telefone = dados.get("telefone", "")
+         cliente.email = dados.get("email", "")
+         cliente.observacao = dados.get("observacao", "")
+@@ -75,7 +100,9 @@ class ClienteService:
+             self._session.commit()
+         except IntegrityError:
+             self._session.rollback()
+-            return False, "Já existe um cliente cadastrado com esse CPF."
++            msg = "Já existe um cliente cadastrado com esse CNPJ." if tipo_pessoa == "PJ" \
++                else "Já existe um cliente cadastrado com esse CPF."
++            return False, msg
+         return True, ""
+ 
+     def excluir(self, cliente_id: int) -> tuple[bool, str]:
+diff --git a/app/services/pdf_cliente_service.py b/app/services/pdf_cliente_service.py
+index 68d9ba5..7d96ca2 100644
+--- a/app/services/pdf_cliente_service.py
++++ b/app/services/pdf_cliente_service.py
+@@ -16,6 +16,7 @@ from app.models.veiculo import Veiculo
+ from app.services.configuracao_service import (
+     ConfiguracaoService, FONTES_PDF, TAMANHOS_PDF, resolver_cor
+ )
++from app.services.validacao_service import formatar_cpf, formatar_cnpj
+ 
+ 
+ class PdfClienteService:
+@@ -153,9 +154,17 @@ class PdfClienteService:
+             bloco = []
+             if "dados" in incluir:
+                 bloco.append(Paragraph("Dados do Cliente", sSecao))
+-                campos = [
+-                    ("Nome", cliente.nome),
+-                    ("CPF", cliente.cpf or "—"),
++                if cliente.tipo_pessoa == "PJ":
++                    campos = [
++                        ("Razão Social", cliente.nome),
++                        ("CNPJ", formatar_cnpj(cliente.cnpj) if cliente.cnpj else "—"),
++                    ]
++                else:
++                    campos = [
++                        ("Nome", cliente.nome),
++                        ("CPF", formatar_cpf(cliente.cpf) if cliente.cpf else "—"),
++                    ]
++                campos += [
+                     ("Telefone", cliente.telefone or "—"),
+                     ("E-mail", cliente.email or "—"),
+                     ("Observação", cliente.observacao or "—"),
+diff --git a/app/services/validacao_service.py b/app/services/validacao_service.py
+index 680aeb3..4f71333 100644
+--- a/app/services/validacao_service.py
++++ b/app/services/validacao_service.py
+@@ -45,6 +45,49 @@ def formatar_cpf(cpf: str) -> str:
+     return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
+ 
+ 
++# ── CNPJ ──────────────────────────────────────────────────────────────────────
++
++def validar_cnpj(cnpj: str) -> bool:
++    """
++    Valida CNPJ verificando formato e dígitos verificadores.
++    Aceita entrada com ou sem máscara (00.000.000/0000-00 ou 00000000000000).
++    """
++    apenas_digitos = re.sub(r"\D", "", cnpj or "")
++
++    if len(apenas_digitos) != 14:
++        return False
++
++    # Rejeita sequências trivialmente inválidas (11.111.111/1111-11 etc.)
++    if len(set(apenas_digitos)) == 1:
++        return False
++
++    def calcular_digito(digitos: str, pesos: list) -> int:
++        soma = sum(int(d) * p for d, p in zip(digitos, pesos))
++        resto = soma % 11
++        return 0 if resto < 2 else 11 - resto
++
++    pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
++    pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
++
++    d1 = calcular_digito(apenas_digitos[:12], pesos1)
++    d2 = calcular_digito(apenas_digitos[:13], pesos2)
++
++    return apenas_digitos[12] == str(d1) and apenas_digitos[13] == str(d2)
++
++
++def normalizar_cnpj(cnpj: str) -> str:
++    """Remove máscara — armazena só dígitos."""
++    return re.sub(r"\D", "", cnpj or "")
++
++
++def formatar_cnpj(cnpj: str) -> str:
++    """Formata 14 dígitos para exibição: 00.000.000/0000-00."""
++    d = re.sub(r"\D", "", cnpj or "")
++    if len(d) != 14:
++        return cnpj
++    return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
++
++
+ # ── Telefone ──────────────────────────────────────────────────────────────────
+ 
+ def validar_telefone(telefone: str) -> bool:
+@@ -108,18 +151,32 @@ def normalizar_placa(placa: str) -> str:
+ def validar_campos_cliente(dados: dict) -> str:
+     """
+     Valida todos os campos obrigatórios de um cliente.
++    Ramifica por tipo_pessoa ('PF' exige CPF, 'PJ' exige CNPJ).
+     Retorna mensagem de erro ou string vazia se tudo estiver correto.
+     """
+-    cpf = dados.get("cpf", "")
++    tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
++    if tipo_pessoa not in ("PF", "PJ"):
++        return "Tipo de pessoa inválido."
++
+     telefone = dados.get("telefone", "")
+     email = dados.get("email", "")
+ 
+     if not dados.get("nome", "").strip():
+-        return "Nome é obrigatório."
+-    if not cpf.strip():
+-        return "CPF é obrigatório."
+-    if not validar_cpf(cpf):
+-        return "CPF inválido. Verifique o formato e os dígitos verificadores."
++        return "Razão social é obrigatória." if tipo_pessoa == "PJ" else "Nome é obrigatório."
++
++    if tipo_pessoa == "PF":
++        cpf = dados.get("cpf", "")
++        if not cpf.strip():
++            return "CPF é obrigatório."
++        if not validar_cpf(cpf):
++            return "CPF inválido. Verifique o formato e os dígitos verificadores."
++    else:
++        cnpj = dados.get("cnpj", "")
++        if not cnpj.strip():
++            return "CNPJ é obrigatório."
++        if not validar_cnpj(cnpj):
++            return "CNPJ inválido. Verifique o formato e os dígitos verificadores."
++
+     if not telefone.strip():
+         return "Telefone é obrigatório."
+     if not validar_telefone(telefone):
+diff --git a/app/templates/clientes.html b/app/templates/clientes.html
+index 57dbd2e..9e5f7e2 100644
+--- a/app/templates/clientes.html
++++ b/app/templates/clientes.html
+@@ -3,15 +3,35 @@
+ {% block breadcrumb %}<span>Clientes</span>{% endblock %}
+ 
+ {% block content %}
+-<!-- Inputmask para máscaras de CPF e telefone -->
++<!-- Inputmask para máscaras de CPF, CNPJ e telefone -->
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/inputmask.min.js"></script>
++<style>
++  /* Página de clientes: tabela ocupa a viewport inteira (largura e altura) */
++  .clientes-full {
++    width: 100vw;
++    position: relative;
++    left: 50%;
++    transform: translateX(-50%);
++    box-sizing: border-box;
++  }
++  .clientes-full .card {
++    display: flex;
++    flex-direction: column;
++    height: calc(100vh - 104px);
++  }
++  .clientes-full .card-header { flex: 0 0 auto; }
++  .clientes-full .tabela-wrap { flex: 1 1 auto; overflow-y: auto; }
++  .clientes-full thead th { position: sticky; top: 0; z-index: 1; }
++  .clientes-full .col-obs { white-space: normal; word-break: break-word; min-width: 260px; }
++</style>
++<div class="clientes-full">
+ <div class="card">
+   <div class="card-header">
+     <h2>{{ icon('users') }} Clientes cadastrados</h2>
+     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+       <div class="search-box">
+         {{ icon('find','icon icon-sm') }}
+-        <input type="text" id="busca" placeholder="Buscar por nome, CPF..." oninput="carregar()"
++        <input type="text" id="busca" placeholder="Buscar por nome, CPF ou CNPJ..." oninput="carregar()"
+           style="margin-left:4px;">
+       </div>
+       <div class="menu-acoes">
+@@ -30,8 +50,8 @@
+     <table>
+       <thead>
+         <tr>
+-          <th>Nome</th>
+-          <th>CPF</th>
++          <th>Nome / Razão Social</th>
++          <th>CPF / CNPJ</th>
+           <th>Telefone</th>
+           <th>Email</th>
+           <th>Obs.</th>
+@@ -42,6 +62,7 @@
+     </table>
+   </div>
+ </div>
++</div>
+ 
+ <!-- Modal cliente -->
+ <div class="modal-overlay" id="modal">
+@@ -57,13 +78,25 @@
+         icon('folder','icon icon-sm') }} Documentos</button>
+     </div>
+     <div class="modal-body" id="painel-tab-dados">
+-      <div class="field"><label>Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
++      <div class="field">
++        <label>Tipo de cliente *</label>
++        <select id="f-tipo-pessoa" onchange="alternarTipoPessoa()">
++          <option value="PF">Pessoa Física</option>
++          <option value="PJ">Pessoa Jurídica</option>
++        </select>
++      </div>
++      <div class="field"><label id="lbl-nome">Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+       <div class="row2">
+-        <div class="field">
++        <div class="field" id="grupo-cpf">
+           <label>CPF *</label>
+           <input id="f-cpf" placeholder="000.000.000-00" data-inputmask="'mask': '999.999.999-99'">
+           <span id="erro-cpf" style="color:var(--vermelho);font-size:12px;display:none;">CPF inválido.</span>
+         </div>
++        <div class="field" id="grupo-cnpj" style="display:none;">
++          <label>CNPJ *</label>
++          <input id="f-cnpj" placeholder="00.000.000/0000-00" data-inputmask="'mask': '99.999.999/9999-99'">
++          <span id="erro-cnpj" style="color:var(--vermelho);font-size:12px;display:none;">CNPJ inválido.</span>
++        </div>
+         <div class="field">
+           <label>Telefone *</label>
+           <input id="f-tel" placeholder="(00) 00000-0000" data-inputmask="'mask': ['(99) 9999-9999','(99) 99999-9999']">
+@@ -168,10 +201,23 @@
+   function iniciarMascaras() {
+     if (typeof Inputmask === 'undefined') return;
+     Inputmask({ mask: '999.999.999-99' }).mask(document.getElementById('f-cpf'));
++    Inputmask({ mask: '99.999.999/9999-99' }).mask(document.getElementById('f-cnpj'));
+     Inputmask({ mask: ['(99) 9999-9999', '(99) 99999-9999'], keepStatic: false })
+       .mask(document.getElementById('f-tel'));
+   }
+ 
++  // Alterna os campos do modal entre Pessoa Física e Pessoa Jurídica
++  function alternarTipoPessoa() {
++    const tipo = document.getElementById('f-tipo-pessoa').value;
++    const ehPJ = tipo === 'PJ';
++    document.getElementById('grupo-cpf').style.display = ehPJ ? 'none' : '';
++    document.getElementById('grupo-cnpj').style.display = ehPJ ? '' : 'none';
++    document.getElementById('lbl-nome').textContent = ehPJ ? 'Razão Social *' : 'Nome *';
++    document.getElementById('f-nome').placeholder = ehPJ ? 'Razão social da empresa' : 'Nome completo';
++    mostrarErro('erro-cpf', '', false);
++    mostrarErro('erro-cnpj', '', false);
++  }
++
+   // Valida CPF matematicamente no frontend (espelho do backend)
+   function validarCpfFrontend(cpf) {
+     const d = cpf.replace(/\D/g, '');
+@@ -185,6 +231,21 @@
+     return parseInt(d[9]) === calc(10) && parseInt(d[10]) === calc(11);
+   }
+ 
++  // Valida CNPJ matematicamente no frontend (espelho do backend)
++  function validarCnpjFrontend(cnpj) {
++    const d = cnpj.replace(/\D/g, '');
++    if (d.length !== 14 || /^(.)\1+$/.test(d)) return false;
++    const calc = (pesos) => {
++      let s = 0;
++      for (let i = 0; i < pesos.length; i++) s += parseInt(d[i]) * pesos[i];
++      const r = s % 11;
++      return r < 2 ? 0 : 11 - r;
++    };
++    const d1 = calc([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
++    const d2 = calc([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
++    return parseInt(d[12]) === d1 && parseInt(d[13]) === d2;
++  }
++
+   function validarEmailFrontend(email) {
+     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+   }
+@@ -234,11 +295,11 @@
+     }
+     tbody.innerHTML = dados.map(c => `
+     <tr>
+-      <td><strong>${escapeHtml(c.nome)}</strong></td>
+-      <td>${escapeHtml(c.cpf) || '—'}</td>
++      <td><strong>${escapeHtml(c.nome)}</strong>${c.tipo_pessoa === 'PJ' ? ' <span class="badge badge-inativo">PJ</span>' : ''}</td>
++      <td>${c.tipo_pessoa === 'PJ' ? (escapeHtml(formatarCnpjExibicao(c.cnpj)) || '—') : (escapeHtml(formatarCpfExibicao(c.cpf)) || '—')}</td>
+       <td>${escapeHtml(c.telefone) || '—'}</td>
+       <td>${escapeHtml(c.email) || '—'}</td>
+-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
++      <td class="col-obs" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
+       <td>
+         <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
+           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
+@@ -253,6 +314,14 @@
+   `).join('');
+   }
+ 
++  function formatarCpfExibicao(cpf) {
++    return cpf ? cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
++  }
++
++  function formatarCnpjExibicao(cnpj) {
++    return cnpj ? cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : '';
++  }
++
+   function mudarTabModal(tab) {
+     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
+     document.querySelector(`[data-tab="${tab}"]`).classList.add('ativa');
+@@ -263,8 +332,10 @@
+   function abrirModal() {
+     editId = null;
+     document.getElementById('modal-titulo').textContent = 'Novo cliente';
+-    ['f-nome', 'f-cpf', 'f-tel', 'f-email', 'f-obs'].forEach(id => document.getElementById(id).value = '');
+-    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
++    ['f-nome', 'f-cpf', 'f-cnpj', 'f-tel', 'f-email', 'f-obs'].forEach(id => document.getElementById(id).value = '');
++    document.getElementById('f-tipo-pessoa').value = 'PF';
++    alternarTipoPessoa();
++    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+     document.getElementById('tab-doc-btn').style.display = 'none';
+     mudarTabModal('dados');
+     document.getElementById('modal').classList.add('open');
+@@ -274,13 +345,16 @@
+   async function editar(c) {
+     editId = c.id;
+     document.getElementById('modal-titulo').textContent = 'Editar cliente';
++    document.getElementById('f-tipo-pessoa').value = c.tipo_pessoa || 'PF';
++    alternarTipoPessoa();
+     document.getElementById('f-nome').value = c.nome || '';
+-    // Exibe CPF e telefone formatados na edição
+-    document.getElementById('f-cpf').value = c.cpf ? c.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
++    // Exibe CPF/CNPJ e telefone formatados na edição
++    document.getElementById('f-cpf').value = formatarCpfExibicao(c.cpf);
++    document.getElementById('f-cnpj').value = formatarCnpjExibicao(c.cnpj);
+     document.getElementById('f-tel').value = c.telefone ? formatarTelExibicao(c.telefone) : '';
+     document.getElementById('f-email').value = c.email || '';
+     document.getElementById('f-obs').value = c.observacao || '';
+-    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
++    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+     document.getElementById('tab-doc-btn').style.display = '';
+     docClienteId = c.id;
+     await carregarDocumentos();
+@@ -299,19 +373,29 @@
+   function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+ 
+   async function salvar() {
++    const tipoPessoa = document.getElementById('f-tipo-pessoa').value;
++    const ehPJ = tipoPessoa === 'PJ';
+     const nome = document.getElementById('f-nome').value.trim();
+     const cpf = document.getElementById('f-cpf').value.trim();
++    const cnpj = document.getElementById('f-cnpj').value.trim();
+     const tel = document.getElementById('f-tel').value.trim();
+     const email = document.getElementById('f-email').value.trim();
+ 
+     // Limpa erros anteriores
+-    ['erro-cpf', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
++    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+ 
+     let invalido = false;
+-    if (!nome) { toast('Nome é obrigatório.', 'err'); return; }
+-    if (!validarCpfFrontend(cpf)) {
+-      mostrarErro('erro-cpf', 'CPF inválido.', true);
+-      invalido = true;
++    if (!nome) { toast(ehPJ ? 'Razão social é obrigatória.' : 'Nome é obrigatório.', 'err'); return; }
++    if (ehPJ) {
++      if (!validarCnpjFrontend(cnpj)) {
++        mostrarErro('erro-cnpj', 'CNPJ inválido.', true);
++        invalido = true;
++      }
++    } else {
++      if (!validarCpfFrontend(cpf)) {
++        mostrarErro('erro-cpf', 'CPF inválido.', true);
++        invalido = true;
++      }
+     }
+     if (tel.replace(/\D/g, '').length < 10) {
+       mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
+@@ -323,7 +407,11 @@
+     }
+     if (invalido) return;
+ 
+-    const payload = { nome, cpf, telefone: tel, email, observacao: document.getElementById('f-obs').value.trim() };
++    const payload = {
++      nome, tipo_pessoa: tipoPessoa,
++      cpf: ehPJ ? '' : cpf, cnpj: ehPJ ? cnpj : '',
++      telefone: tel, email, observacao: document.getElementById('f-obs').value.trim()
++    };
+     const url = editId ? `/api/clientes/${editId}` : '/api/clientes';
+     const method = editId ? 'PUT' : 'POST';
+     const data = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
+index d0e453b..661fead 100644
+--- a/app/templates/dashboard.html
++++ b/app/templates/dashboard.html
+@@ -315,7 +315,7 @@
+     const tbody = document.getElementById('tbody-clientes-dash');
+     tbody.innerHTML = dados.length ? dados.map(c => `<tr>
+       <td><strong>${escapeHtml(c.nome)}</strong></td>
+-      <td>${escapeHtml(c.cpf) || '—'}</td>
++      <td>${c.tipo_pessoa === 'PJ' ? (escapeHtml(c.cnpj) || '—') : (escapeHtml(c.cpf) || '—')}</td>
+       <td>${escapeHtml(c.telefone) || '—'}</td>
+       <td>${escapeHtml(c.email) || '—'}</td>
+       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
+diff --git a/launcher.py b/launcher.py
+index b8f92de..f738599 100644
+--- a/launcher.py
++++ b/launcher.py
+@@ -99,7 +99,7 @@ def main() -> None:
+         _abrir_navegador()
+         return
+ 
+-    from app import create_app, db
++    from app import create_app, db, aplicar_migracoes_leves
+     from app.services.configuracao_service import ConfiguracaoService
+     from app.services.auth_service import AuthService
+ 
+@@ -107,6 +107,7 @@ def main() -> None:
+ 
+     with app.app_context():
+         db.create_all()
++        aplicar_migracoes_leves(app)
+         ConfiguracaoService(db.session).seed_defaults()
+         AuthService(db.session).seed_admin()
+ 
+diff --git a/migrations/add_tipo_pessoa_cliente.py b/migrations/add_tipo_pessoa_cliente.py
+new file mode 100644
+index 0000000..b28c58d
+--- /dev/null
++++ b/migrations/add_tipo_pessoa_cliente.py
+@@ -0,0 +1,44 @@
++"""Adiciona colunas tipo_pessoa e cnpj na tabela clientes
++
++Revision ID: c3d4e5f6a7b8
++Revises:
++Create Date: 2026-08-03
++
++Todos os clientes já cadastrados são marcados automaticamente como
++tipo_pessoa='PF' (já que só era possível cadastrar CPF até então).
++
++Aplique com: flask db upgrade
++Se não usar Flask-Migrate, execute o SQL abaixo diretamente:
++
++    ALTER TABLE clientes ADD COLUMN tipo_pessoa VARCHAR(2) NOT NULL DEFAULT 'PF';
++    ALTER TABLE clientes ADD COLUMN cnpj VARCHAR(20);
++    CREATE UNIQUE INDEX ix_clientes_cnpj ON clientes (cnpj);
++"""
++from alembic import op
++import sqlalchemy as sa
++
++revision = 'c3d4e5f6a7b8'
++down_revision = None
++branch_labels = None
++depends_on = None
++
++
++def upgrade():
++    with op.batch_alter_table('clientes', schema=None) as batch_op:
++        batch_op.add_column(
++            sa.Column(
++                'tipo_pessoa',
++                sa.String(length=2),
++                nullable=False,
++                server_default='PF',
++            )
++        )
++        batch_op.add_column(sa.Column('cnpj', sa.String(length=20), nullable=True))
++        batch_op.create_unique_constraint('uq_clientes_cnpj', ['cnpj'])
++
++
++def downgrade():
++    with op.batch_alter_table('clientes', schema=None) as batch_op:
++        batch_op.drop_constraint('uq_clientes_cnpj', type_='unique')
++        batch_op.drop_column('cnpj')
++        batch_op.drop_column('tipo_pessoa')
+diff --git a/run.py b/run.py
+index 4c0706b..a460643 100644
+--- a/run.py
++++ b/run.py
+@@ -3,7 +3,7 @@ Ponto de entrada do Sistema Despachante.
+ Uso: python run.py
+ """
+ import os
+-from app import create_app, db
++from app import create_app, db, aplicar_migracoes_leves
+ from app.models import (
+     Cliente, Veiculo, Ipva, Licenciamento,
+     Multa, Documento, Configuracao, TemplateRelatorio,
+@@ -29,6 +29,7 @@ def init_db():
+     """Cria tabelas, aplica valores padrão de configuração e cria admin padrão."""
+     with app.app_context():
+         db.create_all()
++        aplicar_migracoes_leves(app)
+         ConfiguracaoService(db.session).seed_defaults()
+         AuthService(db.session).seed_admin()
+ 

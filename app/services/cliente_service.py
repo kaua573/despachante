@@ -25,6 +25,7 @@ class ClienteService:
             q = q.filter(
                 Cliente.nome.ilike(termo)
                 | Cliente.cpf.ilike(termo)
+                | Cliente.cnpj.ilike(termo)
                 | Cliente.telefone.ilike(termo)
             )
         return q.order_by(Cliente.nome).all()
@@ -40,13 +41,29 @@ class ClienteService:
             q = q.filter(Cliente.id != ignorar_id)
         return self._session.query(q.exists()).scalar()
 
+    def cnpj_em_uso(self, cnpj: str, ignorar_id: Optional[int] = None) -> bool:
+        if not cnpj:
+            return False
+        q = self._session.query(Cliente.id).filter(Cliente.cnpj == cnpj)
+        if ignorar_id:
+            q = q.filter(Cliente.id != ignorar_id)
+        return self._session.query(q.exists()).scalar()
+
     def criar(self, dados: dict) -> tuple[Optional[Cliente], str]:
-        cpf = dados.get("cpf", "")
-        if self.cpf_em_uso(cpf):
+        tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
+        # Guarda None (não string vazia) para o campo que não se aplica,
+        # senão dois clientes PJ sem CPF colidiriam na constraint UNIQUE.
+        cpf = dados.get("cpf") or None if tipo_pessoa == "PF" else None
+        cnpj = dados.get("cnpj") or None if tipo_pessoa == "PJ" else None
+        if tipo_pessoa == "PF" and self.cpf_em_uso(cpf):
             return None, "Já existe um cliente cadastrado com esse CPF."
+        if tipo_pessoa == "PJ" and self.cnpj_em_uso(cnpj):
+            return None, "Já existe um cliente cadastrado com esse CNPJ."
         cliente = Cliente(
             nome=dados["nome"],
+            tipo_pessoa=tipo_pessoa,
             cpf=cpf,
+            cnpj=cnpj,
             telefone=dados.get("telefone", ""),
             email=dados.get("email", ""),
             observacao=dados.get("observacao", ""),
@@ -56,18 +73,26 @@ class ClienteService:
             self._session.commit()
         except IntegrityError:
             self._session.rollback()
-            return None, "Já existe um cliente cadastrado com esse CPF."
+            msg = "Já existe um cliente cadastrado com esse CNPJ." if tipo_pessoa == "PJ" \
+                else "Já existe um cliente cadastrado com esse CPF."
+            return None, msg
         return cliente, ""
 
     def atualizar(self, cliente_id: int, dados: dict) -> tuple[bool, str]:
         cliente = self.obter(cliente_id)
         if not cliente:
             return False, "Cliente não encontrado."
-        cpf = dados.get("cpf", "")
-        if self.cpf_em_uso(cpf, ignorar_id=cliente_id):
+        tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
+        cpf = dados.get("cpf") or None if tipo_pessoa == "PF" else None
+        cnpj = dados.get("cnpj") or None if tipo_pessoa == "PJ" else None
+        if tipo_pessoa == "PF" and self.cpf_em_uso(cpf, ignorar_id=cliente_id):
             return False, "Já existe um cliente cadastrado com esse CPF."
+        if tipo_pessoa == "PJ" and self.cnpj_em_uso(cnpj, ignorar_id=cliente_id):
+            return False, "Já existe um cliente cadastrado com esse CNPJ."
         cliente.nome = dados["nome"]
+        cliente.tipo_pessoa = tipo_pessoa
         cliente.cpf = cpf
+        cliente.cnpj = cnpj
         cliente.telefone = dados.get("telefone", "")
         cliente.email = dados.get("email", "")
         cliente.observacao = dados.get("observacao", "")
@@ -75,7 +100,9 @@ class ClienteService:
             self._session.commit()
         except IntegrityError:
             self._session.rollback()
-            return False, "Já existe um cliente cadastrado com esse CPF."
+            msg = "Já existe um cliente cadastrado com esse CNPJ." if tipo_pessoa == "PJ" \
+                else "Já existe um cliente cadastrado com esse CPF."
+            return False, msg
         return True, ""
 
     def excluir(self, cliente_id: int) -> tuple[bool, str]:

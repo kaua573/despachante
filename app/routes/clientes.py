@@ -6,7 +6,7 @@ from app.services.cliente_service import ClienteService
 from app.services.log_service import LogService
 from app.services.pdf_cliente_service import PdfClienteService
 from app.services.validacao_service import (
-    validar_campos_cliente, normalizar_cpf, normalizar_telefone,
+    validar_campos_cliente, normalizar_cpf, normalizar_cnpj, normalizar_telefone,
 )
 
 bp = Blueprint("clientes", __name__)
@@ -240,5 +240,7 @@ def importar_clientes():
 def _normalizar_cliente(dados: dict) -> None:
     if dados.get("cpf"):
         dados["cpf"] = normalizar_cpf(dados["cpf"])
+    if dados.get("cnpj"):
+        dados["cnpj"] = normalizar_cnpj(dados["cnpj"])
     if dados.get("telefone"):
         dados["telefone"] = normalizar_telefone(dados["telefone"])

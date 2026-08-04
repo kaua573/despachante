@@ -99,7 +99,7 @@ def main() -> None:
         _abrir_navegador()
         return
 
-    from app import create_app, db
+    from app import create_app, db, aplicar_migracoes_leves
     from app.services.configuracao_service import ConfiguracaoService
     from app.services.auth_service import AuthService
 
@@ -107,6 +107,7 @@ def main() -> None:
 
     with app.app_context():
         db.create_all()
+        aplicar_migracoes_leves(app)
         ConfiguracaoService(db.session).seed_defaults()
         AuthService(db.session).seed_admin()
 

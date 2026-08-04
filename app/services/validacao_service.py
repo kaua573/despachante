@@ -45,6 +45,49 @@ def formatar_cpf(cpf: str) -> str:
     return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
 
 
+# ── CNPJ ──────────────────────────────────────────────────────────────────────
+
+def validar_cnpj(cnpj: str) -> bool:
+    """
+    Valida CNPJ verificando formato e dígitos verificadores.
+    Aceita entrada com ou sem máscara (00.000.000/0000-00 ou 00000000000000).
+    """
+    apenas_digitos = re.sub(r"\D", "", cnpj or "")
+
+    if len(apenas_digitos) != 14:
+        return False
+
+    # Rejeita sequências trivialmente inválidas (11.111.111/1111-11 etc.)
+    if len(set(apenas_digitos)) == 1:
+        return False
+
+    def calcular_digito(digitos: str, pesos: list) -> int:
+        soma = sum(int(d) * p for d, p in zip(digitos, pesos))
+        resto = soma % 11
+        return 0 if resto < 2 else 11 - resto
+
+    pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+
+    d1 = calcular_digito(apenas_digitos[:12], pesos1)
+    d2 = calcular_digito(apenas_digitos[:13], pesos2)
+
+    return apenas_digitos[12] == str(d1) and apenas_digitos[13] == str(d2)
+
+
+def normalizar_cnpj(cnpj: str) -> str:
+    """Remove máscara — armazena só dígitos."""
+    return re.sub(r"\D", "", cnpj or "")
+
+
+def formatar_cnpj(cnpj: str) -> str:
+    """Formata 14 dígitos para exibição: 00.000.000/0000-00."""
+    d = re.sub(r"\D", "", cnpj or "")
+    if len(d) != 14:
+        return cnpj
+    return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+
+
 # ── Telefone ──────────────────────────────────────────────────────────────────
 
 def validar_telefone(telefone: str) -> bool:
@@ -108,18 +151,32 @@ def normalizar_placa(placa: str) -> str:
 def validar_campos_cliente(dados: dict) -> str:
     """
     Valida todos os campos obrigatórios de um cliente.
+    Ramifica por tipo_pessoa ('PF' exige CPF, 'PJ' exige CNPJ).
     Retorna mensagem de erro ou string vazia se tudo estiver correto.
     """
-    cpf = dados.get("cpf", "")
+    tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
+    if tipo_pessoa not in ("PF", "PJ"):
+        return "Tipo de pessoa inválido."
+
     telefone = dados.get("telefone", "")
     email = dados.get("email", "")
 
     if not dados.get("nome", "").strip():
-        return "Nome é obrigatório."
-    if not cpf.strip():
-        return "CPF é obrigatório."
-    if not validar_cpf(cpf):
-        return "CPF inválido. Verifique o formato e os dígitos verificadores."
+        return "Razão social é obrigatória." if tipo_pessoa == "PJ" else "Nome é obrigatório."
+
+    if tipo_pessoa == "PF":
+        cpf = dados.get("cpf", "")
+        if not cpf.strip():
+            return "CPF é obrigatório."
+        if not validar_cpf(cpf):
+            return "CPF inválido. Verifique o formato e os dígitos verificadores."
+    else:
+        cnpj = dados.get("cnpj", "")
+        if not cnpj.strip():
+            return "CNPJ é obrigatório."
+        if not validar_cnpj(cnpj):
+            return "CNPJ inválido. Verifique o formato e os dígitos verificadores."
+
     if not telefone.strip():
         return "Telefone é obrigatório."
     if not validar_telefone(telefone):

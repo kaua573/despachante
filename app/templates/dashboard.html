@@ -315,7 +315,7 @@
     const tbody = document.getElementById('tbody-clientes-dash');
     tbody.innerHTML = dados.length ? dados.map(c => `<tr>
       <td><strong>${escapeHtml(c.nome)}</strong></td>
-      <td>${escapeHtml(c.cpf) || '—'}</td>
+      <td>${c.tipo_pessoa === 'PJ' ? (escapeHtml(c.cnpj) || '—') : (escapeHtml(c.cpf) || '—')}</td>
       <td>${escapeHtml(c.telefone) || '—'}</td>
       <td>${escapeHtml(c.email) || '—'}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>

@@ -1,0 +1,79 @@
+diff --git a/app/services/dashboard_service.py b/app/services/dashboard_service.py
+index 5817668..31edda2 100644
+--- a/app/services/dashboard_service.py
++++ b/app/services/dashboard_service.py
+@@ -26,21 +26,34 @@ class DashboardService:
+         total_veiculos = self._session.query(Veiculo).filter_by(situacao="ativo").count()
+         ipva_vencidos = (
+             self._session.query(Ipva)
++            .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+             .filter(
++                Veiculo.situacao == "ativo",
+                 Ipva.tipo_pagamento == "avista",
+                 Ipva.pago == False, Ipva.vencimento != None, Ipva.vencimento < hoje,
+             )
+             .count()
+             + self._session.query(IpvaParcela)
+-            .filter(IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
++            .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
++            .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
++            .filter(Veiculo.situacao == "ativo", IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
+             .count()
+         )
+         lic_vencidos = (
+             self._session.query(Licenciamento)
+-            .filter(Licenciamento.pago == False, Licenciamento.vencimento != None, Licenciamento.vencimento < hoje)
++            .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
++            .filter(
++                Veiculo.situacao == "ativo",
++                Licenciamento.pago == False, Licenciamento.vencimento != None, Licenciamento.vencimento < hoje,
++            )
++            .count()
++        )
++        multas_pendentes = (
++            self._session.query(Multa)
++            .join(Veiculo, Multa.veiculo_id == Veiculo.id)
++            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
+             .count()
+         )
+-        multas_pendentes = self._session.query(Multa).filter_by(pago=False).count()
+ 
+         ipva_vencendo = self._buscar_vencimentos(Ipva, limite) + self._buscar_parcelas_vencendo(limite)
+         ipva_vencendo.sort(key=lambda d: d["vencimento"])
+@@ -59,12 +72,18 @@ class DashboardService:
+         }
+ 
+     def _buscar_vencimentos(self, modelo, limite: str) -> list[dict]:
+-        """Busca registros não pagos com vencimento até `limite`, com dados do veículo e cliente."""
++        """
++        Busca registros não pagos com vencimento até `limite`, com dados do
++        veículo e cliente. Só considera veículos com situacao='ativo' — um
++        veículo desativado ou vendido não deve mais gerar notificação de
++        vencimento, embora seu histórico continue disponível na tela dele.
++        """
+         rows = (
+             self._session.query(modelo, Veiculo, Cliente)
+             .join(Veiculo, modelo.veiculo_id == Veiculo.id)
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+             .filter(
++                Veiculo.situacao == "ativo",
+                 modelo.pago == False,
+                 modelo.vencimento != None,
+                 modelo.vencimento <= limite,
+@@ -86,13 +105,14 @@ class DashboardService:
+ 
+     def _buscar_parcelas_vencendo(self, limite: str) -> list[dict]:
+         """Parcelas de IPVA não quitadas com vencimento até `limite` (o vencimento do
+-        Ipva pai fica nulo quando parcelado, então elas precisam de busca própria)."""
++        Ipva pai fica nulo quando parcelado, então elas precisam de busca própria).
++        Mesma regra: só veículo com situacao='ativo' gera notificação."""
+         rows = (
+             self._session.query(IpvaParcela, Ipva, Veiculo, Cliente)
+             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
+             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+-            .filter(IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
++            .filter(Veiculo.situacao == "ativo", IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
+             .order_by(IpvaParcela.vencimento.asc())
+             .all()
+         )
