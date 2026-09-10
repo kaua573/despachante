@@ -85,6 +85,20 @@ def _registrar_helpers_jinja(app: Flask) -> None:
 
     app.jinja_env.filters["formatar_placa"] = formatar_placa_exibicao
 
+    def fromjson(texto):
+        """Usado na tela de log para tentar interpretar `detalhe` como JSON
+        estruturado (antes/depois). Se não for JSON válido, retorna None e o
+        template cai de volta para exibir o texto puro."""
+        import json
+        if not texto:
+            return None
+        try:
+            return json.loads(texto)
+        except (TypeError, ValueError):
+            return None
+
+    app.jinja_env.filters["fromjson"] = fromjson
+
     @app.context_processor
     def inject_tema():
         from app.services.configuracao_service import ConfiguracaoService
@@ -149,6 +163,7 @@ def _registrar_blueprints(app: Flask) -> None:
     from app.routes.main import bp as main_bp
     from app.routes.clientes import bp as clientes_bp
     from app.routes.veiculos import bp as veiculos_bp
+    from app.routes.veiculos_geral import bp as veiculos_geral_bp
     from app.routes.painel import bp as painel_bp
     from app.routes.configuracoes import bp as config_bp
     from app.routes.relatorios import bp as relatorios_bp
@@ -162,6 +177,7 @@ def _registrar_blueprints(app: Flask) -> None:
     app.register_blueprint(main_bp)
     app.register_blueprint(clientes_bp)
     app.register_blueprint(veiculos_bp)
+    app.register_blueprint(veiculos_geral_bp)
     app.register_blueprint(painel_bp)
     app.register_blueprint(config_bp)
     app.register_blueprint(relatorios_bp)

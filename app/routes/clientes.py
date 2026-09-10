@@ -61,7 +61,7 @@ def api_criar_cliente():
     cliente, erro = _svc().criar(dados)
     if not cliente:
         return jsonify({"ok": False, "erro": erro}), 400
-    _log().registrar("criar_cliente", "cliente", cliente.id, {"nome": cliente.nome})
+    _log().registrar_alteracao("criar_cliente", "cliente", cliente.id, None, cliente.to_dict())
     return jsonify({"ok": True})
 
 
@@ -74,10 +74,13 @@ def api_editar_cliente(cid):
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
     _normalizar_cliente(dados)
+    antes = _svc().obter(cid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().atualizar(cid, dados)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("editar_cliente", "cliente", cid, {"nome": dados.get("nome")})
+    depois = _svc().obter(cid).to_dict()
+    _log().registrar_alteracao("editar_cliente", "cliente", cid, antes, depois)
     return jsonify({"ok": True})
 
 
@@ -85,10 +88,12 @@ def api_editar_cliente(cid):
 @login_required
 @requer_permissao("excluir_clientes")
 def api_deletar_cliente(cid):
+    antes = _svc().obter(cid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().excluir(cid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("excluir_cliente", "cliente", cid)
+    _log().registrar_alteracao("excluir_cliente", "cliente", cid, antes, None)
     return jsonify({"ok": True})
 
 

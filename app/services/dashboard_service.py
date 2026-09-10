@@ -71,6 +71,63 @@ class DashboardService:
             "licenciamento": lic_vencendo,
         }
 
+    def resumo_geral(self) -> dict:
+        """
+        Dados da segunda página do dashboard ("Visão Geral"): contagem de
+        veículos por espécie, quantos estão sem licenciamento lançado no ano
+        corrente, e os clientes com mais pendências em aberto (top 5).
+        """
+        from app.services.veiculo_geral_service import VeiculoGeralService
+
+        ano = date.today().year
+        geral = VeiculoGeralService(self._session)
+        por_especie = geral.resumo_por_especie()
+        sem_licenciamento = geral.sem_licenciamento_ano(ano)
+
+        # Conta pendências (IPVA à vista + licenciamento não pagos, e multas não pagas) por cliente.
+        from sqlalchemy import func
+
+        contagem_ipva = (
+            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Ipva.id).label("qtd"))
+            .join(Ipva, Ipva.veiculo_id == Veiculo.id)
+            .filter(Veiculo.situacao == "ativo", Ipva.tipo_pagamento == "avista", Ipva.pago == False)
+            .group_by(Veiculo.cliente_id)
+            .subquery()
+        )
+        contagem_lic = (
+            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Licenciamento.id).label("qtd"))
+            .join(Licenciamento, Licenciamento.veiculo_id == Veiculo.id)
+            .filter(Veiculo.situacao == "ativo", Licenciamento.pago == False)
+            .group_by(Veiculo.cliente_id)
+            .subquery()
+        )
+        contagem_multa = (
+            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Multa.id).label("qtd"))
+            .join(Multa, Multa.veiculo_id == Veiculo.id)
+            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
+            .group_by(Veiculo.cliente_id)
+            .subquery()
+        )
+
+        clientes = self._session.query(Cliente.id, Cliente.nome).all()
+        mapa_ipva = dict(self._session.query(contagem_ipva.c.cid, contagem_ipva.c.qtd).all())
+        mapa_lic = dict(self._session.query(contagem_lic.c.cid, contagem_lic.c.qtd).all())
+        mapa_multa = dict(self._session.query(contagem_multa.c.cid, contagem_multa.c.qtd).all())
+
+        ranking = []
+        for cid, nome in clientes:
+            total = mapa_ipva.get(cid, 0) + mapa_lic.get(cid, 0) + mapa_multa.get(cid, 0)
+            if total:
+                ranking.append({"cliente_id": cid, "cliente_nome": nome, "total_pendencias": total})
+        ranking.sort(key=lambda r: r["total_pendencias"], reverse=True)
+
+        return {
+            "ano": ano,
+            "por_especie": por_especie,
+            "sem_licenciamento_total": len(sem_licenciamento),
+            "top_pendencias": ranking[:5],
+        }
+
     def _buscar_vencimentos(self, modelo, limite: str) -> list[dict]:
         """
         Busca registros não pagos com vencimento até `limite`, com dados do

@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}Vencimentos por Final de Placa{% endblock %}
+{% block breadcrumb %}<a href="/veiculos">Veículos</a><span class="sep">›</span><span>Vencimentos por final de placa</span>{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+  <a href="/veiculos" class="btn btn-outline btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+  <a href="/veiculos/vencimentos-placa" class="btn btn-primary btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+</div>
+
+<!-- ── Configuração das regras ─────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <h2>{{ icon('config') }} Regras de vencimento (por final de placa + espécie)</h2>
+    {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
+      <button class="btn btn-primary btn-sm" onclick="abrirModalRegra()">+ Nova regra</button>
+    {% endif %}
+  </div>
+  <p style="padding:12px 20px 0;color:var(--sub);font-size:13px;">
+    Defina em que mês (e opcionalmente dia) costuma vencer o licenciamento de cada combinação de final de placa e
+    espécie de veículo. Essas regras alimentam a previsão abaixo — elas não alteram nenhum veículo por conta própria.
+  </p>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr><th>Final da placa</th><th>Espécie</th><th>Vencimento padrão</th><th>Ativa</th><th>Ação</th></tr></thead>
+      <tbody id="tbody-regras"><tr><td colspan="5"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Previsão ─────────────────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('calendar') }} Previsão de vencimentos</h2>
+    <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
+  </div>
+
+  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
+    <div class="field" style="min-width:110px;">
+      <label>Ano</label>
+      <input type="number" id="p-ano" value="{{ ano_atual }}" style="width:100px;">
+    </div>
+    <div class="field" style="min-width:200px;">
+      <label>Cliente</label>
+      <select id="p-cliente"><option value="">Todos</option></select>
+    </div>
+    <div class="field" style="min-width:140px;">
+      <label>Espécie</label>
+      <select id="p-especie">
+        <option value="">Todas</option>
+        <option value="passeio">Passeio</option>
+        <option value="carga">Carga</option>
+        <option value="reboque">Reboque</option>
+      </select>
+    </div>
+    <div class="field" style="min-width:130px;">
+      <label>Final da placa</label>
+      <select id="p-final">
+        <option value="">Todos</option>
+        {% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+      </select>
+    </div>
+    <label class="check-item" style="align-self:flex-end;padding-bottom:8px;">
+      <input type="checkbox" id="p-apenas-sem-lic"> Só sem licenciamento lançado
+    </label>
+    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarPrevisao()">Filtrar</button>
+  </div>
+
+  {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
+  <div style="padding:12px 20px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--cinza2);">
+    <label class="check-item"><input type="checkbox" id="chk-todos" onchange="alternarTodos(this)"> Selecionar todos</label>
+    <button class="btn btn-outline btn-sm" onclick="abrirResumoLote()">Lançar licenciamento dos selecionados</button>
+    <span id="qtd-selecionados" style="font-size:12px;color:var(--sub);"></span>
+  </div>
+  {% endif %}
+
+  <div class="tabela-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}<th></th>{% endif %}
+          <th>Placa</th><th>Final</th><th>Cliente</th><th>Espécie</th>
+          <th>Vencimento previsto</th><th>Licenciamento do ano</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-previsao"><tr><td colspan="7"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal de regra -->
+<div class="modal-overlay" id="modal-regra">
+  <div class="modal">
+    <div class="modal-header"><h3 id="modal-regra-titulo">Nova regra</h3></div>
+    <div class="modal-body">
+      <input type="hidden" id="r-id">
+      <div class="field">
+        <label>Final da placa</label>
+        <select id="r-final">{% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
+      </div>
+      <div class="field">
+        <label>Espécie</label>
+        <select id="r-especie">
+          <option value="passeio">Passeio</option>
+          <option value="carga">Carga</option>
+          <option value="reboque">Reboque</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Mês de vencimento</label>
+        <select id="r-mes">
+          {% for m, nome in [(1,'Janeiro'),(2,'Fevereiro'),(3,'Março'),(4,'Abril'),(5,'Maio'),(6,'Junho'),(7,'Julho'),(8,'Agosto'),(9,'Setembro'),(10,'Outubro'),(11,'Novembro'),(12,'Dezembro')] %}
+            <option value="{{ m }}">{{ nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Dia (opcional — vazio usa o último dia do mês)</label>
+        <input type="number" id="r-dia" min="1" max="31" placeholder="Ex.: 15">
+      </div>
+      <label class="check-item"><input type="checkbox" id="r-ativo" checked> Regra ativa</label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalRegra()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarRegra()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de confirmação do lote -->
+<div class="modal-overlay" id="modal-lote">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header"><h3>Confirmar lançamento em lote</h3></div>
+    <div class="modal-body">
+      <p style="color:var(--sub);font-size:13px;">
+        Revise a data de vencimento de cada veículo antes de confirmar — nada é salvo até você clicar em "Confirmar".
+        Veículos que já têm licenciamento lançado no ano não aparecem aqui.
+      </p>
+      <div class="tabela-wrap">
+        <table>
+          <thead><tr><th>Placa</th><th>Cliente</th><th>Vencimento</th></tr></thead>
+          <tbody id="tbody-lote"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalLote()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarLote()">Confirmar lançamento</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PODE_GERENCIAR = {{ 'true' if current_user.tem_permissao('gerenciar_regras_vencimento') else 'false' }};
+const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
+const MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+let previsaoAtual = [];
+
+// ── Regras ───────────────────────────────────────────────────────────────
+async function carregarRegras() {
+  const regras = await apiFetch('/api/regras-vencimento');
+  const tbody = document.getElementById('tbody-regras');
+  if (!regras) return;
+  if (!regras.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>Nenhuma regra configurada ainda.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = regras.map(r => `
+    <tr>
+      <td><strong>${r.final_placa}</strong></td>
+      <td>${ESPECIE_LABEL[r.especie] || r.especie}</td>
+      <td>${MESES[r.mes_vencimento]}${r.dia_vencimento ? '/' + String(r.dia_vencimento).padStart(2,'0') : ' (último dia)'}</td>
+      <td>${r.ativo ? '<span class="badge badge-ativo">Sim</span>' : '<span class="badge badge-inativo">Não</span>'}</td>
+      <td>
+        ${PODE_GERENCIAR ? `
+          <button class="btn btn-ghost btn-sm" onclick='editarRegra(${JSON.stringify(r)})'>Editar</button>
+          <button class="btn btn-ghost btn-sm" onclick="excluirRegra(${r.id})">Excluir</button>
+        ` : '—'}
+      </td>
+    </tr>`).join('');
+}
+
+function abrirModalRegra() {
+  document.getElementById('modal-regra-titulo').textContent = 'Nova regra';
+  document.getElementById('r-id').value = '';
+  document.getElementById('r-final').value = '0';
+  document.getElementById('r-especie').value = 'passeio';
+  document.getElementById('r-mes').value = '1';
+  document.getElementById('r-dia').value = '';
+  document.getElementById('r-ativo').checked = true;
+  document.getElementById('modal-regra').classList.add('open');
+}
+
+function editarRegra(r) {
+  document.getElementById('modal-regra-titulo').textContent = 'Editar regra';
+  document.getElementById('r-id').value = r.id;
+  document.getElementById('r-final').value = r.final_placa;
+  document.getElementById('r-especie').value = r.especie;
+  document.getElementById('r-mes').value = r.mes_vencimento;
+  document.getElementById('r-dia').value = r.dia_vencimento || '';
+  document.getElementById('r-ativo').checked = r.ativo;
+  document.getElementById('modal-regra').classList.add('open');
+}
+
+function fecharModalRegra() { document.getElementById('modal-regra').classList.remove('open'); }
+
+async function salvarRegra() {
+  const dados = {
+    id: document.getElementById('r-id').value || null,
+    final_placa: document.getElementById('r-final').value,
+    especie: document.getElementById('r-especie').value,
+    mes_vencimento: parseInt(document.getElementById('r-mes').value, 10),
+    dia_vencimento: document.getElementById('r-dia').value ? parseInt(document.getElementById('r-dia').value, 10) : null,
+    ativo: document.getElementById('r-ativo').checked,
+  };
+  const resp = await apiFetch('/api/regras-vencimento', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dados),
+  });
+  if (resp && resp.ok) {
+    toast('Regra salva.', 'ok');
+    fecharModalRegra();
+    carregarRegras();
+    carregarPrevisao();
+  }
+}
+
+async function excluirRegra(id) {
+  if (!confirm('Excluir esta regra?')) return;
+  const resp = await apiFetch(`/api/regras-vencimento/${id}`, {method: 'DELETE'});
+  if (resp && resp.ok) {
+    toast('Regra excluída.', 'ok');
+    carregarRegras();
+    carregarPrevisao();
+  }
+}
+
+// ── Previsão ─────────────────────────────────────────────────────────────
+async function carregarClientesOpcoesPrevisao() {
+  const lista = await apiFetch('/api/veiculos/clientes-opcoes');
+  if (!lista) return;
+  document.getElementById('p-cliente').innerHTML = '<option value="">Todos</option>' +
+    lista.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+}
+
+async function carregarPrevisao() {
+  const params = new URLSearchParams();
+  const ano = document.getElementById('p-ano').value;
+  params.set('ano', ano);
+  const cliente = document.getElementById('p-cliente').value;
+  const especie = document.getElementById('p-especie').value;
+  const final = document.getElementById('p-final').value;
+  if (cliente) params.set('cliente_id', cliente);
+  if (especie) params.set('especie', especie);
+  if (final !== '') params.set('final_placa', final);
+  if (document.getElementById('p-apenas-sem-lic').checked) params.set('apenas_sem_licenciamento', '1');
+
+  const lista = await apiFetch(`/api/regras-vencimento/previsao?${params.toString()}`);
+  if (!lista) return;
+  previsaoAtual = lista;
+  document.getElementById('total-previsao').textContent = `${lista.length} veículo(s)`;
+
+  const tbody = document.getElementById('tbody-previsao');
+  if (!lista.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>Nenhum veículo encontrado com esses filtros.</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = lista.map((v, i) => `
+    <tr>
+      ${PODE_GERENCIAR ? `<td><input type="checkbox" class="chk-veiculo" data-idx="${i}" ${v.ja_lancado_no_ano ? 'disabled' : ''}></td>` : ''}
+      <td><strong>${escapeHtml(v.placa)}</strong></td>
+      <td>${v.final_placa ?? '—'}</td>
+      <td>${escapeHtml(v.cliente_nome)}</td>
+      <td>${ESPECIE_LABEL[v.especie] || v.especie}</td>
+      <td>${v.vencimento_previsto ? fmtData(v.vencimento_previsto) : '<span style="color:var(--sub);">sem regra</span>'}</td>
+      <td>${v.ja_lancado_no_ano ? '<span class="badge badge-pago">Já lançado</span>' : '<span class="badge badge-pendente">Pendente</span>'}</td>
+    </tr>`).join('');
+  atualizarQtdSelecionados();
+}
+
+function alternarTodos(origem) {
+  document.querySelectorAll('.chk-veiculo:not(:disabled)').forEach(c => c.checked = origem.checked);
+  atualizarQtdSelecionados();
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('chk-veiculo')) atualizarQtdSelecionados();
+});
+
+function atualizarQtdSelecionados() {
+  const n = document.querySelectorAll('.chk-veiculo:checked').length;
+  const span = document.getElementById('qtd-selecionados');
+  if (span) span.textContent = n ? `${n} selecionado(s)` : '';
+}
+
+// ── Lançamento em lote ───────────────────────────────────────────────────
+function abrirResumoLote() {
+  const marcados = Array.from(document.querySelectorAll('.chk-veiculo:checked'))
+    .map(c => previsaoAtual[parseInt(c.dataset.idx, 10)])
+    .filter(v => v.vencimento_previsto); // só entra no lote quem tem data (regra definida)
+
+  if (!marcados.length) {
+    toast('Selecione ao menos um veículo com regra de vencimento definida.', 'err');
+    return;
+  }
+
+  document.getElementById('tbody-lote').innerHTML = marcados.map((v) => `
+    <tr data-vid="${v.veiculo_id}">
+      <td>${escapeHtml(v.placa)}</td>
+      <td>${escapeHtml(v.cliente_nome)}</td>
+      <td><input type="date" class="lote-data" data-vid="${v.veiculo_id}" value="${v.vencimento_previsto}"></td>
+    </tr>`).join('');
+  document.getElementById('modal-lote').classList.add('open');
+}
+
+function fecharModalLote() { document.getElementById('modal-lote').classList.remove('open'); }
+
+async function confirmarLote() {
+  const itens = Array.from(document.querySelectorAll('#tbody-lote tr')).map(tr => ({
+    veiculo_id: parseInt(tr.dataset.vid, 10),
+    vencimento: tr.querySelector('.lote-data').value,
+  }));
+  const ano = parseInt(document.getElementById('p-ano').value, 10);
+  const resp = await apiFetch('/api/regras-vencimento/lancar-lote', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({itens, ano}),
+  });
+  if (!resp || !resp.ok) return;
+
+  fecharModalLote();
+  const partes = [];
+  if (resp.criados.length) partes.push(`${resp.criados.length} lançado(s)`);
+  if (resp.pulados.length) partes.push(`${resp.pulados.length} já existia(m)`);
+  if (resp.erros.length) partes.push(`${resp.erros.length} com erro`);
+  toast(partes.join(' · ') || 'Nenhum registro criado.', resp.criados.length ? 'ok' : 'err');
+  carregarPrevisao();
+}
+
+carregarRegras();
+carregarClientesOpcoesPrevisao();
+carregarPrevisao();
+</script>
+{% endblock %}

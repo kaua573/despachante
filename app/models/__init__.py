@@ -10,10 +10,12 @@ from app.models.template_relatorio import TemplateRelatorio
 from app.models.usuario import Usuario
 from app.models.permissao_usuario import PermissaoUsuario
 from app.models.log_acao import LogAcao
+from app.models.regra_vencimento import RegraVencimento
 
 __all__ = [
     "Cliente", "Veiculo", "Ipva", "IpvaParcela",
     "Licenciamento", "Multa", "Documento",
     "Configuracao", "TemplateRelatorio",
     "Usuario", "PermissaoUsuario", "LogAcao",
+    "RegraVencimento",
 ]

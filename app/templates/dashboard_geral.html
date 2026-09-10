@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Visão Geral{% endblock %}
+{% block breadcrumb %}<span>Início</span><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:8px;margin-bottom:14px;">
+  <a href="/" class="btn btn-outline btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
+  <a href="/dashboard/geral" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px;">
+  <div class="card" style="padding:18px 20px;">
+    <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
+      Veículos por espécie</div>
+    <div id="especies-lista" style="display:flex;flex-direction:column;gap:8px;">—</div>
+  </div>
+
+  <a href="/veiculos" id="card-sem-lic" class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
+    {{ icon('warning','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">
+        Sem licenciamento <span id="ano-sem-lic"></span></div>
+      <div id="tot-sem-lic" style="font-size:28px;font-weight:700;color:var(--vermelho);margin-top:2px;">—</div>
+      <div style="font-size:12px;color:var(--sub);margin-top:2px;">Ver lista completa →</div>
+    </div>
+  </a>
+
+  <a href="/veiculos/vencimentos-placa" class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
+    {{ icon('calendar','icon icon-lg') }}
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">
+        Vencimentos por final de placa</div>
+      <div style="font-size:14px;color:var(--azul);margin-top:6px;font-weight:600;">Configurar / prever →</div>
+    </div>
+  </a>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('users') }} Clientes com mais pendências</h2>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr><th>Cliente</th><th>Pendências em aberto</th></tr></thead>
+      <tbody id="tbody-top-pendencias">
+        <tr><td colspan="2"><div class="empty-state"><p>Carregando...</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function carregarVisaoGeral() {
+  const d = await apiFetch('/api/dashboard/geral');
+  if (!d) return;
+
+  document.getElementById('ano-sem-lic').textContent = `(${d.ano})`;
+  document.getElementById('tot-sem-lic').textContent = d.sem_licenciamento_total;
+  document.getElementById('card-sem-lic').href = `/veiculos?sem_licenciamento_ano=${d.ano}`;
+
+  document.getElementById('especies-lista').innerHTML = d.por_especie.map(e => `
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <a href="/veiculos?especie=${e.especie}" style="text-decoration:none;color:var(--texto);font-size:14px;">${escapeHtml(e.label)}</a>
+      <span style="font-weight:700;color:var(--azul);">${e.total}</span>
+    </div>`).join('');
+
+  const tbody = document.getElementById('tbody-top-pendencias');
+  if (!d.top_pendencias.length) {
+    tbody.innerHTML = '<tr><td colspan="2"><div class="empty-state"><p>Nenhuma pendência em aberto 🎉</p></div></td></tr>';
+  } else {
+    tbody.innerHTML = d.top_pendencias.map(p => `
+      <tr>
+        <td><a href="/clientes/${p.cliente_id}/pendencias" style="color:var(--azul2);text-decoration:none;">${escapeHtml(p.cliente_nome)}</a></td>
+        <td><span class="badge badge-vencido">${p.total_pendencias}</span></td>
+      </tr>`).join('');
+  }
+}
+
+carregarVisaoGeral();
+</script>
+{% endblock %}

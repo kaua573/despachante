@@ -25,6 +25,15 @@
           {% endfor %}
         </select>
       </div>
+      <div class="field" style="min-width:150px;">
+        <label>Entidade</label>
+        <select name="entidade">
+          <option value="">Todas</option>
+          {% for e in entidades %}
+            <option value="{{ e }}" {{ 'selected' if filtros.entidade == e else '' }}>{{ e }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="field">
         <label>Ação</label>
         <input name="acao" value="{{ filtros.acao or '' }}" placeholder="Filtrar por ação...">
@@ -47,13 +56,56 @@
       <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>ID</th><th>Detalhe</th><th>IP</th></tr></thead>
       <tbody>
       {% for r in registros %}
+        {% set d = r.detalhe|fromjson %}
         <tr>
           <td style="font-size:13px;white-space:nowrap;">{{ r.criado_em.strftime('%d/%m/%Y %H:%M:%S') }}</td>
           <td>{{ r.usuario.nome_completo if r.usuario else '—' }}</td>
           <td><code style="font-size:12px;background:var(--cinza1);padding:2px 6px;border-radius:4px;">{{ r.acao }}</code></td>
           <td>{{ r.entidade or '—' }}</td>
           <td>{{ r.entidade_id or '—' }}</td>
-          <td style="max-width:340px;white-space:normal;word-break:break-word;font-size:12px;color:var(--sub);">{{ r.detalhe or '—' }}</td>
+          <td style="max-width:420px;white-space:normal;word-break:break-word;font-size:12px;">
+            {% if d and d.tipo == 'edicao' %}
+              {% if d.alterado %}
+                <details>
+                  <summary style="cursor:pointer;color:var(--azul2);font-weight:600;">{{ d.alterado|length }} campo(s) alterado(s)</summary>
+                  <table style="margin-top:8px;font-size:12px;">
+                    <thead><tr><th>Campo</th><th>Antes</th><th>Depois</th></tr></thead>
+                    <tbody>
+                      {% for campo, valores in d.alterado.items() %}
+                        <tr>
+                          <td style="font-weight:600;white-space:nowrap;">{{ campo }}</td>
+                          <td style="color:var(--vermelho);">{{ valores.antes if valores.antes not in (none, '') else '—' }}</td>
+                          <td style="color:var(--verde);">{{ valores.depois if valores.depois not in (none, '') else '—' }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </details>
+              {% else %}
+                <span style="color:var(--sub);">Nenhum campo alterado.</span>
+              {% endif %}
+            {% elif d and d.tipo == 'criacao' %}
+              <details>
+                <summary style="cursor:pointer;color:var(--verde);font-weight:600;">Registro criado — ver dados</summary>
+                <div style="margin-top:6px;color:var(--sub);">
+                  {% for campo, valor in d.depois.items() %}
+                    <div><strong>{{ campo }}:</strong> {{ valor if valor not in (none, '') else '—' }}</div>
+                  {% endfor %}
+                </div>
+              </details>
+            {% elif d and d.tipo == 'exclusao' %}
+              <details>
+                <summary style="cursor:pointer;color:var(--vermelho);font-weight:600;">Registro excluído — ver dados</summary>
+                <div style="margin-top:6px;color:var(--sub);">
+                  {% for campo, valor in d.antes.items() %}
+                    <div><strong>{{ campo }}:</strong> {{ valor if valor not in (none, '') else '—' }}</div>
+                  {% endfor %}
+                </div>
+              </details>
+            {% else %}
+              <span style="color:var(--sub);">{{ r.detalhe or '—' }}</span>
+            {% endif %}
+          </td>
           <td style="font-size:12px;color:var(--sub);">{{ r.ip or '—' }}</td>
         </tr>
       {% else %}
@@ -67,7 +119,7 @@
   {% if paginas > 1 %}
   <div style="padding:14px 16px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
     {% for p in range(1, paginas + 1) %}
-      <a href="?pagina={{ p }}&usuario_id={{ filtros.usuario_id or '' }}&acao={{ filtros.acao or '' }}&data_inicio={{ filtros.data_inicio or '' }}&data_fim={{ filtros.data_fim or '' }}"
+      <a href="?pagina={{ p }}&usuario_id={{ filtros.usuario_id or '' }}&entidade={{ filtros.entidade or '' }}&acao={{ filtros.acao or '' }}&data_inicio={{ filtros.data_inicio or '' }}&data_fim={{ filtros.data_fim or '' }}"
          class="btn {% if p == pagina %}btn-primary{% else %}btn-ghost{% endif %} btn-sm">{{ p }}</a>
     {% endfor %}
   </div>

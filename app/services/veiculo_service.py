@@ -98,6 +98,15 @@ class VeiculoService:
 
     # ── IPVA ────────────────────────────────────────────────────────────────
 
+    def obter_ipva(self, ipva_id: int) -> Optional[Ipva]:
+        return self._session.get(Ipva, ipva_id)
+
+    def obter_licenciamento(self, lid: int) -> Optional[Licenciamento]:
+        return self._session.get(Licenciamento, lid)
+
+    def obter_multa(self, mid: int) -> Optional[Multa]:
+        return self._session.get(Multa, mid)
+
     def listar_ipva(self, veiculo_id: int) -> list[Ipva]:
         return (
             self._session.query(Ipva)

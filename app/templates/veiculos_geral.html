@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Veículos{% endblock %}
+{% block breadcrumb %}<span>Veículos</span>{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+  <a href="/veiculos" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+  <a href="/veiculos/vencimentos-placa" class="btn btn-outline btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+</div>
+
+<!-- Resumo por espécie -->
+<div id="resumo-especies" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px;"></div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('car') }} Veículos — todos os clientes</h2>
+    <span id="total-resultado" style="font-size:12px;color:var(--sub);"></span>
+  </div>
+
+  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
+    <div class="field" style="min-width:200px;">
+      <label>Cliente</label>
+      <select id="f-cliente"><option value="">Todos</option></select>
+    </div>
+    <div class="field" style="min-width:150px;">
+      <label>Espécie</label>
+      <select id="f-especie">
+        <option value="">Todas</option>
+        <option value="passeio">Passeio</option>
+        <option value="carga">Carga</option>
+        <option value="reboque">Reboque</option>
+      </select>
+    </div>
+    <div class="field" style="min-width:150px;">
+      <label>Situação</label>
+      <select id="f-situacao">
+        <option value="">Todas</option>
+        <option value="ativo">Ativo</option>
+        <option value="desativado">Desativado</option>
+      </select>
+    </div>
+    <div class="field" style="min-width:190px;">
+      <label>Licenciamento</label>
+      <select id="f-sem-lic">
+        <option value="">Não filtrar</option>
+        <option value="{{ ano_atual }}">Sem licenciamento de {{ ano_atual }}</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarVeiculos()">Filtrar</button>
+    <button class="btn btn-ghost btn-sm" style="align-self:flex-end;" onclick="limparFiltrosGeral()">Limpar</button>
+  </div>
+
+  <div class="tabela-wrap">
+    <table>
+      <thead>
+        <tr><th>Placa</th><th>Cliente</th><th>Espécie</th><th>Marca/Modelo</th><th>Situação</th><th>Ação</th></tr>
+      </thead>
+      <tbody id="tbody-veiculos">
+        <tr><td colspan="6"><div class="empty-state"><p>Carregando...</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
+
+async function carregarClientesOpcoes() {
+  const lista = await apiFetch('/api/veiculos/clientes-opcoes');
+  if (!lista) return;
+  const sel = document.getElementById('f-cliente');
+  sel.innerHTML = '<option value="">Todos</option>' + lista.map(c =>
+    `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+}
+
+async function carregarResumoEspecies() {
+  const clienteId = document.getElementById('f-cliente').value;
+  const qs = clienteId ? `?cliente_id=${clienteId}` : '';
+  const dados = await apiFetch(`/api/veiculos/especies-resumo${qs}`);
+  if (!dados) return;
+  document.getElementById('resumo-especies').innerHTML = dados.map(d => `
+    <div class="card" style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;"
+         onclick="document.getElementById('f-especie').value='${d.especie}'; carregarVeiculos();">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">${d.label}</div>
+        <div style="font-size:24px;font-weight:700;color:var(--azul);margin-top:2px;">${d.total}</div>
+      </div>
+      {{ icon('car','icon icon-lg') }}
+    </div>`).join('');
+}
+
+function limparFiltrosGeral() {
+  document.getElementById('f-cliente').value = '';
+  document.getElementById('f-especie').value = '';
+  document.getElementById('f-situacao').value = '';
+  document.getElementById('f-sem-lic').value = '';
+  carregarVeiculos();
+  carregarResumoEspecies();
+}
+
+async function carregarVeiculos() {
+  const params = new URLSearchParams();
+  const cliente = document.getElementById('f-cliente').value;
+  const especie = document.getElementById('f-especie').value;
+  const situacao = document.getElementById('f-situacao').value;
+  const semLic = document.getElementById('f-sem-lic').value;
+  if (cliente) params.set('cliente_id', cliente);
+  if (especie) params.set('especie', especie);
+  if (situacao) params.set('situacao', situacao);
+  if (semLic) params.set('sem_licenciamento_ano', semLic);
+
+  const lista = await apiFetch(`/api/veiculos/geral?${params.toString()}`);
+  const tbody = document.getElementById('tbody-veiculos');
+  if (!lista) return;
+
+  document.getElementById('total-resultado').textContent = `${lista.length} veículo(s)`;
+
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><p>Nenhum veículo encontrado com esses filtros.</p></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = lista.map(v => `
+    <tr>
+      <td><strong>${escapeHtml(v.placa)}</strong></td>
+      <td><a href="/clientes/${v.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;">${escapeHtml(v.cliente_nome)}</a></td>
+      <td>${ESPECIE_LABEL[v.especie] || v.especie || '—'}</td>
+      <td>${escapeHtml(v.marca_modelo) || '—'}</td>
+      <td>${v.situacao === 'ativo' ? '<span class="badge badge-ativo">Ativo</span>' : '<span class="badge badge-inativo">Desativado</span>'}</td>
+      <td><a href="/veiculos/${v.id}/painel" class="btn btn-ghost btn-sm">Abrir</a></td>
+    </tr>`).join('');
+}
+
+// Aplica filtros vindos por querystring (ex.: link "Ver lista completa" do dashboard)
+(function aplicarFiltrosDaUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('especie')) document.getElementById('f-especie').value = params.get('especie');
+  if (params.get('sem_licenciamento_ano')) document.getElementById('f-sem-lic').value = params.get('sem_licenciamento_ano');
+  if (params.get('cliente_id')) document.getElementById('f-cliente').value = params.get('cliente_id');
+})();
+
+carregarClientesOpcoes().then(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('cliente_id')) document.getElementById('f-cliente').value = params.get('cliente_id');
+  carregarResumoEspecies();
+});
+carregarVeiculos();
+</script>
+{% endblock %}

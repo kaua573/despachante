@@ -1,0 +1,1751 @@
+diff --git a/app/__init__.py b/app/__init__.py
+index cdb79d6..d7d9375 100644
+--- a/app/__init__.py
++++ b/app/__init__.py
+@@ -85,6 +85,20 @@ def _registrar_helpers_jinja(app: Flask) -> None:
+ 
+     app.jinja_env.filters["formatar_placa"] = formatar_placa_exibicao
+ 
++    def fromjson(texto):
++        """Usado na tela de log para tentar interpretar `detalhe` como JSON
++        estruturado (antes/depois). Se não for JSON válido, retorna None e o
++        template cai de volta para exibir o texto puro."""
++        import json
++        if not texto:
++            return None
++        try:
++            return json.loads(texto)
++        except (TypeError, ValueError):
++            return None
++
++    app.jinja_env.filters["fromjson"] = fromjson
++
+     @app.context_processor
+     def inject_tema():
+         from app.services.configuracao_service import ConfiguracaoService
+@@ -149,6 +163,7 @@ def _registrar_blueprints(app: Flask) -> None:
+     from app.routes.main import bp as main_bp
+     from app.routes.clientes import bp as clientes_bp
+     from app.routes.veiculos import bp as veiculos_bp
++    from app.routes.veiculos_geral import bp as veiculos_geral_bp
+     from app.routes.painel import bp as painel_bp
+     from app.routes.configuracoes import bp as config_bp
+     from app.routes.relatorios import bp as relatorios_bp
+@@ -162,6 +177,7 @@ def _registrar_blueprints(app: Flask) -> None:
+     app.register_blueprint(main_bp)
+     app.register_blueprint(clientes_bp)
+     app.register_blueprint(veiculos_bp)
++    app.register_blueprint(veiculos_geral_bp)
+     app.register_blueprint(painel_bp)
+     app.register_blueprint(config_bp)
+     app.register_blueprint(relatorios_bp)
+diff --git a/app/models/__init__.py b/app/models/__init__.py
+index 82747ef..26d5aee 100644
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -10,10 +10,12 @@ from app.models.template_relatorio import TemplateRelatorio
+ from app.models.usuario import Usuario
+ from app.models.permissao_usuario import PermissaoUsuario
+ from app.models.log_acao import LogAcao
++from app.models.regra_vencimento import RegraVencimento
+ 
+ __all__ = [
+     "Cliente", "Veiculo", "Ipva", "IpvaParcela",
+     "Licenciamento", "Multa", "Documento",
+     "Configuracao", "TemplateRelatorio",
+     "Usuario", "PermissaoUsuario", "LogAcao",
++    "RegraVencimento",
+ ]
+diff --git a/app/models/permissao_usuario.py b/app/models/permissao_usuario.py
+index 57ec5a2..582f6e8 100644
+--- a/app/models/permissao_usuario.py
++++ b/app/models/permissao_usuario.py
+@@ -17,6 +17,7 @@ PERMISSOES_DISPONIVEIS = [
+     ("excluir_clientes",         "Excluir clientes e proprietários"),
+     ("gerar_relatorios",         "Gerar e exportar relatórios"),
+     ("gerenciar_seeds",          "Executar seed de dados de teste"),
++    ("gerenciar_regras_vencimento", "Configurar regras de vencimento por final de placa e lançar licenciamentos em lote"),
+ ]
+ 
+ CODIGOS_PERMISSAO = {cod for cod, _ in PERMISSOES_DISPONIVEIS}
+diff --git a/app/models/regra_vencimento.py b/app/models/regra_vencimento.py
+new file mode 100644
+index 0000000..d95afc3
+--- /dev/null
++++ b/app/models/regra_vencimento.py
+@@ -0,0 +1,35 @@
++from app import db
++
++
++class RegraVencimento(db.Model):
++    """
++    Regra configurável de vencimento de licenciamento por final de placa +
++    espécie do veículo (carga/passeio/reboque). Usada para prever a data de
++    vencimento de veículos que ainda não têm o licenciamento do ano lançado,
++    e para o lançamento em lote (item 3 do pedido de set/2026).
++
++    Uma regra vale para TODOS os anos: o vencimento é sempre calculado como
++    `mes_vencimento`/`dia_vencimento` do ano de referência escolhido na tela.
++    """
++    __tablename__ = "regra_vencimento"
++
++    id             = db.Column(db.Integer, primary_key=True)
++    final_placa    = db.Column(db.String(1), nullable=False)   # '0' a '9'
++    especie        = db.Column(db.String(20), nullable=False)  # carga | passeio | reboque
++    mes_vencimento = db.Column(db.Integer, nullable=False)     # 1-12
++    dia_vencimento = db.Column(db.Integer, nullable=True)      # 1-31; nulo = último dia do mês
++    ativo          = db.Column(db.Boolean, default=True)
++
++    __table_args__ = (
++        db.UniqueConstraint("final_placa", "especie", name="uq_regra_final_especie"),
++    )
++
++    def to_dict(self) -> dict:
++        return {
++            "id": self.id,
++            "final_placa": self.final_placa,
++            "especie": self.especie,
++            "mes_vencimento": self.mes_vencimento,
++            "dia_vencimento": self.dia_vencimento,
++            "ativo": bool(self.ativo),
++        }
+diff --git a/app/routes/admin.py b/app/routes/admin.py
+index 328298e..81b2216 100644
+--- a/app/routes/admin.py
++++ b/app/routes/admin.py
+@@ -42,7 +42,9 @@ def novo_usuario():
+         if not usuario:
+             erro = msg
+         else:
+-            LogService(db.session).registrar("criar_usuario", "usuario", usuario.id, {"nome": usuario.nome_usuario})
++            depois = usuario.to_dict()
++            depois["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
++            LogService(db.session).registrar_alteracao("criar_usuario", "usuario", usuario.id, None, depois)
+             flash(f"Usuário '{usuario.nome_completo}' criado com sucesso.")
+             return redirect(url_for("admin.usuarios"))
+ 
+@@ -59,6 +61,9 @@ def editar_usuario(uid):
+ 
+     erro = None
+     if request.method == "POST":
++        antes = usuario.to_dict()
++        antes["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
++
+         dados = {
+             "nome_usuario":  request.form.get("nome_usuario", "").strip(),
+             "nome_completo": request.form.get("nome_completo", "").strip(),
+@@ -69,7 +74,10 @@ def editar_usuario(uid):
+         if not ok:
+             erro = msg
+         else:
+-            LogService(db.session).registrar("editar_usuario", "usuario", uid, {"nome": dados["nome_usuario"]})
++            db.session.refresh(usuario)
++            depois = usuario.to_dict()
++            depois["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
++            LogService(db.session).registrar_alteracao("editar_usuario", "usuario", uid, antes, depois)
+             flash("Usuário atualizado.")
+             return redirect(url_for("admin.usuarios"))
+ 
+@@ -112,20 +120,28 @@ def toggle_ativo(uid):
+ @login_required
+ def log_acoes():
+     _somente_admin()
++    from app.models.log_acao import LogAcao
++
+     pagina      = int(request.args.get("pagina", 1))
+     usuario_id  = request.args.get("usuario_id") or None
+     acao        = request.args.get("acao", "").strip() or None
++    entidade    = request.args.get("entidade", "").strip() or None
+     data_inicio = request.args.get("data_inicio", "").strip() or None
+     data_fim    = request.args.get("data_fim", "").strip() or None
+ 
+     resultado = LogService(db.session).listar(
+         usuario_id=int(usuario_id) if usuario_id else None,
+         acao=acao,
++        entidade=entidade,
+         data_inicio=data_inicio,
+         data_fim=data_fim,
+         pagina=pagina,
+     )
+     usuarios = db.session.query(Usuario).order_by(Usuario.nome_completo).all()
+-    return render_template("admin/log.html", **resultado, usuarios=usuarios,
+-                           filtros={"usuario_id": usuario_id, "acao": acao,
++    entidades = [
++        r[0] for r in
++        db.session.query(LogAcao.entidade).filter(LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
++    ]
++    return render_template("admin/log.html", **resultado, usuarios=usuarios, entidades=entidades,
++                           filtros={"usuario_id": usuario_id, "acao": acao, "entidade": entidade,
+                                     "data_inicio": data_inicio, "data_fim": data_fim})
+diff --git a/app/routes/clientes.py b/app/routes/clientes.py
+index 65b29fc..12a8db7 100644
+--- a/app/routes/clientes.py
++++ b/app/routes/clientes.py
+@@ -61,7 +61,7 @@ def api_criar_cliente():
+     cliente, erro = _svc().criar(dados)
+     if not cliente:
+         return jsonify({"ok": False, "erro": erro}), 400
+-    _log().registrar("criar_cliente", "cliente", cliente.id, {"nome": cliente.nome})
++    _log().registrar_alteracao("criar_cliente", "cliente", cliente.id, None, cliente.to_dict())
+     return jsonify({"ok": True})
+ 
+ 
+@@ -74,10 +74,13 @@ def api_editar_cliente(cid):
+     if erro:
+         return jsonify({"ok": False, "erro": erro}), 400
+     _normalizar_cliente(dados)
++    antes = _svc().obter(cid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().atualizar(cid, dados)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("editar_cliente", "cliente", cid, {"nome": dados.get("nome")})
++    depois = _svc().obter(cid).to_dict()
++    _log().registrar_alteracao("editar_cliente", "cliente", cid, antes, depois)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -85,10 +88,12 @@ def api_editar_cliente(cid):
+ @login_required
+ @requer_permissao("excluir_clientes")
+ def api_deletar_cliente(cid):
++    antes = _svc().obter(cid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().excluir(cid)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("excluir_cliente", "cliente", cid)
++    _log().registrar_alteracao("excluir_cliente", "cliente", cid, antes, None)
+     return jsonify({"ok": True})
+ 
+ 
+diff --git a/app/routes/main.py b/app/routes/main.py
+index 10cedb2..bfc537b 100644
+--- a/app/routes/main.py
++++ b/app/routes/main.py
+@@ -12,6 +12,12 @@ def dashboard():
+     return render_template("dashboard.html")
+ 
+ 
++@bp.route("/dashboard/geral")
++@login_required
++def dashboard_geral():
++    return render_template("dashboard_geral.html")
++
++
+ @bp.route("/api/dashboard")
+ @login_required
+ def api_dashboard():
+@@ -19,6 +25,13 @@ def api_dashboard():
+     return jsonify(svc.resumo())
+ 
+ 
++@bp.route("/api/dashboard/geral")
++@login_required
++def api_dashboard_geral():
++    svc = DashboardService(db.session)
++    return jsonify(svc.resumo_geral())
++
++
+ @bp.route("/static/uploads/documentos/<nome>")
+ @login_required
+ def baixar_documento(nome):
+diff --git a/app/routes/veiculos.py b/app/routes/veiculos.py
+index 6ceb7e9..e4f1d1e 100644
+--- a/app/routes/veiculos.py
++++ b/app/routes/veiculos.py
+@@ -68,7 +68,7 @@ def api_criar_veiculo():
+     v, erro = _svc().criar(dados)
+     if not v:
+         return jsonify({"ok": False, "erro": erro}), 400
+-    _log().registrar("criar_veiculo", "veiculo", v.id, {"placa": v.placa})
++    _log().registrar_alteracao("criar_veiculo", "veiculo", v.id, None, v.to_dict())
+     return jsonify({"ok": True})
+ 
+ 
+@@ -80,10 +80,13 @@ def api_editar_veiculo(vid):
+     erro = _validar_e_normalizar(dados)
+     if erro:
+         return jsonify({"ok": False, "erro": erro}), 400
++    antes = _svc().obter(vid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().atualizar(vid, dados)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("editar_veiculo", "veiculo", vid, {"placa": dados.get("placa")})
++    depois = _svc().obter(vid).to_dict()
++    _log().registrar_alteracao("editar_veiculo", "veiculo", vid, antes, depois)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -91,10 +94,12 @@ def api_editar_veiculo(vid):
+ @login_required
+ @requer_permissao("excluir_veiculos")
+ def api_deletar_veiculo(vid):
++    antes = _svc().obter(vid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().excluir(vid)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("excluir_veiculo", "veiculo", vid)
++    _log().registrar_alteracao("excluir_veiculo", "veiculo", vid, antes, None)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -115,7 +120,7 @@ def api_criar_ipva():
+     if not dados.get("veiculo_id") or not dados.get("ano_referencia"):
+         return jsonify({"ok": False, "erro": "veiculo_id e ano_referencia são obrigatórios."}), 400
+     r = _svc().criar_ipva(dados)
+-    _log().registrar("criar_ipva", "ipva", r.id, {"ano": dados.get("ano_referencia")})
++    _log().registrar_alteracao("criar_ipva", "ipva", r.id, None, r.to_dict())
+     return jsonify({"ok": True})
+ 
+ 
+@@ -124,10 +129,13 @@ def api_criar_ipva():
+ @requer_permissao("gerenciar_ipva")
+ def api_editar_ipva(iid):
+     dados = request.get_json(silent=True) or {}
++    antes = _svc().obter_ipva(iid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().atualizar_ipva(iid, dados)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("editar_ipva", "ipva", iid)
++    depois = _svc().obter_ipva(iid).to_dict()
++    _log().registrar_alteracao("editar_ipva", "ipva", iid, antes, depois)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -135,10 +143,12 @@ def api_editar_ipva(iid):
+ @login_required
+ @requer_permissao("gerenciar_ipva")
+ def api_deletar_ipva(iid):
++    antes = _svc().obter_ipva(iid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().excluir_ipva(iid)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("excluir_ipva", "ipva", iid)
++    _log().registrar_alteracao("excluir_ipva", "ipva", iid, antes, None)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -159,7 +169,7 @@ def api_criar_licenciamento():
+     if not dados.get("veiculo_id") or not dados.get("ano_referencia"):
+         return jsonify({"ok": False, "erro": "veiculo_id e ano_referencia são obrigatórios."}), 400
+     r = _svc().criar_licenciamento(dados)
+-    _log().registrar("criar_licenciamento", "licenciamento", r.id)
++    _log().registrar_alteracao("criar_licenciamento", "licenciamento", r.id, None, r.to_dict())
+     return jsonify({"ok": True})
+ 
+ 
+@@ -168,10 +178,13 @@ def api_criar_licenciamento():
+ @requer_permissao("gerenciar_licenciamento")
+ def api_editar_licenciamento(lid):
+     dados = request.get_json(silent=True) or {}
++    antes = _svc().obter_licenciamento(lid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().atualizar_licenciamento(lid, dados)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("editar_licenciamento", "licenciamento", lid)
++    depois = _svc().obter_licenciamento(lid).to_dict()
++    _log().registrar_alteracao("editar_licenciamento", "licenciamento", lid, antes, depois)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -179,10 +192,12 @@ def api_editar_licenciamento(lid):
+ @login_required
+ @requer_permissao("gerenciar_licenciamento")
+ def api_deletar_licenciamento(lid):
++    antes = _svc().obter_licenciamento(lid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().excluir_licenciamento(lid)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("excluir_licenciamento", "licenciamento", lid)
++    _log().registrar_alteracao("excluir_licenciamento", "licenciamento", lid, antes, None)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -215,7 +230,7 @@ def api_criar_multa():
+     if not dados.get("veiculo_id"):
+         return jsonify({"ok": False, "erro": "veiculo_id é obrigatório."}), 400
+     r = _svc().criar_multa(dados)
+-    _log().registrar("criar_multa", "multa", r.id)
++    _log().registrar_alteracao("criar_multa", "multa", r.id, None, r.to_dict())
+     return jsonify({"ok": True})
+ 
+ 
+@@ -224,10 +239,13 @@ def api_criar_multa():
+ @requer_permissao("gerenciar_multas")
+ def api_editar_multa(mid):
+     dados = request.get_json(silent=True) or {}
++    antes = _svc().obter_multa(mid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().atualizar_multa(mid, dados)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("editar_multa", "multa", mid)
++    depois = _svc().obter_multa(mid).to_dict()
++    _log().registrar_alteracao("editar_multa", "multa", mid, antes, depois)
+     return jsonify({"ok": True})
+ 
+ 
+@@ -235,10 +253,12 @@ def api_editar_multa(mid):
+ @login_required
+ @requer_permissao("gerenciar_multas")
+ def api_deletar_multa(mid):
++    antes = _svc().obter_multa(mid)
++    antes = antes.to_dict() if antes else None
+     ok, msg = _svc().excluir_multa(mid)
+     if not ok:
+         return jsonify({"ok": False, "erro": msg}), 404
+-    _log().registrar("excluir_multa", "multa", mid)
++    _log().registrar_alteracao("excluir_multa", "multa", mid, antes, None)
+     return jsonify({"ok": True})
+ 
+ 
+diff --git a/app/routes/veiculos_geral.py b/app/routes/veiculos_geral.py
+new file mode 100644
+index 0000000..054e550
+--- /dev/null
++++ b/app/routes/veiculos_geral.py
+@@ -0,0 +1,153 @@
++"""
++Rotas da visão geral de veículos (itens 1, 2 e 3 do pedido de set/2026):
++  - Listagem geral (todos os clientes) com filtros, incluindo "sem
++    licenciamento do ano corrente".
++  - Agrupamento por espécie (carga/passeio/reboque).
++  - Regras de vencimento por final de placa + espécie, previsão e
++    lançamento em lote com supervisão manual.
++"""
++from datetime import date
++
++from flask import Blueprint, render_template, request, jsonify
++from flask_login import login_required
++
++from app import db
++from app.models.cliente import Cliente
++from app.services.auth_service import requer_permissao
++from app.services.log_service import LogService
++from app.services.veiculo_geral_service import VeiculoGeralService
++from app.services.vencimento_regra_service import VencimentoRegraService
++
++bp = Blueprint("veiculos_geral", __name__)
++
++
++def _svc() -> VeiculoGeralService:
++    return VeiculoGeralService(db.session)
++
++
++def _svc_regras() -> VencimentoRegraService:
++    return VencimentoRegraService(db.session)
++
++
++def _log() -> LogService:
++    return LogService(db.session)
++
++
++# ── Páginas ──────────────────────────────────────────────────────────────────
++
++@bp.route("/veiculos")
++@login_required
++@requer_permissao("visualizar_veiculos")
++def veiculos_geral():
++    return render_template("veiculos_geral.html", ano_atual=date.today().year)
++
++
++@bp.route("/veiculos/vencimentos-placa")
++@login_required
++@requer_permissao("visualizar_veiculos")
++def vencimentos_placa():
++    return render_template("vencimentos_placa.html", ano_atual=date.today().year)
++
++
++# ── API — Listagem / filtros gerais (itens 1 e 2) ────────────────────────────
++
++@bp.route("/api/veiculos/geral", methods=["GET"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_veiculos_geral():
++    cliente_id = request.args.get("cliente_id", type=int)
++    especie = request.args.get("especie") or None
++    situacao = request.args.get("situacao") or None
++    sem_lic_ano = request.args.get("sem_licenciamento_ano", type=int)
++    return jsonify(_svc().listar(
++        cliente_id=cliente_id, especie=especie, situacao=situacao,
++        sem_licenciamento_ano=sem_lic_ano,
++    ))
++
++
++@bp.route("/api/veiculos/especies-resumo", methods=["GET"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_especies_resumo():
++    cliente_id = request.args.get("cliente_id", type=int)
++    return jsonify(_svc().resumo_por_especie(cliente_id=cliente_id))
++
++
++@bp.route("/api/veiculos/clientes-opcoes", methods=["GET"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_clientes_opcoes():
++    """Lista enxuta (id, nome) para popular filtros — não exige visualizar_clientes."""
++    rows = db.session.query(Cliente.id, Cliente.nome).order_by(Cliente.nome).all()
++    return jsonify([{"id": r[0], "nome": r[1]} for r in rows])
++
++
++# ── API — Regras de vencimento por final de placa (item 3) ──────────────────
++
++@bp.route("/api/regras-vencimento", methods=["GET"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_listar_regras():
++    return jsonify([r.to_dict() for r in _svc_regras().listar_regras()])
++
++
++@bp.route("/api/regras-vencimento", methods=["POST"])
++@login_required
++@requer_permissao("gerenciar_regras_vencimento")
++def api_salvar_regra():
++    dados = request.get_json(silent=True) or {}
++    regra, erro = _svc_regras().salvar_regra(dados)
++    if not regra:
++        return jsonify({"ok": False, "erro": erro}), 400
++    _log().registrar("salvar_regra_vencimento", "regra_vencimento", regra.id, regra.to_dict())
++    return jsonify({"ok": True, "regra": regra.to_dict()})
++
++
++@bp.route("/api/regras-vencimento/<int:rid>", methods=["DELETE"])
++@login_required
++@requer_permissao("gerenciar_regras_vencimento")
++def api_excluir_regra(rid):
++    ok, msg = _svc_regras().excluir_regra(rid)
++    if not ok:
++        return jsonify({"ok": False, "erro": msg}), 404
++    _log().registrar("excluir_regra_vencimento", "regra_vencimento", rid)
++    return jsonify({"ok": True})
++
++
++@bp.route("/api/regras-vencimento/previsao", methods=["GET"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_previsao():
++    ano = request.args.get("ano", type=int)
++    cliente_id = request.args.get("cliente_id", type=int)
++    especie = request.args.get("especie") or None
++    final_placa = request.args.get("final_placa") or None
++    apenas_sem_lic = request.args.get("apenas_sem_licenciamento") == "1"
++    return jsonify(_svc_regras().previsao(
++        ano=ano, cliente_id=cliente_id, especie=especie,
++        final_placa=final_placa, apenas_sem_licenciamento=apenas_sem_lic,
++    ))
++
++
++@bp.route("/api/regras-vencimento/lancar-lote", methods=["POST"])
++@login_required
++@requer_permissao("gerenciar_regras_vencimento")
++def api_lancar_lote():
++    dados = request.get_json(silent=True) or {}
++    itens = dados.get("itens") or []
++    ano = dados.get("ano")
++    if not isinstance(itens, list) or not itens:
++        return jsonify({"ok": False, "erro": "Nenhum veículo selecionado."}), 400
++    try:
++        ano = int(ano)
++    except (TypeError, ValueError):
++        return jsonify({"ok": False, "erro": "Ano de referência inválido."}), 400
++
++    resultado = _svc_regras().lancar_lote(itens, ano)
++    if resultado["criados"]:
++        _log().registrar(
++            "lancar_lote_licenciamento", "licenciamento", None,
++            {"ano": ano, "quantidade": len(resultado["criados"]),
++             "placas": [c["placa"] for c in resultado["criados"]]},
++        )
++    return jsonify({"ok": True, **resultado})
+diff --git a/app/services/dashboard_service.py b/app/services/dashboard_service.py
+index 31edda2..44c112d 100644
+--- a/app/services/dashboard_service.py
++++ b/app/services/dashboard_service.py
+@@ -71,6 +71,63 @@ class DashboardService:
+             "licenciamento": lic_vencendo,
+         }
+ 
++    def resumo_geral(self) -> dict:
++        """
++        Dados da segunda página do dashboard ("Visão Geral"): contagem de
++        veículos por espécie, quantos estão sem licenciamento lançado no ano
++        corrente, e os clientes com mais pendências em aberto (top 5).
++        """
++        from app.services.veiculo_geral_service import VeiculoGeralService
++
++        ano = date.today().year
++        geral = VeiculoGeralService(self._session)
++        por_especie = geral.resumo_por_especie()
++        sem_licenciamento = geral.sem_licenciamento_ano(ano)
++
++        # Conta pendências (IPVA à vista + licenciamento não pagos, e multas não pagas) por cliente.
++        from sqlalchemy import func
++
++        contagem_ipva = (
++            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Ipva.id).label("qtd"))
++            .join(Ipva, Ipva.veiculo_id == Veiculo.id)
++            .filter(Veiculo.situacao == "ativo", Ipva.tipo_pagamento == "avista", Ipva.pago == False)
++            .group_by(Veiculo.cliente_id)
++            .subquery()
++        )
++        contagem_lic = (
++            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Licenciamento.id).label("qtd"))
++            .join(Licenciamento, Licenciamento.veiculo_id == Veiculo.id)
++            .filter(Veiculo.situacao == "ativo", Licenciamento.pago == False)
++            .group_by(Veiculo.cliente_id)
++            .subquery()
++        )
++        contagem_multa = (
++            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Multa.id).label("qtd"))
++            .join(Multa, Multa.veiculo_id == Veiculo.id)
++            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
++            .group_by(Veiculo.cliente_id)
++            .subquery()
++        )
++
++        clientes = self._session.query(Cliente.id, Cliente.nome).all()
++        mapa_ipva = dict(self._session.query(contagem_ipva.c.cid, contagem_ipva.c.qtd).all())
++        mapa_lic = dict(self._session.query(contagem_lic.c.cid, contagem_lic.c.qtd).all())
++        mapa_multa = dict(self._session.query(contagem_multa.c.cid, contagem_multa.c.qtd).all())
++
++        ranking = []
++        for cid, nome in clientes:
++            total = mapa_ipva.get(cid, 0) + mapa_lic.get(cid, 0) + mapa_multa.get(cid, 0)
++            if total:
++                ranking.append({"cliente_id": cid, "cliente_nome": nome, "total_pendencias": total})
++        ranking.sort(key=lambda r: r["total_pendencias"], reverse=True)
++
++        return {
++            "ano": ano,
++            "por_especie": por_especie,
++            "sem_licenciamento_total": len(sem_licenciamento),
++            "top_pendencias": ranking[:5],
++        }
++
+     def _buscar_vencimentos(self, modelo, limite: str) -> list[dict]:
+         """
+         Busca registros não pagos com vencimento até `limite`, com dados do
+diff --git a/app/services/log_service.py b/app/services/log_service.py
+index a8028b5..aa55e51 100644
+--- a/app/services/log_service.py
++++ b/app/services/log_service.py
+@@ -54,10 +54,52 @@ class LogService:
+         ))
+         self._s.commit()
+ 
++    # Campos que nunca fazem sentido aparecer no diff (ruído, não "alteração").
++    _CAMPOS_IGNORADOS_DIFF = {"id", "criado_em", "num_parcelas"}
++
++    def registrar_alteracao(
++        self,
++        acao: str,
++        entidade: str,
++        entidade_id: Optional[int],
++        antes: Optional[dict] = None,
++        depois: Optional[dict] = None,
++        campos_ignorar: Optional[set] = None,
++    ) -> None:
++        """
++        Registra uma ação guardando o estado ANTES e DEPOIS do registro
++        afetado, para a tela de log mostrar exatamente o que mudou campo a
++        campo — não só "editou o veículo X".
++
++        - Só `depois` informado → tratado como criação.
++        - Só `antes` informado → tratado como exclusão.
++        - Os dois informados → tratado como edição; `alterado` traz somente
++          os campos que de fato mudaram (ignora ruído como id/criado_em).
++        """
++        ignorar = self._CAMPOS_IGNORADOS_DIFF | (campos_ignorar or set())
++        detalhe: dict = {}
++
++        if antes is not None and depois is not None:
++            alterado = {}
++            for chave in set(antes) | set(depois):
++                if chave in ignorar:
++                    continue
++                va, vd = antes.get(chave), depois.get(chave)
++                if va != vd:
++                    alterado[chave] = {"antes": va, "depois": vd}
++            detalhe = {"tipo": "edicao", "alterado": alterado}
++        elif depois is not None:
++            detalhe = {"tipo": "criacao", "depois": {k: v for k, v in depois.items() if k not in ignorar}}
++        elif antes is not None:
++            detalhe = {"tipo": "exclusao", "antes": {k: v for k, v in antes.items() if k not in ignorar}}
++
++        self.registrar(acao, entidade, entidade_id, detalhe or None)
++
+     def listar(
+         self,
+         usuario_id: Optional[int] = None,
+         acao: Optional[str] = None,
++        entidade: Optional[str] = None,
+         data_inicio: Optional[str] = None,
+         data_fim: Optional[str] = None,
+         pagina: int = 1,
+@@ -72,6 +114,8 @@ class LogService:
+             q = q.filter(LogAcao.usuario_id == usuario_id)
+         if acao:
+             q = q.filter(LogAcao.acao.ilike(f"%{acao}%"))
++        if entidade:
++            q = q.filter(LogAcao.entidade == entidade)
+         if data_inicio:
+             try:
+                 q = q.filter(LogAcao.criado_em >= datetime.fromisoformat(data_inicio))
+diff --git a/app/services/veiculo_geral_service.py b/app/services/veiculo_geral_service.py
+new file mode 100644
+index 0000000..c10ba3a
+--- /dev/null
++++ b/app/services/veiculo_geral_service.py
+@@ -0,0 +1,98 @@
++"""
++Serviço de visão geral de veículos — cruza TODOS os clientes do sistema.
++
++Cobre dois pedidos (set/2026):
++  1) Veículos sem licenciamento lançado no ano corrente (geral ou filtrado).
++  2) Veículos agrupados por espécie (carga/passeio/reboque), geral ou por
++     cliente.
++
++Diferente do VeiculoService (que sempre trabalha a partir de um cliente),
++este serviço consulta a tabela de veículos inteira, então fica separado
++para não misturar responsabilidades.
++"""
++from __future__ import annotations
++
++from datetime import date
++from typing import Optional
++
++from sqlalchemy.orm import Session
++
++from app.models.cliente import Cliente
++from app.models.licenciamento import Licenciamento
++from app.models.veiculo import Veiculo
++
++ESPECIES_VALIDAS = ("carga", "passeio", "reboque")
++ESPECIE_LABEL = {"passeio": "Passeio", "carga": "Carga", "reboque": "Reboque"}
++
++
++class VeiculoGeralService:
++    def __init__(self, session: Session) -> None:
++        self._session = session
++
++    # ── Listagem geral com filtros ───────────────────────────────────────────
++
++    def listar(
++        self,
++        cliente_id: Optional[int] = None,
++        especie: Optional[str] = None,
++        situacao: Optional[str] = None,
++        sem_licenciamento_ano: Optional[int] = None,
++    ) -> list[dict]:
++        """
++        Lista veículos (com nome do cliente) aplicando os filtros informados.
++        `sem_licenciamento_ano`: se informado, só retorna veículos que NÃO
++        têm nenhum registro de Licenciamento para aquele ano.
++        """
++        q = self._session.query(Veiculo, Cliente).join(Cliente, Veiculo.cliente_id == Cliente.id)
++
++        if cliente_id:
++            q = q.filter(Veiculo.cliente_id == cliente_id)
++        if especie:
++            q = q.filter(Veiculo.especie == especie)
++        if situacao:
++            q = q.filter(Veiculo.situacao == situacao)
++
++        if sem_licenciamento_ano:
++            sub = (
++                self._session.query(Licenciamento.veiculo_id)
++                .filter(Licenciamento.ano_referencia == sem_licenciamento_ano)
++            )
++            q = q.filter(~Veiculo.id.in_(sub))
++
++        rows = q.order_by(Cliente.nome, Veiculo.placa).all()
++        resultado = []
++        for v, c in rows:
++            d = v.to_dict()
++            d["cliente_nome"] = c.nome
++            resultado.append(d)
++        return resultado
++
++    def sem_licenciamento_ano(
++        self,
++        ano: Optional[int] = None,
++        cliente_id: Optional[int] = None,
++        especie: Optional[str] = None,
++    ) -> list[dict]:
++        """Atalho: veículos ativos sem licenciamento lançado para `ano` (padrão: ano corrente)."""
++        ano = ano or date.today().year
++        return self.listar(
++            cliente_id=cliente_id, especie=especie, situacao="ativo",
++            sem_licenciamento_ano=ano,
++        )
++
++    # ── Agrupamento por espécie ──────────────────────────────────────────────
++
++    def resumo_por_especie(self, cliente_id: Optional[int] = None) -> list[dict]:
++        """Contagem de veículos ativos por espécie, geral ou de um cliente."""
++        from sqlalchemy import func
++        q = self._session.query(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao == "ativo")
++        if cliente_id:
++            q = q.filter(Veiculo.cliente_id == cliente_id)
++        contagens = dict(q.group_by(Veiculo.especie).all())
++        return [
++            {"especie": esp, "label": ESPECIE_LABEL[esp], "total": contagens.get(esp, 0)}
++            for esp in ESPECIES_VALIDAS
++        ]
++
++    def listar_por_especie(self, especie: str, cliente_id: Optional[int] = None) -> list[dict]:
++        return self.listar(cliente_id=cliente_id, especie=especie, situacao="ativo")
+diff --git a/app/services/veiculo_service.py b/app/services/veiculo_service.py
+index f59629e..ea034d2 100644
+--- a/app/services/veiculo_service.py
++++ b/app/services/veiculo_service.py
+@@ -98,6 +98,15 @@ class VeiculoService:
+ 
+     # ── IPVA ────────────────────────────────────────────────────────────────
+ 
++    def obter_ipva(self, ipva_id: int) -> Optional[Ipva]:
++        return self._session.get(Ipva, ipva_id)
++
++    def obter_licenciamento(self, lid: int) -> Optional[Licenciamento]:
++        return self._session.get(Licenciamento, lid)
++
++    def obter_multa(self, mid: int) -> Optional[Multa]:
++        return self._session.get(Multa, mid)
++
+     def listar_ipva(self, veiculo_id: int) -> list[Ipva]:
+         return (
+             self._session.query(Ipva)
+diff --git a/app/services/vencimento_regra_service.py b/app/services/vencimento_regra_service.py
+new file mode 100644
+index 0000000..40c96e9
+--- /dev/null
++++ b/app/services/vencimento_regra_service.py
+@@ -0,0 +1,206 @@
++"""
++Serviço das regras de vencimento por final de placa + espécie (item 3, set/2026).
++
++Fluxo:
++  1) CRUD das regras (`RegraVencimento`): para cada combinação de final de
++     placa (0-9) e espécie, define em que mês/dia o licenciamento costuma
++     vencer.
++  2) `previsao()`: cruza as regras com os veículos reais e calcula, pra cada
++     um, a data de vencimento prevista no ano escolhido — e sinaliza se o
++     licenciamento daquele ano já foi lançado ou não.
++  3) `lancar_lote()`: recebe a lista de veículos escolhidos manualmente (com
++     supervisão do usuário) e cria o registro de Licenciamento de cada um
++     com a data prevista (ou a data ajustada manualmente na tela).
++"""
++from __future__ import annotations
++
++import calendar
++from datetime import date
++from typing import Optional
++
++from sqlalchemy.orm import Session
++
++from app.models.cliente import Cliente
++from app.models.licenciamento import Licenciamento
++from app.models.regra_vencimento import RegraVencimento
++from app.models.veiculo import Veiculo
++
++FINAIS_VALIDOS = {str(n) for n in range(10)}
++ESPECIES_VALIDAS = ("carga", "passeio", "reboque")
++
++
++def final_da_placa(placa: str) -> Optional[str]:
++    """Extrai o último dígito de uma placa (Mercosul ou antiga). Retorna None se não achar dígito."""
++    for ch in reversed(placa or ""):
++        if ch.isdigit():
++            return ch
++    return None
++
++
++class VencimentoRegraService:
++    def __init__(self, session: Session) -> None:
++        self._session = session
++
++    # ── CRUD das regras ──────────────────────────────────────────────────────
++
++    def listar_regras(self) -> list[RegraVencimento]:
++        return (
++            self._session.query(RegraVencimento)
++            .order_by(RegraVencimento.final_placa, RegraVencimento.especie)
++            .all()
++        )
++
++    def salvar_regra(self, dados: dict) -> tuple[Optional[RegraVencimento], str]:
++        final_placa = str(dados.get("final_placa", "")).strip()
++        especie = (dados.get("especie") or "").strip()
++        mes = dados.get("mes_vencimento")
++        dia = dados.get("dia_vencimento") or None
++
++        if final_placa not in FINAIS_VALIDOS:
++            return None, "Final de placa inválido (use 0 a 9)."
++        if especie not in ESPECIES_VALIDAS:
++            return None, "Espécie inválida."
++        try:
++            mes = int(mes)
++            if not (1 <= mes <= 12):
++                raise ValueError
++        except (TypeError, ValueError):
++            return None, "Mês de vencimento inválido."
++        if dia is not None:
++            try:
++                dia = int(dia)
++                if not (1 <= dia <= 31):
++                    raise ValueError
++            except (TypeError, ValueError):
++                return None, "Dia de vencimento inválido."
++
++        regra_id = dados.get("id")
++        if regra_id:
++            regra = self._session.get(RegraVencimento, regra_id)
++            if not regra:
++                return None, "Regra não encontrada."
++        else:
++            regra = (
++                self._session.query(RegraVencimento)
++                .filter_by(final_placa=final_placa, especie=especie)
++                .first()
++            )
++            if not regra:
++                regra = RegraVencimento(final_placa=final_placa, especie=especie)
++                self._session.add(regra)
++
++        regra.final_placa = final_placa
++        regra.especie = especie
++        regra.mes_vencimento = mes
++        regra.dia_vencimento = dia
++        regra.ativo = bool(dados.get("ativo", True))
++        self._session.commit()
++        return regra, ""
++
++    def excluir_regra(self, regra_id: int) -> tuple[bool, str]:
++        regra = self._session.get(RegraVencimento, regra_id)
++        if not regra:
++            return False, "Regra não encontrada."
++        self._session.delete(regra)
++        self._session.commit()
++        return True, ""
++
++    # ── Cálculo de data prevista ─────────────────────────────────────────────
++
++    def _data_prevista(self, regra: RegraVencimento, ano: int) -> str:
++        dia = regra.dia_vencimento or calendar.monthrange(ano, regra.mes_vencimento)[1]
++        dia = min(dia, calendar.monthrange(ano, regra.mes_vencimento)[1])
++        return date(ano, regra.mes_vencimento, dia).isoformat()
++
++    # ── Previsão cruzando regras x veículos reais ────────────────────────────
++
++    def previsao(
++        self,
++        ano: Optional[int] = None,
++        cliente_id: Optional[int] = None,
++        especie: Optional[str] = None,
++        final_placa: Optional[str] = None,
++        apenas_sem_licenciamento: bool = False,
++    ) -> list[dict]:
++        ano = ano or date.today().year
++        regras = {(r.final_placa, r.especie): r for r in self.listar_regras() if r.ativo}
++
++        q = (
++            self._session.query(Veiculo, Cliente)
++            .join(Cliente, Veiculo.cliente_id == Cliente.id)
++            .filter(Veiculo.situacao == "ativo")
++        )
++        if cliente_id:
++            q = q.filter(Veiculo.cliente_id == cliente_id)
++        if especie:
++            q = q.filter(Veiculo.especie == especie)
++
++        licenciados = {
++            vid for (vid,) in
++            self._session.query(Licenciamento.veiculo_id).filter(Licenciamento.ano_referencia == ano)
++        }
++
++        resultado = []
++        for v, c in q.order_by(Cliente.nome, Veiculo.placa).all():
++            final = final_da_placa(v.placa)
++            if final_placa and final != final_placa:
++                continue
++            regra = regras.get((final, v.especie)) if final else None
++            ja_lancado = v.id in licenciados
++            if apenas_sem_licenciamento and ja_lancado:
++                continue
++            resultado.append({
++                "veiculo_id": v.id,
++                "placa": v.placa,
++                "final_placa": final,
++                "especie": v.especie,
++                "cliente_id": c.id,
++                "cliente_nome": c.nome,
++                "tem_regra": regra is not None,
++                "vencimento_previsto": self._data_prevista(regra, ano) if regra else None,
++                "ja_lancado_no_ano": ja_lancado,
++            })
++        return resultado
++
++    # ── Lançamento em lote (com supervisão manual) ───────────────────────────
++
++    def lancar_lote(self, itens: list[dict], ano: int) -> dict:
++        """
++        `itens`: lista de {"veiculo_id": int, "vencimento": "YYYY-MM-DD", "valor": opcional}.
++        A data já vem definida pela tela (pré-preenchida pela regra, mas editável
++        pelo usuário antes de confirmar) — aqui só valida e grava.
++        Pula veículos que já têm licenciamento lançado para o ano, sem travar o resto do lote.
++        """
++        criados, pulados, erros = [], [], []
++        for item in itens:
++            vid = item.get("veiculo_id")
++            venc = (item.get("vencimento") or "").strip()
++            veiculo = self._session.get(Veiculo, vid) if vid else None
++            if not veiculo:
++                erros.append({"veiculo_id": vid, "erro": "Veículo não encontrado."})
++                continue
++            ja_existe = (
++                self._session.query(Licenciamento.id)
++                .filter_by(veiculo_id=vid, ano_referencia=ano)
++                .first()
++            )
++            if ja_existe:
++                pulados.append({"veiculo_id": vid, "placa": veiculo.placa, "motivo": "Já possui licenciamento neste ano."})
++                continue
++            if not venc:
++                erros.append({"veiculo_id": vid, "placa": veiculo.placa, "erro": "Data de vencimento não informada."})
++                continue
++
++            registro = Licenciamento(
++                veiculo_id=vid,
++                ano_referencia=ano,
++                vencimento=venc,
++                valor=item.get("valor") or None,
++                pago=False,
++                observacao=item.get("observacao", "Lançado em lote via regra de final de placa."),
++            )
++            self._session.add(registro)
++            criados.append({"veiculo_id": vid, "placa": veiculo.placa, "vencimento": venc})
++
++        self._session.commit()
++        return {"criados": criados, "pulados": pulados, "erros": erros}
+diff --git a/app/templates/admin/log.html b/app/templates/admin/log.html
+index 79439e3..9d87939 100644
+--- a/app/templates/admin/log.html
++++ b/app/templates/admin/log.html
+@@ -25,6 +25,15 @@
+           {% endfor %}
+         </select>
+       </div>
++      <div class="field" style="min-width:150px;">
++        <label>Entidade</label>
++        <select name="entidade">
++          <option value="">Todas</option>
++          {% for e in entidades %}
++            <option value="{{ e }}" {{ 'selected' if filtros.entidade == e else '' }}>{{ e }}</option>
++          {% endfor %}
++        </select>
++      </div>
+       <div class="field">
+         <label>Ação</label>
+         <input name="acao" value="{{ filtros.acao or '' }}" placeholder="Filtrar por ação...">
+@@ -47,13 +56,56 @@
+       <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>ID</th><th>Detalhe</th><th>IP</th></tr></thead>
+       <tbody>
+       {% for r in registros %}
++        {% set d = r.detalhe|fromjson %}
+         <tr>
+           <td style="font-size:13px;white-space:nowrap;">{{ r.criado_em.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+           <td>{{ r.usuario.nome_completo if r.usuario else '—' }}</td>
+           <td><code style="font-size:12px;background:var(--cinza1);padding:2px 6px;border-radius:4px;">{{ r.acao }}</code></td>
+           <td>{{ r.entidade or '—' }}</td>
+           <td>{{ r.entidade_id or '—' }}</td>
+-          <td style="max-width:340px;white-space:normal;word-break:break-word;font-size:12px;color:var(--sub);">{{ r.detalhe or '—' }}</td>
++          <td style="max-width:420px;white-space:normal;word-break:break-word;font-size:12px;">
++            {% if d and d.tipo == 'edicao' %}
++              {% if d.alterado %}
++                <details>
++                  <summary style="cursor:pointer;color:var(--azul2);font-weight:600;">{{ d.alterado|length }} campo(s) alterado(s)</summary>
++                  <table style="margin-top:8px;font-size:12px;">
++                    <thead><tr><th>Campo</th><th>Antes</th><th>Depois</th></tr></thead>
++                    <tbody>
++                      {% for campo, valores in d.alterado.items() %}
++                        <tr>
++                          <td style="font-weight:600;white-space:nowrap;">{{ campo }}</td>
++                          <td style="color:var(--vermelho);">{{ valores.antes if valores.antes not in (none, '') else '—' }}</td>
++                          <td style="color:var(--verde);">{{ valores.depois if valores.depois not in (none, '') else '—' }}</td>
++                        </tr>
++                      {% endfor %}
++                    </tbody>
++                  </table>
++                </details>
++              {% else %}
++                <span style="color:var(--sub);">Nenhum campo alterado.</span>
++              {% endif %}
++            {% elif d and d.tipo == 'criacao' %}
++              <details>
++                <summary style="cursor:pointer;color:var(--verde);font-weight:600;">Registro criado — ver dados</summary>
++                <div style="margin-top:6px;color:var(--sub);">
++                  {% for campo, valor in d.depois.items() %}
++                    <div><strong>{{ campo }}:</strong> {{ valor if valor not in (none, '') else '—' }}</div>
++                  {% endfor %}
++                </div>
++              </details>
++            {% elif d and d.tipo == 'exclusao' %}
++              <details>
++                <summary style="cursor:pointer;color:var(--vermelho);font-weight:600;">Registro excluído — ver dados</summary>
++                <div style="margin-top:6px;color:var(--sub);">
++                  {% for campo, valor in d.antes.items() %}
++                    <div><strong>{{ campo }}:</strong> {{ valor if valor not in (none, '') else '—' }}</div>
++                  {% endfor %}
++                </div>
++              </details>
++            {% else %}
++              <span style="color:var(--sub);">{{ r.detalhe or '—' }}</span>
++            {% endif %}
++          </td>
+           <td style="font-size:12px;color:var(--sub);">{{ r.ip or '—' }}</td>
+         </tr>
+       {% else %}
+@@ -67,7 +119,7 @@
+   {% if paginas > 1 %}
+   <div style="padding:14px 16px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+     {% for p in range(1, paginas + 1) %}
+-      <a href="?pagina={{ p }}&usuario_id={{ filtros.usuario_id or '' }}&acao={{ filtros.acao or '' }}&data_inicio={{ filtros.data_inicio or '' }}&data_fim={{ filtros.data_fim or '' }}"
++      <a href="?pagina={{ p }}&usuario_id={{ filtros.usuario_id or '' }}&entidade={{ filtros.entidade or '' }}&acao={{ filtros.acao or '' }}&data_inicio={{ filtros.data_inicio or '' }}&data_fim={{ filtros.data_fim or '' }}"
+          class="btn {% if p == pagina %}btn-primary{% else %}btn-ghost{% endif %} btn-sm">{{ p }}</a>
+     {% endfor %}
+   </div>
+diff --git a/app/templates/base.html b/app/templates/base.html
+index 02a67c8..be3594f 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -258,7 +258,10 @@
+   </a>
+ 
+   <div class="nav-links">
+-    <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
++    <a href="/" class="{{ 'ativa' if request.path == '/' or request.path == '/dashboard/geral' else '' }}">{{ icon('dashboard') }} Início</a>
++    {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_veiculos') %}
++      <a href="/veiculos" class="{{ 'ativa' if request.path in ('/veiculos', '/veiculos/vencimentos-placa') else '' }}">{{ icon('car') }} Veículos</a>
++    {% endif %}
+     {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_clientes') %}
+       <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
+     {% endif %}
+diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
+index 661fead..f4af369 100644
+--- a/app/templates/dashboard.html
++++ b/app/templates/dashboard.html
+@@ -95,6 +95,11 @@
+   body:has(.venc-grid) { overflow:hidden; height:100vh; }
+ </style>
+ 
++<div style="display:flex;gap:8px;margin-bottom:10px;">
++  <a href="/" class="btn btn-primary btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
++  <a href="/dashboard/geral" class="btn btn-outline btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
++</div>
++
+ <div class="venc-grid">
+ <div class="card">
+   <div class="card-header">
+diff --git a/app/templates/dashboard_geral.html b/app/templates/dashboard_geral.html
+new file mode 100644
+index 0000000..c9851fb
+--- /dev/null
++++ b/app/templates/dashboard_geral.html
+@@ -0,0 +1,83 @@
++{% extends "base.html" %}
++{% block title %}Visão Geral{% endblock %}
++{% block breadcrumb %}<span>Início</span><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
++
++{% block content %}
++<div style="display:flex;gap:8px;margin-bottom:14px;">
++  <a href="/" class="btn btn-outline btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
++  <a href="/dashboard/geral" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
++</div>
++
++<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px;">
++  <div class="card" style="padding:18px 20px;">
++    <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
++      Veículos por espécie</div>
++    <div id="especies-lista" style="display:flex;flex-direction:column;gap:8px;">—</div>
++  </div>
++
++  <a href="/veiculos" id="card-sem-lic" class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
++    {{ icon('warning','icon icon-lg') }}
++    <div>
++      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">
++        Sem licenciamento <span id="ano-sem-lic"></span></div>
++      <div id="tot-sem-lic" style="font-size:28px;font-weight:700;color:var(--vermelho);margin-top:2px;">—</div>
++      <div style="font-size:12px;color:var(--sub);margin-top:2px;">Ver lista completa →</div>
++    </div>
++  </a>
++
++  <a href="/veiculos/vencimentos-placa" class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
++    {{ icon('calendar','icon icon-lg') }}
++    <div>
++      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">
++        Vencimentos por final de placa</div>
++      <div style="font-size:14px;color:var(--azul);margin-top:6px;font-weight:600;">Configurar / prever →</div>
++    </div>
++  </a>
++</div>
++
++<div class="card">
++  <div class="card-header">
++    <h2>{{ icon('users') }} Clientes com mais pendências</h2>
++  </div>
++  <div class="tabela-wrap">
++    <table>
++      <thead><tr><th>Cliente</th><th>Pendências em aberto</th></tr></thead>
++      <tbody id="tbody-top-pendencias">
++        <tr><td colspan="2"><div class="empty-state"><p>Carregando...</p></div></td></tr>
++      </tbody>
++    </table>
++  </div>
++</div>
++{% endblock %}
++
++{% block scripts %}
++<script>
++async function carregarVisaoGeral() {
++  const d = await apiFetch('/api/dashboard/geral');
++  if (!d) return;
++
++  document.getElementById('ano-sem-lic').textContent = `(${d.ano})`;
++  document.getElementById('tot-sem-lic').textContent = d.sem_licenciamento_total;
++  document.getElementById('card-sem-lic').href = `/veiculos?sem_licenciamento_ano=${d.ano}`;
++
++  document.getElementById('especies-lista').innerHTML = d.por_especie.map(e => `
++    <div style="display:flex;justify-content:space-between;align-items:center;">
++      <a href="/veiculos?especie=${e.especie}" style="text-decoration:none;color:var(--texto);font-size:14px;">${escapeHtml(e.label)}</a>
++      <span style="font-weight:700;color:var(--azul);">${e.total}</span>
++    </div>`).join('');
++
++  const tbody = document.getElementById('tbody-top-pendencias');
++  if (!d.top_pendencias.length) {
++    tbody.innerHTML = '<tr><td colspan="2"><div class="empty-state"><p>Nenhuma pendência em aberto 🎉</p></div></td></tr>';
++  } else {
++    tbody.innerHTML = d.top_pendencias.map(p => `
++      <tr>
++        <td><a href="/clientes/${p.cliente_id}/pendencias" style="color:var(--azul2);text-decoration:none;">${escapeHtml(p.cliente_nome)}</a></td>
++        <td><span class="badge badge-vencido">${p.total_pendencias}</span></td>
++      </tr>`).join('');
++  }
++}
++
++carregarVisaoGeral();
++</script>
++{% endblock %}
+diff --git a/app/templates/veiculos_geral.html b/app/templates/veiculos_geral.html
+new file mode 100644
+index 0000000..667e62e
+--- /dev/null
++++ b/app/templates/veiculos_geral.html
+@@ -0,0 +1,151 @@
++{% extends "base.html" %}
++{% block title %}Veículos{% endblock %}
++{% block breadcrumb %}<span>Veículos</span>{% endblock %}
++
++{% block content %}
++<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
++  <a href="/veiculos" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
++  <a href="/veiculos/vencimentos-placa" class="btn btn-outline btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
++</div>
++
++<!-- Resumo por espécie -->
++<div id="resumo-especies" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px;"></div>
++
++<div class="card">
++  <div class="card-header">
++    <h2>{{ icon('car') }} Veículos — todos os clientes</h2>
++    <span id="total-resultado" style="font-size:12px;color:var(--sub);"></span>
++  </div>
++
++  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
++    <div class="field" style="min-width:200px;">
++      <label>Cliente</label>
++      <select id="f-cliente"><option value="">Todos</option></select>
++    </div>
++    <div class="field" style="min-width:150px;">
++      <label>Espécie</label>
++      <select id="f-especie">
++        <option value="">Todas</option>
++        <option value="passeio">Passeio</option>
++        <option value="carga">Carga</option>
++        <option value="reboque">Reboque</option>
++      </select>
++    </div>
++    <div class="field" style="min-width:150px;">
++      <label>Situação</label>
++      <select id="f-situacao">
++        <option value="">Todas</option>
++        <option value="ativo">Ativo</option>
++        <option value="desativado">Desativado</option>
++      </select>
++    </div>
++    <div class="field" style="min-width:190px;">
++      <label>Licenciamento</label>
++      <select id="f-sem-lic">
++        <option value="">Não filtrar</option>
++        <option value="{{ ano_atual }}">Sem licenciamento de {{ ano_atual }}</option>
++      </select>
++    </div>
++    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarVeiculos()">Filtrar</button>
++    <button class="btn btn-ghost btn-sm" style="align-self:flex-end;" onclick="limparFiltrosGeral()">Limpar</button>
++  </div>
++
++  <div class="tabela-wrap">
++    <table>
++      <thead>
++        <tr><th>Placa</th><th>Cliente</th><th>Espécie</th><th>Marca/Modelo</th><th>Situação</th><th>Ação</th></tr>
++      </thead>
++      <tbody id="tbody-veiculos">
++        <tr><td colspan="6"><div class="empty-state"><p>Carregando...</p></div></td></tr>
++      </tbody>
++    </table>
++  </div>
++</div>
++{% endblock %}
++
++{% block scripts %}
++<script>
++const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
++
++async function carregarClientesOpcoes() {
++  const lista = await apiFetch('/api/veiculos/clientes-opcoes');
++  if (!lista) return;
++  const sel = document.getElementById('f-cliente');
++  sel.innerHTML = '<option value="">Todos</option>' + lista.map(c =>
++    `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
++}
++
++async function carregarResumoEspecies() {
++  const clienteId = document.getElementById('f-cliente').value;
++  const qs = clienteId ? `?cliente_id=${clienteId}` : '';
++  const dados = await apiFetch(`/api/veiculos/especies-resumo${qs}`);
++  if (!dados) return;
++  document.getElementById('resumo-especies').innerHTML = dados.map(d => `
++    <div class="card" style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;"
++         onclick="document.getElementById('f-especie').value='${d.especie}'; carregarVeiculos();">
++      <div>
++        <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">${d.label}</div>
++        <div style="font-size:24px;font-weight:700;color:var(--azul);margin-top:2px;">${d.total}</div>
++      </div>
++      {{ icon('car','icon icon-lg') }}
++    </div>`).join('');
++}
++
++function limparFiltrosGeral() {
++  document.getElementById('f-cliente').value = '';
++  document.getElementById('f-especie').value = '';
++  document.getElementById('f-situacao').value = '';
++  document.getElementById('f-sem-lic').value = '';
++  carregarVeiculos();
++  carregarResumoEspecies();
++}
++
++async function carregarVeiculos() {
++  const params = new URLSearchParams();
++  const cliente = document.getElementById('f-cliente').value;
++  const especie = document.getElementById('f-especie').value;
++  const situacao = document.getElementById('f-situacao').value;
++  const semLic = document.getElementById('f-sem-lic').value;
++  if (cliente) params.set('cliente_id', cliente);
++  if (especie) params.set('especie', especie);
++  if (situacao) params.set('situacao', situacao);
++  if (semLic) params.set('sem_licenciamento_ano', semLic);
++
++  const lista = await apiFetch(`/api/veiculos/geral?${params.toString()}`);
++  const tbody = document.getElementById('tbody-veiculos');
++  if (!lista) return;
++
++  document.getElementById('total-resultado').textContent = `${lista.length} veículo(s)`;
++
++  if (!lista.length) {
++    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><p>Nenhum veículo encontrado com esses filtros.</p></div></td></tr>';
++    return;
++  }
++
++  tbody.innerHTML = lista.map(v => `
++    <tr>
++      <td><strong>${escapeHtml(v.placa)}</strong></td>
++      <td><a href="/clientes/${v.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;">${escapeHtml(v.cliente_nome)}</a></td>
++      <td>${ESPECIE_LABEL[v.especie] || v.especie || '—'}</td>
++      <td>${escapeHtml(v.marca_modelo) || '—'}</td>
++      <td>${v.situacao === 'ativo' ? '<span class="badge badge-ativo">Ativo</span>' : '<span class="badge badge-inativo">Desativado</span>'}</td>
++      <td><a href="/veiculos/${v.id}/painel" class="btn btn-ghost btn-sm">Abrir</a></td>
++    </tr>`).join('');
++}
++
++// Aplica filtros vindos por querystring (ex.: link "Ver lista completa" do dashboard)
++(function aplicarFiltrosDaUrl() {
++  const params = new URLSearchParams(window.location.search);
++  if (params.get('especie')) document.getElementById('f-especie').value = params.get('especie');
++  if (params.get('sem_licenciamento_ano')) document.getElementById('f-sem-lic').value = params.get('sem_licenciamento_ano');
++  if (params.get('cliente_id')) document.getElementById('f-cliente').value = params.get('cliente_id');
++})();
++
++carregarClientesOpcoes().then(() => {
++  const params = new URLSearchParams(window.location.search);
++  if (params.get('cliente_id')) document.getElementById('f-cliente').value = params.get('cliente_id');
++  carregarResumoEspecies();
++});
++carregarVeiculos();
++</script>
++{% endblock %}
+diff --git a/app/templates/vencimentos_placa.html b/app/templates/vencimentos_placa.html
+new file mode 100644
+index 0000000..77de2e3
+--- /dev/null
++++ b/app/templates/vencimentos_placa.html
+@@ -0,0 +1,343 @@
++{% extends "base.html" %}
++{% block title %}Vencimentos por Final de Placa{% endblock %}
++{% block breadcrumb %}<a href="/veiculos">Veículos</a><span class="sep">›</span><span>Vencimentos por final de placa</span>{% endblock %}
++
++{% block content %}
++<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
++  <a href="/veiculos" class="btn btn-outline btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
++  <a href="/veiculos/vencimentos-placa" class="btn btn-primary btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
++</div>
++
++<!-- ── Configuração das regras ─────────────────────────────────────────── -->
++<div class="card" style="margin-bottom:20px;">
++  <div class="card-header">
++    <h2>{{ icon('config') }} Regras de vencimento (por final de placa + espécie)</h2>
++    {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
++      <button class="btn btn-primary btn-sm" onclick="abrirModalRegra()">+ Nova regra</button>
++    {% endif %}
++  </div>
++  <p style="padding:12px 20px 0;color:var(--sub);font-size:13px;">
++    Defina em que mês (e opcionalmente dia) costuma vencer o licenciamento de cada combinação de final de placa e
++    espécie de veículo. Essas regras alimentam a previsão abaixo — elas não alteram nenhum veículo por conta própria.
++  </p>
++  <div class="tabela-wrap">
++    <table>
++      <thead><tr><th>Final da placa</th><th>Espécie</th><th>Vencimento padrão</th><th>Ativa</th><th>Ação</th></tr></thead>
++      <tbody id="tbody-regras"><tr><td colspan="5"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
++    </table>
++  </div>
++</div>
++
++<!-- ── Previsão ─────────────────────────────────────────────────────────── -->
++<div class="card">
++  <div class="card-header">
++    <h2>{{ icon('calendar') }} Previsão de vencimentos</h2>
++    <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
++  </div>
++
++  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
++    <div class="field" style="min-width:110px;">
++      <label>Ano</label>
++      <input type="number" id="p-ano" value="{{ ano_atual }}" style="width:100px;">
++    </div>
++    <div class="field" style="min-width:200px;">
++      <label>Cliente</label>
++      <select id="p-cliente"><option value="">Todos</option></select>
++    </div>
++    <div class="field" style="min-width:140px;">
++      <label>Espécie</label>
++      <select id="p-especie">
++        <option value="">Todas</option>
++        <option value="passeio">Passeio</option>
++        <option value="carga">Carga</option>
++        <option value="reboque">Reboque</option>
++      </select>
++    </div>
++    <div class="field" style="min-width:130px;">
++      <label>Final da placa</label>
++      <select id="p-final">
++        <option value="">Todos</option>
++        {% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
++      </select>
++    </div>
++    <label class="check-item" style="align-self:flex-end;padding-bottom:8px;">
++      <input type="checkbox" id="p-apenas-sem-lic"> Só sem licenciamento lançado
++    </label>
++    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarPrevisao()">Filtrar</button>
++  </div>
++
++  {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
++  <div style="padding:12px 20px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--cinza2);">
++    <label class="check-item"><input type="checkbox" id="chk-todos" onchange="alternarTodos(this)"> Selecionar todos</label>
++    <button class="btn btn-outline btn-sm" onclick="abrirResumoLote()">Lançar licenciamento dos selecionados</button>
++    <span id="qtd-selecionados" style="font-size:12px;color:var(--sub);"></span>
++  </div>
++  {% endif %}
++
++  <div class="tabela-wrap">
++    <table>
++      <thead>
++        <tr>
++          {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}<th></th>{% endif %}
++          <th>Placa</th><th>Final</th><th>Cliente</th><th>Espécie</th>
++          <th>Vencimento previsto</th><th>Licenciamento do ano</th>
++        </tr>
++      </thead>
++      <tbody id="tbody-previsao"><tr><td colspan="7"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
++    </table>
++  </div>
++</div>
++
++<!-- Modal de regra -->
++<div class="modal-overlay" id="modal-regra">
++  <div class="modal">
++    <div class="modal-header"><h3 id="modal-regra-titulo">Nova regra</h3></div>
++    <div class="modal-body">
++      <input type="hidden" id="r-id">
++      <div class="field">
++        <label>Final da placa</label>
++        <select id="r-final">{% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
++      </div>
++      <div class="field">
++        <label>Espécie</label>
++        <select id="r-especie">
++          <option value="passeio">Passeio</option>
++          <option value="carga">Carga</option>
++          <option value="reboque">Reboque</option>
++        </select>
++      </div>
++      <div class="field">
++        <label>Mês de vencimento</label>
++        <select id="r-mes">
++          {% for m, nome in [(1,'Janeiro'),(2,'Fevereiro'),(3,'Março'),(4,'Abril'),(5,'Maio'),(6,'Junho'),(7,'Julho'),(8,'Agosto'),(9,'Setembro'),(10,'Outubro'),(11,'Novembro'),(12,'Dezembro')] %}
++            <option value="{{ m }}">{{ nome }}</option>
++          {% endfor %}
++        </select>
++      </div>
++      <div class="field">
++        <label>Dia (opcional — vazio usa o último dia do mês)</label>
++        <input type="number" id="r-dia" min="1" max="31" placeholder="Ex.: 15">
++      </div>
++      <label class="check-item"><input type="checkbox" id="r-ativo" checked> Regra ativa</label>
++    </div>
++    <div class="modal-footer">
++      <button class="btn btn-ghost" onclick="fecharModalRegra()">Cancelar</button>
++      <button class="btn btn-primary" onclick="salvarRegra()">Salvar</button>
++    </div>
++  </div>
++</div>
++
++<!-- Modal de confirmação do lote -->
++<div class="modal-overlay" id="modal-lote">
++  <div class="modal" style="max-width:640px;">
++    <div class="modal-header"><h3>Confirmar lançamento em lote</h3></div>
++    <div class="modal-body">
++      <p style="color:var(--sub);font-size:13px;">
++        Revise a data de vencimento de cada veículo antes de confirmar — nada é salvo até você clicar em "Confirmar".
++        Veículos que já têm licenciamento lançado no ano não aparecem aqui.
++      </p>
++      <div class="tabela-wrap">
++        <table>
++          <thead><tr><th>Placa</th><th>Cliente</th><th>Vencimento</th></tr></thead>
++          <tbody id="tbody-lote"></tbody>
++        </table>
++      </div>
++    </div>
++    <div class="modal-footer">
++      <button class="btn btn-ghost" onclick="fecharModalLote()">Cancelar</button>
++      <button class="btn btn-primary" onclick="confirmarLote()">Confirmar lançamento</button>
++    </div>
++  </div>
++</div>
++{% endblock %}
++
++{% block scripts %}
++<script>
++const PODE_GERENCIAR = {{ 'true' if current_user.tem_permissao('gerenciar_regras_vencimento') else 'false' }};
++const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
++const MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
++let previsaoAtual = [];
++
++// ── Regras ───────────────────────────────────────────────────────────────
++async function carregarRegras() {
++  const regras = await apiFetch('/api/regras-vencimento');
++  const tbody = document.getElementById('tbody-regras');
++  if (!regras) return;
++  if (!regras.length) {
++    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>Nenhuma regra configurada ainda.</p></div></td></tr>';
++    return;
++  }
++  tbody.innerHTML = regras.map(r => `
++    <tr>
++      <td><strong>${r.final_placa}</strong></td>
++      <td>${ESPECIE_LABEL[r.especie] || r.especie}</td>
++      <td>${MESES[r.mes_vencimento]}${r.dia_vencimento ? '/' + String(r.dia_vencimento).padStart(2,'0') : ' (último dia)'}</td>
++      <td>${r.ativo ? '<span class="badge badge-ativo">Sim</span>' : '<span class="badge badge-inativo">Não</span>'}</td>
++      <td>
++        ${PODE_GERENCIAR ? `
++          <button class="btn btn-ghost btn-sm" onclick='editarRegra(${JSON.stringify(r)})'>Editar</button>
++          <button class="btn btn-ghost btn-sm" onclick="excluirRegra(${r.id})">Excluir</button>
++        ` : '—'}
++      </td>
++    </tr>`).join('');
++}
++
++function abrirModalRegra() {
++  document.getElementById('modal-regra-titulo').textContent = 'Nova regra';
++  document.getElementById('r-id').value = '';
++  document.getElementById('r-final').value = '0';
++  document.getElementById('r-especie').value = 'passeio';
++  document.getElementById('r-mes').value = '1';
++  document.getElementById('r-dia').value = '';
++  document.getElementById('r-ativo').checked = true;
++  document.getElementById('modal-regra').classList.add('open');
++}
++
++function editarRegra(r) {
++  document.getElementById('modal-regra-titulo').textContent = 'Editar regra';
++  document.getElementById('r-id').value = r.id;
++  document.getElementById('r-final').value = r.final_placa;
++  document.getElementById('r-especie').value = r.especie;
++  document.getElementById('r-mes').value = r.mes_vencimento;
++  document.getElementById('r-dia').value = r.dia_vencimento || '';
++  document.getElementById('r-ativo').checked = r.ativo;
++  document.getElementById('modal-regra').classList.add('open');
++}
++
++function fecharModalRegra() { document.getElementById('modal-regra').classList.remove('open'); }
++
++async function salvarRegra() {
++  const dados = {
++    id: document.getElementById('r-id').value || null,
++    final_placa: document.getElementById('r-final').value,
++    especie: document.getElementById('r-especie').value,
++    mes_vencimento: parseInt(document.getElementById('r-mes').value, 10),
++    dia_vencimento: document.getElementById('r-dia').value ? parseInt(document.getElementById('r-dia').value, 10) : null,
++    ativo: document.getElementById('r-ativo').checked,
++  };
++  const resp = await apiFetch('/api/regras-vencimento', {
++    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dados),
++  });
++  if (resp && resp.ok) {
++    toast('Regra salva.', 'ok');
++    fecharModalRegra();
++    carregarRegras();
++    carregarPrevisao();
++  }
++}
++
++async function excluirRegra(id) {
++  if (!confirm('Excluir esta regra?')) return;
++  const resp = await apiFetch(`/api/regras-vencimento/${id}`, {method: 'DELETE'});
++  if (resp && resp.ok) {
++    toast('Regra excluída.', 'ok');
++    carregarRegras();
++    carregarPrevisao();
++  }
++}
++
++// ── Previsão ─────────────────────────────────────────────────────────────
++async function carregarClientesOpcoesPrevisao() {
++  const lista = await apiFetch('/api/veiculos/clientes-opcoes');
++  if (!lista) return;
++  document.getElementById('p-cliente').innerHTML = '<option value="">Todos</option>' +
++    lista.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
++}
++
++async function carregarPrevisao() {
++  const params = new URLSearchParams();
++  const ano = document.getElementById('p-ano').value;
++  params.set('ano', ano);
++  const cliente = document.getElementById('p-cliente').value;
++  const especie = document.getElementById('p-especie').value;
++  const final = document.getElementById('p-final').value;
++  if (cliente) params.set('cliente_id', cliente);
++  if (especie) params.set('especie', especie);
++  if (final !== '') params.set('final_placa', final);
++  if (document.getElementById('p-apenas-sem-lic').checked) params.set('apenas_sem_licenciamento', '1');
++
++  const lista = await apiFetch(`/api/regras-vencimento/previsao?${params.toString()}`);
++  if (!lista) return;
++  previsaoAtual = lista;
++  document.getElementById('total-previsao').textContent = `${lista.length} veículo(s)`;
++
++  const tbody = document.getElementById('tbody-previsao');
++  if (!lista.length) {
++    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>Nenhum veículo encontrado com esses filtros.</p></div></td></tr>`;
++    return;
++  }
++  tbody.innerHTML = lista.map((v, i) => `
++    <tr>
++      ${PODE_GERENCIAR ? `<td><input type="checkbox" class="chk-veiculo" data-idx="${i}" ${v.ja_lancado_no_ano ? 'disabled' : ''}></td>` : ''}
++      <td><strong>${escapeHtml(v.placa)}</strong></td>
++      <td>${v.final_placa ?? '—'}</td>
++      <td>${escapeHtml(v.cliente_nome)}</td>
++      <td>${ESPECIE_LABEL[v.especie] || v.especie}</td>
++      <td>${v.vencimento_previsto ? fmtData(v.vencimento_previsto) : '<span style="color:var(--sub);">sem regra</span>'}</td>
++      <td>${v.ja_lancado_no_ano ? '<span class="badge badge-pago">Já lançado</span>' : '<span class="badge badge-pendente">Pendente</span>'}</td>
++    </tr>`).join('');
++  atualizarQtdSelecionados();
++}
++
++function alternarTodos(origem) {
++  document.querySelectorAll('.chk-veiculo:not(:disabled)').forEach(c => c.checked = origem.checked);
++  atualizarQtdSelecionados();
++}
++
++document.addEventListener('change', (e) => {
++  if (e.target.classList.contains('chk-veiculo')) atualizarQtdSelecionados();
++});
++
++function atualizarQtdSelecionados() {
++  const n = document.querySelectorAll('.chk-veiculo:checked').length;
++  const span = document.getElementById('qtd-selecionados');
++  if (span) span.textContent = n ? `${n} selecionado(s)` : '';
++}
++
++// ── Lançamento em lote ───────────────────────────────────────────────────
++function abrirResumoLote() {
++  const marcados = Array.from(document.querySelectorAll('.chk-veiculo:checked'))
++    .map(c => previsaoAtual[parseInt(c.dataset.idx, 10)])
++    .filter(v => v.vencimento_previsto); // só entra no lote quem tem data (regra definida)
++
++  if (!marcados.length) {
++    toast('Selecione ao menos um veículo com regra de vencimento definida.', 'err');
++    return;
++  }
++
++  document.getElementById('tbody-lote').innerHTML = marcados.map((v) => `
++    <tr data-vid="${v.veiculo_id}">
++      <td>${escapeHtml(v.placa)}</td>
++      <td>${escapeHtml(v.cliente_nome)}</td>
++      <td><input type="date" class="lote-data" data-vid="${v.veiculo_id}" value="${v.vencimento_previsto}"></td>
++    </tr>`).join('');
++  document.getElementById('modal-lote').classList.add('open');
++}
++
++function fecharModalLote() { document.getElementById('modal-lote').classList.remove('open'); }
++
++async function confirmarLote() {
++  const itens = Array.from(document.querySelectorAll('#tbody-lote tr')).map(tr => ({
++    veiculo_id: parseInt(tr.dataset.vid, 10),
++    vencimento: tr.querySelector('.lote-data').value,
++  }));
++  const ano = parseInt(document.getElementById('p-ano').value, 10);
++  const resp = await apiFetch('/api/regras-vencimento/lancar-lote', {
++    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({itens, ano}),
++  });
++  if (!resp || !resp.ok) return;
++
++  fecharModalLote();
++  const partes = [];
++  if (resp.criados.length) partes.push(`${resp.criados.length} lançado(s)`);
++  if (resp.pulados.length) partes.push(`${resp.pulados.length} já existia(m)`);
++  if (resp.erros.length) partes.push(`${resp.erros.length} com erro`);
++  toast(partes.join(' · ') || 'Nenhum registro criado.', resp.criados.length ? 'ok' : 'err');
++  carregarPrevisao();
++}
++
++carregarRegras();
++carregarClientesOpcoesPrevisao();
++carregarPrevisao();
++</script>
++{% endblock %}

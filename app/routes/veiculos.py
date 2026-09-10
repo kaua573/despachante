@@ -68,7 +68,7 @@ def api_criar_veiculo():
     v, erro = _svc().criar(dados)
     if not v:
         return jsonify({"ok": False, "erro": erro}), 400
-    _log().registrar("criar_veiculo", "veiculo", v.id, {"placa": v.placa})
+    _log().registrar_alteracao("criar_veiculo", "veiculo", v.id, None, v.to_dict())
     return jsonify({"ok": True})
 
 
@@ -80,10 +80,13 @@ def api_editar_veiculo(vid):
     erro = _validar_e_normalizar(dados)
     if erro:
         return jsonify({"ok": False, "erro": erro}), 400
+    antes = _svc().obter(vid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().atualizar(vid, dados)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("editar_veiculo", "veiculo", vid, {"placa": dados.get("placa")})
+    depois = _svc().obter(vid).to_dict()
+    _log().registrar_alteracao("editar_veiculo", "veiculo", vid, antes, depois)
     return jsonify({"ok": True})
 
 
@@ -91,10 +94,12 @@ def api_editar_veiculo(vid):
 @login_required
 @requer_permissao("excluir_veiculos")
 def api_deletar_veiculo(vid):
+    antes = _svc().obter(vid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().excluir(vid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("excluir_veiculo", "veiculo", vid)
+    _log().registrar_alteracao("excluir_veiculo", "veiculo", vid, antes, None)
     return jsonify({"ok": True})
 
 
@@ -115,7 +120,7 @@ def api_criar_ipva():
     if not dados.get("veiculo_id") or not dados.get("ano_referencia"):
         return jsonify({"ok": False, "erro": "veiculo_id e ano_referencia são obrigatórios."}), 400
     r = _svc().criar_ipva(dados)
-    _log().registrar("criar_ipva", "ipva", r.id, {"ano": dados.get("ano_referencia")})
+    _log().registrar_alteracao("criar_ipva", "ipva", r.id, None, r.to_dict())
     return jsonify({"ok": True})
 
 
@@ -124,10 +129,13 @@ def api_criar_ipva():
 @requer_permissao("gerenciar_ipva")
 def api_editar_ipva(iid):
     dados = request.get_json(silent=True) or {}
+    antes = _svc().obter_ipva(iid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().atualizar_ipva(iid, dados)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("editar_ipva", "ipva", iid)
+    depois = _svc().obter_ipva(iid).to_dict()
+    _log().registrar_alteracao("editar_ipva", "ipva", iid, antes, depois)
     return jsonify({"ok": True})
 
 
@@ -135,10 +143,12 @@ def api_editar_ipva(iid):
 @login_required
 @requer_permissao("gerenciar_ipva")
 def api_deletar_ipva(iid):
+    antes = _svc().obter_ipva(iid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().excluir_ipva(iid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("excluir_ipva", "ipva", iid)
+    _log().registrar_alteracao("excluir_ipva", "ipva", iid, antes, None)
     return jsonify({"ok": True})
 
 
@@ -159,7 +169,7 @@ def api_criar_licenciamento():
     if not dados.get("veiculo_id") or not dados.get("ano_referencia"):
         return jsonify({"ok": False, "erro": "veiculo_id e ano_referencia são obrigatórios."}), 400
     r = _svc().criar_licenciamento(dados)
-    _log().registrar("criar_licenciamento", "licenciamento", r.id)
+    _log().registrar_alteracao("criar_licenciamento", "licenciamento", r.id, None, r.to_dict())
     return jsonify({"ok": True})
 
 
@@ -168,10 +178,13 @@ def api_criar_licenciamento():
 @requer_permissao("gerenciar_licenciamento")
 def api_editar_licenciamento(lid):
     dados = request.get_json(silent=True) or {}
+    antes = _svc().obter_licenciamento(lid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().atualizar_licenciamento(lid, dados)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("editar_licenciamento", "licenciamento", lid)
+    depois = _svc().obter_licenciamento(lid).to_dict()
+    _log().registrar_alteracao("editar_licenciamento", "licenciamento", lid, antes, depois)
     return jsonify({"ok": True})
 
 
@@ -179,10 +192,12 @@ def api_editar_licenciamento(lid):
 @login_required
 @requer_permissao("gerenciar_licenciamento")
 def api_deletar_licenciamento(lid):
+    antes = _svc().obter_licenciamento(lid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().excluir_licenciamento(lid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("excluir_licenciamento", "licenciamento", lid)
+    _log().registrar_alteracao("excluir_licenciamento", "licenciamento", lid, antes, None)
     return jsonify({"ok": True})
 
 
@@ -215,7 +230,7 @@ def api_criar_multa():
     if not dados.get("veiculo_id"):
         return jsonify({"ok": False, "erro": "veiculo_id é obrigatório."}), 400
     r = _svc().criar_multa(dados)
-    _log().registrar("criar_multa", "multa", r.id)
+    _log().registrar_alteracao("criar_multa", "multa", r.id, None, r.to_dict())
     return jsonify({"ok": True})
 
 
@@ -224,10 +239,13 @@ def api_criar_multa():
 @requer_permissao("gerenciar_multas")
 def api_editar_multa(mid):
     dados = request.get_json(silent=True) or {}
+    antes = _svc().obter_multa(mid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().atualizar_multa(mid, dados)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("editar_multa", "multa", mid)
+    depois = _svc().obter_multa(mid).to_dict()
+    _log().registrar_alteracao("editar_multa", "multa", mid, antes, depois)
     return jsonify({"ok": True})
 
 
@@ -235,10 +253,12 @@ def api_editar_multa(mid):
 @login_required
 @requer_permissao("gerenciar_multas")
 def api_deletar_multa(mid):
+    antes = _svc().obter_multa(mid)
+    antes = antes.to_dict() if antes else None
     ok, msg = _svc().excluir_multa(mid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 404
-    _log().registrar("excluir_multa", "multa", mid)
+    _log().registrar_alteracao("excluir_multa", "multa", mid, antes, None)
     return jsonify({"ok": True})
 
 

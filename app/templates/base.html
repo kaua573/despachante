@@ -258,7 +258,10 @@
   </a>
 
   <div class="nav-links">
-    <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
+    <a href="/" class="{{ 'ativa' if request.path == '/' or request.path == '/dashboard/geral' else '' }}">{{ icon('dashboard') }} Início</a>
+    {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_veiculos') %}
+      <a href="/veiculos" class="{{ 'ativa' if request.path in ('/veiculos', '/veiculos/vencimentos-placa') else '' }}">{{ icon('car') }} Veículos</a>
+    {% endif %}
     {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_clientes') %}
       <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
     {% endif %}

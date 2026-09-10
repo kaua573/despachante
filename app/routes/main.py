@@ -12,11 +12,24 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+@bp.route("/dashboard/geral")
+@login_required
+def dashboard_geral():
+    return render_template("dashboard_geral.html")
+
+
 @bp.route("/api/dashboard")
 @login_required
 def api_dashboard():
     svc = DashboardService(db.session)
     return jsonify(svc.resumo())
+
+
+@bp.route("/api/dashboard/geral")
+@login_required
+def api_dashboard_geral():
+    svc = DashboardService(db.session)
+    return jsonify(svc.resumo_geral())
 
 
 @bp.route("/static/uploads/documentos/<nome>")

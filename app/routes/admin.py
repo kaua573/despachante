@@ -42,7 +42,9 @@ def novo_usuario():
         if not usuario:
             erro = msg
         else:
-            LogService(db.session).registrar("criar_usuario", "usuario", usuario.id, {"nome": usuario.nome_usuario})
+            depois = usuario.to_dict()
+            depois["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
+            LogService(db.session).registrar_alteracao("criar_usuario", "usuario", usuario.id, None, depois)
             flash(f"Usuário '{usuario.nome_completo}' criado com sucesso.")
             return redirect(url_for("admin.usuarios"))
 
@@ -59,6 +61,9 @@ def editar_usuario(uid):
 
     erro = None
     if request.method == "POST":
+        antes = usuario.to_dict()
+        antes["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
+
         dados = {
             "nome_usuario":  request.form.get("nome_usuario", "").strip(),
             "nome_completo": request.form.get("nome_completo", "").strip(),
@@ -69,7 +74,10 @@ def editar_usuario(uid):
         if not ok:
             erro = msg
         else:
-            LogService(db.session).registrar("editar_usuario", "usuario", uid, {"nome": dados["nome_usuario"]})
+            db.session.refresh(usuario)
+            depois = usuario.to_dict()
+            depois["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
+            LogService(db.session).registrar_alteracao("editar_usuario", "usuario", uid, antes, depois)
             flash("Usuário atualizado.")
             return redirect(url_for("admin.usuarios"))
 
@@ -112,20 +120,28 @@ def toggle_ativo(uid):
 @login_required
 def log_acoes():
     _somente_admin()
+    from app.models.log_acao import LogAcao
+
     pagina      = int(request.args.get("pagina", 1))
     usuario_id  = request.args.get("usuario_id") or None
     acao        = request.args.get("acao", "").strip() or None
+    entidade    = request.args.get("entidade", "").strip() or None
     data_inicio = request.args.get("data_inicio", "").strip() or None
     data_fim    = request.args.get("data_fim", "").strip() or None
 
     resultado = LogService(db.session).listar(
         usuario_id=int(usuario_id) if usuario_id else None,
         acao=acao,
+        entidade=entidade,
         data_inicio=data_inicio,
         data_fim=data_fim,
         pagina=pagina,
     )
     usuarios = db.session.query(Usuario).order_by(Usuario.nome_completo).all()
-    return render_template("admin/log.html", **resultado, usuarios=usuarios,
-                           filtros={"usuario_id": usuario_id, "acao": acao,
+    entidades = [
+        r[0] for r in
+        db.session.query(LogAcao.entidade).filter(LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
+    ]
+    return render_template("admin/log.html", **resultado, usuarios=usuarios, entidades=entidades,
+                           filtros={"usuario_id": usuario_id, "acao": acao, "entidade": entidade,
                                     "data_inicio": data_inicio, "data_fim": data_fim})

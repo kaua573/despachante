@@ -17,6 +17,7 @@ PERMISSOES_DISPONIVEIS = [
     ("excluir_clientes",         "Excluir clientes e proprietários"),
     ("gerar_relatorios",         "Gerar e exportar relatórios"),
     ("gerenciar_seeds",          "Executar seed de dados de teste"),
+    ("gerenciar_regras_vencimento", "Configurar regras de vencimento por final de placa e lançar licenciamentos em lote"),
 ]
 
 CODIGOS_PERMISSAO = {cod for cod, _ in PERMISSOES_DISPONIVEIS}
