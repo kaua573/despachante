@@ -200,7 +200,7 @@ async function carregar() {
   }
   tbody.innerHTML = filtrado.map(v => `
     <tr>
-      <td><strong style="font-family:monospace;font-size:15px;">${escapeHtml(v.placa)}</strong></td>
+      <td><span class="chip-placa">${escapeHtml(v.placa)}</span></td>
       <td>${escapeHtml(v.marca_modelo)||'—'}</td>
       <td>${escapeHtml(v.proprietario)||'—'}</td>
       <td>${ESPECIE[v.especie]||escapeHtml(v.especie)||'—'}</td>

@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, request, jsonify, current_app, abo
 from flask_login import login_required, current_user
 from app import db
 from app.services.configuracao_service import (
-    ConfiguracaoService, PALETA_CORES, FONTES_PDF, TAMANHOS_PDF,
+    ConfiguracaoService, PALETA_CORES,
     hex_valido, resolver_cor,
 )
 from app.services.backup_service import BackupService
@@ -196,60 +196,6 @@ def api_remover_logo():
     if logo:
         _remover_logo_disco(logo, current_app.config["LOGO_DIR"])
         cfg.set("escritorio_logo", "")
-    return jsonify({"ok": True})
-
-
-# ── API — PDF ────────────────────────────────────────────────────────────────
-
-@bp.route("/api/configuracoes/pdf", methods=["GET"])
-@login_required
-def api_get_config_pdf():
-    _somente_admin()
-    cfg = _cfg()
-    cor = cfg.get("pdf_cor", "azul")
-    return jsonify({
-        "fonte":                cfg.get("pdf_fonte", "moderna"),
-        "tamanho":              cfg.get("pdf_tamanho", "medio"),
-        "cor":                  cor,
-        "cor_resolvida":        resolver_cor(cor),
-        "cor_texto":            cfg.get("pdf_cor_texto", "escuro"),
-        "mostrar_data_geracao": cfg.get("pdf_mostrar_data_geracao", "1") == "1",
-        "espacamento":          cfg.get("pdf_espacamento", "espacada"),
-        "ordem_blocos":         cfg.get("pdf_ordem_blocos", "dados_primeiro"),
-        "nome_escritorio":      cfg.get("pdf_nome_escritorio", ""),
-        "opcoes_fonte":         FONTES_PDF,
-        "opcoes_tamanho":       TAMANHOS_PDF,
-        "sugestoes_cor":        PALETA_CORES,
-    })
-
-
-@bp.route("/api/configuracoes/pdf", methods=["POST"])
-@login_required
-def api_set_config_pdf():
-    _somente_admin()
-    dados = request.get_json(silent=True) or {}
-    cor = dados.get("cor", "")
-    validacoes = [
-        (dados.get("fonte") not in FONTES_PDF,         "Fonte inválida."),
-        (dados.get("tamanho") not in TAMANHOS_PDF,     "Tamanho inválido."),
-        (cor not in PALETA_CORES and not hex_valido(cor), "Cor inválida. Use um código hexadecimal, ex: #1a4f8a."),
-        (dados.get("cor_texto") not in ("escuro", "cinza", "claro"), "Cor do texto inválida."),
-        (dados.get("espacamento") not in ("compacta", "espacada"),   "Espaçamento inválido."),
-        (dados.get("ordem_blocos") not in ("dados_primeiro", "veiculos_primeiro"), "Ordem de blocos inválida."),
-    ]
-    for invalido, msg in validacoes:
-        if invalido:
-            return jsonify({"ok": False, "erro": msg}), 400
-
-    cfg = _cfg()
-    cfg.set("pdf_fonte",               dados["fonte"])
-    cfg.set("pdf_tamanho",             dados["tamanho"])
-    cfg.set("pdf_cor",                 dados["cor"])
-    cfg.set("pdf_cor_texto",           dados["cor_texto"])
-    cfg.set("pdf_mostrar_data_geracao","1" if dados.get("mostrar_data_geracao") else "0")
-    cfg.set("pdf_espacamento",         dados["espacamento"])
-    cfg.set("pdf_ordem_blocos",        dados["ordem_blocos"])
-    cfg.set("pdf_nome_escritorio",     dados.get("nome_escritorio", ""))
     return jsonify({"ok": True})
 
 

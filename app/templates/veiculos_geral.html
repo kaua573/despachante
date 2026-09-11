@@ -124,7 +124,7 @@ async function carregarVeiculos() {
 
   tbody.innerHTML = lista.map(v => `
     <tr>
-      <td><strong>${escapeHtml(v.placa)}</strong></td>
+      <td><span class="chip-placa">${escapeHtml(v.placa)}</span></td>
       <td><a href="/clientes/${v.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;">${escapeHtml(v.cliente_nome)}</a></td>
       <td>${ESPECIE_LABEL[v.especie] || v.especie || '—'}</td>
       <td>${escapeHtml(v.marca_modelo) || '—'}</td>

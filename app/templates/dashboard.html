@@ -223,7 +223,7 @@
     const urg = classificarUrgencia(dias);
     return `<tr>
     <td><a href="/clientes/${r.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;font-weight:600;">${r.cliente_nome}</a></td>
-    <td><strong style="font-family:monospace;">${r.placa}</strong></td>
+    <td><span class="chip-placa">${r.placa}</span></td>
     <td>${CAT[r.especie] || r.especie || '—'}</td>
     <td>${r.ano_referencia}</td>
     <td>${fmtMoeda(r.valor)}</td>

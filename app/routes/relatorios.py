@@ -107,13 +107,9 @@ def api_exportar_pdf():
     cfg_svc = ConfiguracaoService(db.session)
 
     cfg_pdf = {
-        "fonte":                cfg_svc.get("pdf_fonte", "moderna"),
-        "tamanho":              cfg_svc.get("pdf_tamanho", "medio"),
-        "cor":                  cfg_svc.get("pdf_cor", "azul"),
-        "mostrar_data_geracao": cfg_svc.get("pdf_mostrar_data_geracao", "1") == "1",
-        "nome_escritorio":      cfg_svc.get("pdf_nome_escritorio") or cfg_svc.get("escritorio_nome", ""),
-        "logo_dir":             current_app.config["LOGO_DIR"],
-        "logo_arquivo":         cfg_svc.get("escritorio_logo", ""),
+        "nome_escritorio": cfg_svc.get("escritorio_nome", ""),
+        "logo_dir":        current_app.config["LOGO_DIR"],
+        "logo_arquivo":    cfg_svc.get("escritorio_logo", ""),
     }
 
     pdf_bytes  = svc.gerar_pdf(dados, campos_visiveis, config, cfg_pdf)

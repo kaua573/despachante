@@ -269,7 +269,7 @@ async function carregarPrevisao() {
   tbody.innerHTML = lista.map((v, i) => `
     <tr>
       ${PODE_GERENCIAR ? `<td><input type="checkbox" class="chk-veiculo" data-idx="${i}" ${v.ja_lancado_no_ano ? 'disabled' : ''}></td>` : ''}
-      <td><strong>${escapeHtml(v.placa)}</strong></td>
+      <td><span class="chip-placa">${escapeHtml(v.placa)}</span></td>
       <td>${v.final_placa ?? '—'}</td>
       <td>${escapeHtml(v.cliente_nome)}</td>
       <td>${ESPECIE_LABEL[v.especie] || v.especie}</td>
@@ -307,7 +307,7 @@ function abrirResumoLote() {
 
   document.getElementById('tbody-lote').innerHTML = marcados.map((v) => `
     <tr data-vid="${v.veiculo_id}">
-      <td>${escapeHtml(v.placa)}</td>
+      <td><span class="chip-placa">${escapeHtml(v.placa)}</span></td>
       <td>${escapeHtml(v.cliente_nome)}</td>
       <td><input type="date" class="lote-data" data-vid="${v.veiculo_id}" value="${v.vencimento_previsto}"></td>
     </tr>`).join('');

@@ -23,32 +23,12 @@ PALETA_CORES: dict[str, dict] = {
     "laranja":  {"nome": "Laranja",  "principal": "#a04a14", "secundaria": "#c8631e"},
 }
 
-FONTES_PDF: dict[str, dict] = {
-    "moderna":  {"nome": "Moderna (sem serifa)",    "base": "Helvetica",   "bold": "Helvetica-Bold"},
-    "classica": {"nome": "Clássica (serifada)",     "base": "Times-Roman", "bold": "Times-Bold"},
-    "tecnica":  {"nome": "Técnica (monoespaçada)",  "base": "Courier",     "bold": "Courier-Bold"},
-}
-
-TAMANHOS_PDF: dict[str, dict] = {
-    "pequeno": {"nome": "Pequeno", "titulo": 15, "secao": 10, "texto": 8,  "mini": 7},
-    "medio":   {"nome": "Médio",   "titulo": 18, "secao": 12, "texto": 10, "mini": 8},
-    "grande":  {"nome": "Grande",  "titulo": 21, "secao": 14, "texto": 12, "mini": 9},
-}
-
 # Valores padrão de fábrica para todas as chaves de configuração
 DEFAULTS: dict[str, str] = {
     "senha_exclusao":            "0000",
     "backup_intervalo_min":      "30",
     "tema_modo":                 "claro",
     "tema_cor":                  "azul",
-    "pdf_fonte":                 "moderna",
-    "pdf_tamanho":               "medio",
-    "pdf_cor":                   "azul",
-    "pdf_cor_texto":             "escuro",
-    "pdf_mostrar_data_geracao":  "1",
-    "pdf_espacamento":           "espacada",
-    "pdf_ordem_blocos":          "dados_primeiro",
-    "pdf_nome_escritorio":       "",
     "escritorio_nome":           "",
     "escritorio_logo":           "",
 }

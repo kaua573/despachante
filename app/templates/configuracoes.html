@@ -133,103 +133,6 @@
     </div>
   </div>
 
-  <!-- PDF -->
-  <div class="card">
-    <div class="card-header">
-      <h2>{{ icon('file') }} Personalização do relatório PDF</h2>
-    </div>
-    <div class="card-body" style="display:flex;flex-direction:column;gap:18px;">
-      <div class="row2">
-        <div class="field"><label>Fonte</label>
-          <select id="pdf-fonte">
-            <option value="moderna">Moderna (sem serifa — Helvetica)</option>
-            <option value="classica">Clássica (serifada — Times New Roman)</option>
-            <option value="tecnica">Técnica (monoespaçada — Courier)</option>
-          </select>
-        </div>
-        <div class="field"><label>Tamanho do texto</label>
-          <select id="pdf-tamanho">
-            <option value="pequeno">Pequeno (compacto)</option>
-            <option value="medio">Médio (padrão)</option>
-            <option value="grande">Grande (mais legível)</option>
-          </select>
-        </div>
-      </div>
-      <div>
-        <div
-          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">
-          Cor do texto</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;" id="cor-texto-group">
-          <label
-            style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;"
-            id="ct-escuro">
-            <input type="radio" name="pdf-cor-texto" value="escuro" style="accent-color:var(--azul2);">
-            <span
-              style="width:16px;height:16px;border-radius:50%;background:#1c2333;display:inline-block;border:1px solid var(--cinza3);"></span>
-            Escuro (padrão)
-          </label>
-          <label
-            style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;"
-            id="ct-cinza">
-            <input type="radio" name="pdf-cor-texto" value="cinza" style="accent-color:var(--azul2);">
-            <span
-              style="width:16px;height:16px;border-radius:50%;background:#4a5568;display:inline-block;border:1px solid var(--cinza3);"></span>
-            Cinza (suave)
-          </label>
-          <label
-            style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;border:2px solid var(--cinza3);border-radius:8px;font-size:14px;transition:.15s;"
-            id="ct-claro">
-            <input type="radio" name="pdf-cor-texto" value="claro" style="accent-color:var(--azul2);">
-            <span
-              style="width:16px;height:16px;border-radius:50%;background:#9aa4ba;display:inline-block;border:1px solid var(--cinza3);"></span>
-            Claro (para fundos escuros)
-          </label>
-        </div>
-      </div>
-      <div>
-        <div
-          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
-          Cor principal do PDF</div>
-        <div class="cor-picker-row">
-          <input type="color" id="cor-pdf-picker" class="cor-picker" oninput="onCorChange('pdf', this.value)">
-          <input type="text" id="cor-pdf-hex" class="cor-hex" maxlength="7" placeholder="#1a4f8a"
-            oninput="onHexDigitado('pdf', this.value)">
-          <div class="cor-preview" id="cor-pdf-preview">Aa</div>
-        </div>
-        <!--div class="swatch-group" id="swatch-pdf" style="margin-top:10px;"></div--esconde bolas de cores -->
-      </div>
-      <div>
-        <div
-          style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
-          Layout</div>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          <label class="check-item"><input type="checkbox" id="pdf-mostrar-data"> Mostrar data/hora de geração no
-            cabeçalho</label>
-          <div class="row2" style="gap:12px;margin-top:4px;">
-            <div class="field"><label>Espaçamento das tabelas</label>
-              <select id="pdf-espacamento">
-                <option value="espacada">Espaçada (mais fácil de ler)</option>
-                <option value="compacta">Compacta (mais conteúdo por página)</option>
-              </select>
-            </div>
-            <div class="field"><label>Ordem dos blocos</label>
-              <select id="pdf-ordem">
-                <option value="dados_primeiro">Dados do cliente → Veículos</option>
-                <option value="veiculos_primeiro">Veículos → Dados do cliente</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-primary" onclick="salvarPdf()">{{ icon('save','icon icon-sm') }} Salvar configurações do
-          PDF</button>
-        <button class="btn btn-outline" onclick="previewPdf()">{{ icon('view','icon icon-sm') }} Gerar PDF de
-          prévia</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Senha de exclusão -->
   <div class="card">
     <div class="card-header">
@@ -302,10 +205,10 @@
 
 {% block scripts %}
 <script>
-  let temaModoCurrent = 'claro', temaCorCurrent = '#1a4f8a', pdfCorCurrent = '#1a4f8a';
+  let temaModoCurrent = 'claro', temaCorCurrent = '#1a4f8a';
 
   async function init() {
-    await Promise.all([carregarEscritorio(), carregarTema(), carregarPdf(), carregarConfig(), carregarBackups()]);
+    await Promise.all([carregarEscritorio(), carregarTema(), carregarConfig(), carregarBackups()]);
   }
 
   // ── Identidade ────────────────────────────────────────────────────────────────
@@ -391,7 +294,7 @@
   function definirCor(tipo, hex) {
     if (!hexValido(hex)) return;
     hex = hex.toLowerCase();
-    if (tipo === 'tema') temaCorCurrent = hex; else pdfCorCurrent = hex;
+    temaCorCurrent = hex;
     document.getElementById(`cor-${tipo}-picker`).value = hex;
     document.getElementById(`cor-${tipo}-hex`).value = hex;
     atualizarPreview(tipo, hex);
@@ -408,7 +311,6 @@
 
   function renderSwatches(containerId, sugestoes, corAtualHex) {
     const el = document.getElementById(containerId);
-    const tipo = containerId.includes('pdf') ? 'pdf' : 'tema';
     el.innerHTML = '';
     for (const info of Object.values(sugestoes)) {
       const hex = info.principal.toLowerCase();
@@ -417,7 +319,7 @@
       div.title = info.nome;
       div.dataset.hex = hex;
       div.style.background = hex;
-      div.onclick = () => definirCor(tipo, hex);
+      div.onclick = () => definirCor('tema', hex);
       el.appendChild(div);
     }
   }
@@ -448,55 +350,6 @@
     if (!d) return;
     toast('Aparência salva! Recarregando...');
     setTimeout(() => location.reload(), 900);
-  }
-
-  // ── PDF ───────────────────────────────────────────────────────────────────────
-  async function carregarPdf() {
-    const d = await apiFetch('/api/configuracoes/pdf');
-    if (!d) return;
-    pdfCorCurrent = d.cor_resolvida.principal;
-    document.getElementById('pdf-fonte').value = d.fonte;
-    document.getElementById('pdf-tamanho').value = d.tamanho;
-    document.getElementById('pdf-mostrar-data').checked = d.mostrar_data_geracao;
-    document.getElementById('pdf-espacamento').value = d.espacamento;
-    document.getElementById('pdf-ordem').value = d.ordem_blocos;
-    const radios = document.querySelectorAll('input[name="pdf-cor-texto"]');
-    radios.forEach(r => {
-      r.checked = r.value === d.cor_texto;
-      atualizarBordaCorTexto(r.closest('label'), r.checked);
-      r.addEventListener('change', () => radios.forEach(rr => atualizarBordaCorTexto(rr.closest('label'), rr.checked)));
-    });
-    renderSwatches('swatch-pdf', d.sugestoes_cor, pdfCorCurrent);
-    definirCor('pdf', pdfCorCurrent);
-  }
-
-  function atualizarBordaCorTexto(label, selecionado) {
-    if (!label) return;
-    label.style.borderColor = selecionado ? 'var(--azul2)' : 'var(--cinza3)';
-    label.style.background = selecionado ? 'var(--cinza1)' : '';
-  }
-
-  async function salvarPdf() {
-    const corTexto = document.querySelector('input[name="pdf-cor-texto"]:checked')?.value || 'escuro';
-    const d = await apiFetch('/api/configuracoes/pdf', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fonte: document.getElementById('pdf-fonte').value,
-        tamanho: document.getElementById('pdf-tamanho').value,
-        cor: pdfCorCurrent, cor_texto: corTexto,
-        mostrar_data_geracao: document.getElementById('pdf-mostrar-data').checked,
-        espacamento: document.getElementById('pdf-espacamento').value,
-        ordem_blocos: document.getElementById('pdf-ordem').value,
-        nome_escritorio: ''
-      })
-    });
-    if (d) toast('Configurações do PDF salvas!');
-  }
-
-  async function previewPdf() {
-    const cls = await apiFetch('/api/clientes');
-    if (!cls || !cls.length) { toast('Cadastre ao menos um cliente para gerar a prévia', 'err'); return; }
-    window.open(`/api/clientes/${cls[0].id}/relatorio?incluir=dados&incluir=veiculos&incluir=ipva&incluir=licenciamento`, '_blank');
   }
 
   // ── Senha ─────────────────────────────────────────────────────────────────────

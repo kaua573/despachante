@@ -25,7 +25,7 @@
   .item-card:last-child { margin-bottom:0; }
   .item-card input[type="checkbox"] { margin-top:2px; flex-shrink:0; }
   .item-card .topo { display:flex; justify-content:space-between; align-items:center; gap:6px; }
-  .item-card .placa { font-family:monospace; font-weight:700; }
+  .item-card .placa { font-family:'JetBrains Mono',monospace; font-weight:600; }
   .item-card .sub { color:var(--sub); margin-top:2px; }
 </style>
 
@@ -161,7 +161,7 @@ function renderizarLista() {
     const k = chave(item);
     return `<tr>
       <td><input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)"></td>
-      <td style="font-family:monospace;">${escapeHtml(item.placa)}</td>
+      <td><span class="chip-placa">${escapeHtml(item.placa)}</span></td>
       <td>${TIPO_LABEL[item.tipo] || item.tipo}</td>
       <td>${escapeHtml(item.descricao)}</td>
       <td>${fmtMoeda(item.valor)}</td>
@@ -281,7 +281,7 @@ function abrirConfirmacaoQuitar() {
 
   document.getElementById('lista-confirmacao').innerHTML = selecionados.map(item => `
     <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--cinza2);">
-      <span><span style="font-family:monospace;font-weight:700;">${escapeHtml(item.placa)}</span> · ${escapeHtml(item.descricao)}</span>
+      <span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">${escapeHtml(item.placa)}</span> · ${escapeHtml(item.descricao)}</span>
       <span>${fmtMoeda(item.valor)}</span>
     </div>`).join('');
 

@@ -13,7 +13,7 @@
     {{ icon('car','icon icon-xl') }}
     <div style="flex:1;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span style="font-size:22px;font-weight:700;font-family:monospace;color:var(--azul);">{{ veiculo.placa }}</span>
+        <span class="chip-placa" style="font-size:18px;padding:5px 12px;">{{ veiculo.placa }}</span>
         {% if veiculo.situacao == 'ativo' %}<span class="badge badge-ativo">Ativo</span>{% endif %}
         {% if veiculo.situacao == 'desativado' %}<span class="badge badge-inativo">Desativado</span>{% endif %}
         {% if veiculo.situacao == 'vendido' %}<span class="badge badge-vencido">Vendido</span>{% endif %}

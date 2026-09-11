@@ -381,11 +381,16 @@ class RelatorioService:
         """
         Gera PDF do relatório.
 
+        Visual fixo, inspirado em documentos de sistemas de gestão tradicionais
+        (cabeçalho com identificação do escritório, barra cinza de título,
+        caixas com borda, tabela com cabeçalho e total sombreados) — sem
+        opções de cor/fonte configuráveis; só o conteúdo muda com os filtros.
+
         Args:
             dados: linhas do relatório
             campos_visiveis: lista de {id, label} na ordem desejada
             config: configuração do relatório (tipo, filtros, agrupamento etc.)
-            cfg_pdf: configurações visuais (fonte, cor, nome_escritorio, logo_dir, logo_arquivo)
+            cfg_pdf: {nome_escritorio, logo_dir, logo_arquivo}
         """
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib import colors as rl_colors
@@ -393,37 +398,34 @@ class RelatorioService:
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.platypus import (
             SimpleDocTemplate, Paragraph, Spacer, Table,
-            TableStyle, HRFlowable, Image as RLImage,
+            TableStyle, Image as RLImage,
         )
-        from app.services.configuracao_service import FONTES_PDF, TAMANHOS_PDF, resolver_cor
 
-        fonte   = FONTES_PDF.get(cfg_pdf.get("fonte", "moderna"), FONTES_PDF["moderna"])
-        tam     = TAMANHOS_PDF.get(cfg_pdf.get("tamanho", "medio"), TAMANHOS_PDF["medio"])
-        paleta  = resolver_cor(cfg_pdf.get("cor", "azul"))
-        mostrar_data    = cfg_pdf.get("mostrar_data_geracao", True)
         nome_escritorio = cfg_pdf.get("nome_escritorio", "")
         logo_dir        = cfg_pdf.get("logo_dir", "")
         logo_arquivo    = cfg_pdf.get("logo_arquivo", "")
 
-        COR_PRINCIPAL = rl_colors.HexColor(paleta["principal"])
-        COR_SECUND    = rl_colors.HexColor(paleta["secundaria"])
-        CINZA1 = rl_colors.HexColor("#f4f6fa")
-        CINZA2 = rl_colors.HexColor("#e8ecf2")
-        BRANCO = rl_colors.white
-        # Texto sobre fundo COR_PRINCIPAL (cabeçalhos de tabela, resumo): calculado
-        # automaticamente para permanecer legível seja qual for a cor escolhida.
-        TEXTO_HEADER = rl_colors.HexColor(paleta["contraste"])
-        FONTE_BASE = fonte["base"]
-        FONTE_BOLD = fonte["bold"]
+        # Paleta fixa (preto/cinza), sem personalização — mesma família de
+        # tons do sistema web (ink/paper), aplicada em preto-e-branco no PDF.
+        PRETO   = rl_colors.HexColor("#16181C")
+        CINZA_BARRA  = rl_colors.HexColor("#EDEAE1")
+        CINZA_BORDA  = rl_colors.HexColor("#D8D4C8")
+        CINZA_SUB    = rl_colors.HexColor("#63697A")
+        BRANCO  = rl_colors.white
+        FONTE_BASE = "Helvetica"
+        FONTE_BOLD = "Helvetica-Bold"
 
-        sTitulo = ParagraphStyle("titulo", fontName=FONTE_BOLD, fontSize=tam["titulo"],    textColor=COR_PRINCIPAL, spaceAfter=4)
-        sSub    = ParagraphStyle("sub",    fontName=FONTE_BASE, fontSize=tam["mini"] + 1,  textColor=rl_colors.HexColor("#5a6680"), spaceAfter=10)
-        sSecao  = ParagraphStyle("secao",  fontName=FONTE_BOLD, fontSize=tam["secao"],     textColor=COR_SECUND, spaceBefore=12, spaceAfter=4)
-        sCell   = ParagraphStyle("cell",   fontName=FONTE_BASE, fontSize=tam["texto"] - 1, textColor=rl_colors.HexColor("#1c2333"))
-        sHead   = ParagraphStyle("head",   fontName=FONTE_BOLD, fontSize=tam["mini"],      textColor=TEXTO_HEADER)
-        sTotal  = ParagraphStyle("total",  fontName=FONTE_BOLD, fontSize=tam["texto"] - 1, textColor=COR_PRINCIPAL)
-        sRodape = ParagraphStyle("rodape", fontName=FONTE_BASE, fontSize=tam["mini"],      textColor=rl_colors.HexColor("#9aa4ba"))
-        sEscrit = ParagraphStyle("escrit", fontName=FONTE_BOLD, fontSize=tam["mini"] + 3,  textColor=COR_SECUND, spaceAfter=2)
+        sEscrit = ParagraphStyle("escrit", fontName=FONTE_BOLD, fontSize=13, textColor=PRETO, spaceAfter=1)
+        sEscritSub = ParagraphStyle("escritsub", fontName=FONTE_BASE, fontSize=8, textColor=CINZA_SUB, leading=11)
+        sBarraTxt  = ParagraphStyle("barratxt", fontName=FONTE_BOLD, fontSize=11, textColor=PRETO)
+        sBarraData = ParagraphStyle("barradata", fontName=FONTE_BASE, fontSize=9.5, textColor=PRETO, alignment=2)
+        sSecaoBarra = ParagraphStyle("secaobarra", fontName=FONTE_BOLD, fontSize=9, textColor=PRETO)
+        sLabel  = ParagraphStyle("label", fontName=FONTE_BOLD, fontSize=8.5, textColor=PRETO)
+        sValor  = ParagraphStyle("valor", fontName=FONTE_BASE, fontSize=8.5, textColor=PRETO)
+        sCell   = ParagraphStyle("cell",  fontName=FONTE_BASE, fontSize=8.5, textColor=PRETO)
+        sHead   = ParagraphStyle("head",  fontName=FONTE_BOLD, fontSize=8,   textColor=PRETO)
+        sTotal  = ParagraphStyle("total", fontName=FONTE_BOLD, fontSize=8.5, textColor=PRETO)
+        sRodape = ParagraphStyle("rodape", fontName=FONTE_BASE, fontSize=7.5, textColor=CINZA_SUB)
 
         pagesize = landscape(A4) if len(campos_visiveis) > 6 else A4
 
@@ -431,102 +433,106 @@ class RelatorioService:
         doc = SimpleDocTemplate(
             buf, pagesize=pagesize,
             leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-            topMargin=2 * cm, bottomMargin=2 * cm,
+            topMargin=1.5 * cm, bottomMargin=1.5 * cm,
         )
         story = []
 
-        # ── Cabeçalho: logo + nome do escritório lado a lado ──────────────
-        # A logo é dimensionada proporcionalmente com altura máxima de 60px (≈ 2.12cm).
+        def barra_secao(texto: str, texto_direita: str = "") -> Table:
+            """Barra cinza de seção (rótulo em maiúsculas, borda fina) — mesmo
+            papel visual das seções 'DADOS DO CLIENTE', 'PRODUTOS' etc. da
+            referência."""
+            if texto_direita:
+                t = Table(
+                    [[Paragraph(texto.upper(), sSecaoBarra), Paragraph(texto_direita, sBarraData)]],
+                    colWidths=["70%", "30%"],
+                )
+            else:
+                t = Table([[Paragraph(texto.upper(), sSecaoBarra)]], colWidths=["100%"])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), CINZA_BARRA),
+                ("BOX",        (0, 0), (-1, -1), 0.6, CINZA_BORDA),
+                ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+                ("PADDING",    (0, 0), (-1, -1), 6),
+            ]))
+            return t
+
+        # ── Cabeçalho: logo + nome do escritório ─────────────────────────
         logo_path = os.path.join(logo_dir, logo_arquivo) if logo_dir and logo_arquivo else ""
         if logo_path and os.path.exists(logo_path):
             try:
                 logo_img = RLImage(logo_path)
-                # Calcula largura proporcional mantendo altura em 2cm
-                altura_alvo = 2 * cm
+                altura_alvo = 1.8 * cm
                 razao = altura_alvo / logo_img.imageHeight
-                largura_calc = logo_img.imageWidth * razao
-                # Limita largura máxima a 6cm para não ocupar todo o cabeçalho
-                largura_final = min(largura_calc, 6 * cm)
+                largura_final = min(logo_img.imageWidth * razao, 5 * cm)
                 altura_final  = largura_final / (logo_img.imageWidth / logo_img.imageHeight)
-
-                if nome_escritorio:
-                    # Logo e nome do escritório em tabela de 2 colunas para alinhamento
-                    logo_cell  = RLImage(logo_path, width=largura_final, height=altura_final)
-                    nome_cell  = Paragraph(nome_escritorio, sEscrit)
-                    cabec_tbl  = Table([[logo_cell, nome_cell]], colWidths=[largura_final + 0.4 * cm, None])
-                    cabec_tbl.setStyle(TableStyle([
-                        ("VALIGN",  (0, 0), (-1, -1), "MIDDLE"),
-                        ("LEFTPADDING",  (0, 0), (-1, -1), 0),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                        ("TOPPADDING",   (0, 0), (-1, -1), 0),
-                        ("BOTTOMPADDING",(0, 0), (-1, -1), 0),
-                    ]))
-                    story.append(cabec_tbl)
-                else:
-                    logo_img_sized       = RLImage(logo_path, width=largura_final, height=altura_final)
-                    logo_img_sized.hAlign = "LEFT"
-                    story.append(logo_img_sized)
-                story.append(Spacer(1, 6))
+                logo_cell = RLImage(logo_path, width=largura_final, height=altura_final)
+                nome_cell = [Paragraph(nome_escritorio or "Sistema Despachante", sEscrit)]
+                cabec_tbl = Table([[logo_cell, nome_cell]], colWidths=[largura_final + 0.4 * cm, None])
+                cabec_tbl.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]))
+                story.append(cabec_tbl)
             except Exception:
-                # Falha silenciosa — logo quebrada não deve impedir o relatório
-                if nome_escritorio:
-                    story.append(Paragraph(nome_escritorio, sEscrit))
-        elif nome_escritorio:
-            story.append(Paragraph(nome_escritorio, sEscrit))
+                story.append(Paragraph(nome_escritorio or "Sistema Despachante", sEscrit))
+        else:
+            story.append(Paragraph(nome_escritorio or "Sistema Despachante", sEscrit))
+        story.append(Spacer(1, 8))
 
+        # ── Barra de título — nome do relatório + data de geração ────────
         tipo_label = tipos_label(tipos_do_config(config))
-        story.append(Paragraph(f"Relatório — {tipo_label}", sTitulo))
-        if mostrar_data:
-            story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}", sSub))
-        story.append(HRFlowable(width="100%", thickness=2, color=COR_PRINCIPAL, spaceAfter=12))
+        data_geracao = datetime.now().strftime("%d/%m/%Y %H:%M")
+        story.append(barra_secao(f"Relatório — {tipo_label}", data_geracao))
+        story.append(Spacer(1, 10))
 
         # ── Resumo executivo (opcional) ────────────────────────────────────
         if config.get("mostrar_resumo"):
             totais = self.calcular_totais(dados)
-            story.append(Paragraph("Resumo Executivo", sSecao))
+            story.append(barra_secao("Resumo"))
             resumo_data = [
-                [Paragraph("Total de registros", sHead), Paragraph(str(totais["total_registros"]), sTotal)],
-                [Paragraph("Valor total",         sHead), Paragraph(self._fmt_moeda(totais["total_valor"]),  sTotal)],
-                [Paragraph("Pagos",               sHead), Paragraph(f"{totais['total_pago']} ({self._fmt_moeda(totais['valor_pago'])})", sTotal)],
-                [Paragraph("Pendentes",           sHead), Paragraph(str(totais["total_pendente"]), sTotal)],
-                [Paragraph("A Vencer",            sHead), Paragraph(str(totais["total_a_vencer"]), sTotal)],
-                [Paragraph("Vencidos",            sHead), Paragraph(f"{totais['total_vencido']} ({self._fmt_moeda(totais['valor_pendente'])})", sTotal)],
+                [Paragraph("Total de registros", sLabel), Paragraph(str(totais["total_registros"]), sValor)],
+                [Paragraph("Valor total",         sLabel), Paragraph(self._fmt_moeda(totais["total_valor"]),  sValor)],
+                [Paragraph("Pagos",               sLabel), Paragraph(f"{totais['total_pago']} ({self._fmt_moeda(totais['valor_pago'])})", sValor)],
+                [Paragraph("Pendentes",           sLabel), Paragraph(str(totais["total_pendente"]), sValor)],
+                [Paragraph("A Vencer",            sLabel), Paragraph(str(totais["total_a_vencer"]), sValor)],
+                [Paragraph("Vencidos",            sLabel), Paragraph(f"{totais['total_vencido']} ({self._fmt_moeda(totais['valor_pendente'])})", sValor)],
             ]
             t_resumo = Table(resumo_data, colWidths=["40%", "60%"])
             t_resumo.setStyle(TableStyle([
-                ("BACKGROUND",   (0, 0), (0, -1), COR_PRINCIPAL),
-                ("ROWBACKGROUNDS",(1, 0),(1, -1), [CINZA1, CINZA2]),
-                ("BOX",          (0, 0), (-1, -1), 0.5, CINZA2),
-                ("INNERGRID",    (0, 0), (-1, -1), 0.3, CINZA2),
-                ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-                ("PADDING",      (0, 0), (-1, -1), 7),
+                ("BOX",        (0, 0), (-1, -1), 0.6, CINZA_BORDA),
+                ("INNERGRID",  (0, 0), (-1, -1), 0.4, CINZA_BORDA),
+                ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+                ("PADDING",    (0, 0), (-1, -1), 6),
             ]))
             story.append(t_resumo)
-            story.append(Spacer(1, 14))
+            story.append(Spacer(1, 12))
 
         # ── Tabela de dados ────────────────────────────────────────────────
         campo_grupo = config.get("agrupar_por", "")
         if campo_grupo and campo_grupo != "nenhum":
             grupos = self.agrupar(dados, campo_grupo)
             for nome_grupo, linhas in grupos.items():
-                story.append(Paragraph(str(nome_grupo), sSecao))
-                story.extend(self._montar_tabela_pdf(linhas, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config, TEXTO_HEADER))
-                story.append(Spacer(1, 8))
+                story.append(barra_secao(str(nome_grupo)))
+                story.extend(self._montar_tabela_pdf(linhas, campos_visiveis, sHead, sCell, sTotal, CINZA_BARRA, CINZA_BORDA, BRANCO, config))
+                story.append(Spacer(1, 10))
         else:
-            story.extend(self._montar_tabela_pdf(dados, campos_visiveis, sHead, sCell, COR_PRINCIPAL, CINZA1, CINZA2, BRANCO, config, TEXTO_HEADER))
+            story.append(barra_secao("Registros"))
+            story.extend(self._montar_tabela_pdf(dados, campos_visiveis, sHead, sCell, sTotal, CINZA_BARRA, CINZA_BORDA, BRANCO, config))
 
         # ── Rodapé ────────────────────────────────────────────────────────
-        story.append(Spacer(1, 16))
-        story.append(HRFlowable(width="100%", thickness=1, color=CINZA2))
-        story.append(Paragraph(nome_escritorio or "Sistema de Despachante", sRodape))
+        story.append(Spacer(1, 14))
+        story.append(Paragraph(
+            f"Relatório emitido pelo {nome_escritorio or 'Sistema Despachante'} em {data_geracao}",
+            sRodape,
+        ))
 
         doc.build(story)
         buf.seek(0)
         return buf.read()
 
-    def _montar_tabela_pdf(self, dados, campos_visiveis, sHead, sCell, cor_principal, cinza1, cinza2, branco, config, texto_header=None):
+    def _montar_tabela_pdf(self, dados, campos_visiveis, sHead, sCell, sTotal, cinza_barra, cinza_borda, branco, config):
         from reportlab.platypus import Table, TableStyle, Paragraph
-        texto_header = texto_header or branco
 
         if not dados:
             return [Paragraph("Nenhum registro encontrado.", sCell)]
@@ -545,7 +551,7 @@ class RelatorioService:
                 row.append(Paragraph(str(val) if val is not None else "—", sCell))
             linhas.append(row)
 
-        # Linha de totais (destaque visual)
+        # Linha de totais (destaque visual — mesma sombra cinza do cabeçalho)
         if config.get("mostrar_totais") and dados:
             totais     = self.calcular_totais(dados)
             linha_tot  = ["—"] * len(campos_visiveis)
@@ -554,22 +560,20 @@ class RelatorioService:
                 linha_tot[ids.index("valor")] = self._fmt_moeda(totais["total_valor"])
             if "cliente_nome" in ids:
                 linha_tot[ids.index("cliente_nome")] = f"Total: {totais['total_registros']} registros"
-            linhas.append([Paragraph(v, sHead) for v in linha_tot])
+            linhas.append([Paragraph(v, sTotal) for v in linha_tot])
 
         n     = len(campos_visiveis)
         col_w = [f"{100 / n:.1f}%"] * n
         t     = Table(linhas, colWidths=col_w, repeatRows=1)
         estilos = [
-            ("BACKGROUND",    (0, 0), (-1, 0), cor_principal),
-            ("TEXTCOLOR",     (0, 0), (-1, 0), texto_header),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [branco, cinza1]),
-            ("BOX",           (0, 0), (-1, -1), 0.5, cinza2),
-            ("INNERGRID",     (0, 0), (-1, -1), 0.3, cinza2),
+            ("BACKGROUND",    (0, 0), (-1, 0), cinza_barra),
+            ("BOX",           (0, 0), (-1, -1), 0.6, cinza_borda),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.4, cinza_borda),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
             ("PADDING",       (0, 0), (-1, -1), 6),
         ]
         if config.get("mostrar_totais") and dados:
-            estilos.append(("BACKGROUND", (0, -1), (-1, -1), cor_principal))
+            estilos.append(("BACKGROUND", (0, -1), (-1, -1), cinza_barra))
         t.setStyle(TableStyle(estilos))
         return [t]
 
@@ -586,14 +590,14 @@ class RelatorioService:
         tipo_label = tipos_label(tipos_do_config(config))
         ws.title = tipo_label[:31]  # Excel limita o nome da aba a 31 caracteres
 
-        fill_header = PatternFill(start_color="1A4F8A", end_color="1A4F8A", fill_type="solid")
+        fill_header = PatternFill(start_color="16181C", end_color="16181C", fill_type="solid")
         font_header = Font(bold=True, color="FFFFFF", size=11)
-        fill_alt    = PatternFill(start_color="F4F6FA", end_color="F4F6FA", fill_type="solid")
+        fill_alt    = PatternFill(start_color="EDEAE1", end_color="EDEAE1", fill_type="solid")
         borda = Border(
-            left=Side(style="thin", color="C8D0DC"),
-            right=Side(style="thin", color="C8D0DC"),
-            top=Side(style="thin", color="C8D0DC"),
-            bottom=Side(style="thin", color="C8D0DC"),
+            left=Side(style="thin", color="D8D4C8"),
+            right=Side(style="thin", color="D8D4C8"),
+            top=Side(style="thin", color="D8D4C8"),
+            bottom=Side(style="thin", color="D8D4C8"),
         )
 
         for col_idx, campo in enumerate(campos_visiveis, start=1):
