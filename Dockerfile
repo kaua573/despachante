@@ -18,4 +18,4 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8080
 
 # $PORT e injetada automaticamente pelo Cloud Run (normalmente 8080)
-CMD ["sh", "-c", "waitress-serve --host=0.0.0.0 --port=${PORT:-8080} --call wsgi:app"]
+CMD ["sh", "-c", "waitress-serve --host=0.0.0.0 --port=${PORT:-8080} wsgi:app"]
