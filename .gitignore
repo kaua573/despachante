@@ -22,6 +22,7 @@ app/static/uploads/logo/*
 
 # Ambiente
 .env
+env.yaml
 
 # Build do executável
 build/
