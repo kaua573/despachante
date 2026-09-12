@@ -1,0 +1,145 @@
+diff --git a/app/templates/admin/log.html b/app/templates/admin/log.html
+index 9d87939..d9c85ce 100644
+--- a/app/templates/admin/log.html
++++ b/app/templates/admin/log.html
+@@ -3,9 +3,9 @@
+ {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Log</span>{% endblock %}
+ 
+ {% block content %}
+-<div style="display:flex;gap:8px;margin-bottom:14px;">
+-  <a href="/admin/usuarios" class="btn btn-outline btn-sm">{{ icon('users','icon icon-sm') }} Usuários</a>
+-  <a href="/admin/log" class="btn btn-primary btn-sm">{{ icon('security','icon icon-sm') }} Log de ações</a>
++<div class="tab-switch">
++  <a href="/admin/usuarios">{{ icon('users','icon icon-sm') }} Usuários</a>
++  <a href="/admin/log" class="ativo">{{ icon('security','icon icon-sm') }} Log de ações</a>
+ </div>
+ <div class="card">
+   <div class="card-header">
+diff --git a/app/templates/admin/usuarios.html b/app/templates/admin/usuarios.html
+index f8537d5..8350e2d 100644
+--- a/app/templates/admin/usuarios.html
++++ b/app/templates/admin/usuarios.html
+@@ -3,9 +3,9 @@
+ {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Usuários</span>{% endblock %}
+ 
+ {% block content %}
+-<div style="display:flex;gap:8px;margin-bottom:14px;">
+-  <a href="/admin/usuarios" class="btn btn-primary btn-sm">{{ icon('users','icon icon-sm') }} Usuários</a>
+-  <a href="/admin/log" class="btn btn-outline btn-sm">{{ icon('security','icon icon-sm') }} Log de ações</a>
++<div class="tab-switch">
++  <a href="/admin/usuarios" class="ativo">{{ icon('users','icon icon-sm') }} Usuários</a>
++  <a href="/admin/log">{{ icon('security','icon icon-sm') }} Log de ações</a>
+ </div>
+ <div class="card">
+   <div class="card-header">
+diff --git a/app/templates/base.html b/app/templates/base.html
+index d2c0829..84f6cf7 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -49,12 +49,12 @@
+ 
+   html[data-tema="escuro"] {
+     --azul:{{ tema_cor.secundaria }}; --azul2:{{ tema_cor.secundaria }};
+-    --cinza1:#201E1A; --cinza2:#332F28; --cinza3:#48433A;
+-    --texto:#ECEAE3; --sub:#9C9686; --verde:#34c97f;
++    --cinza1:#2B2620; --cinza2:#3E3830; --cinza3:#544D40;
++    --texto:#ECEAE3; --sub:#A79F8E; --verde:#34c97f;
+     --vermelho:#e8685f; --amarelo:#d9a548; --branco:#211F1B;
+-    --card-bg:#211F1B; --body-bg:#17160F;
+-    --sombra:0 1px 4px rgba(0,0,0,.35);
+-    --input-bg:#332F28; --input-texto:#ECEAE3;
++    --card-bg:#211E19; --body-bg:#131210;
++    --sombra:0 1px 4px rgba(0,0,0,.5);
++    --input-bg:#2B2620; --input-texto:#ECEAE3;
+     --nav-fg:{{ tema_cor.contraste_sec }}; --nav-fg-forte:{{ tema_cor.contraste_sec_forte }};
+     --nav-fg-medio:{{ tema_cor.contraste_sec_medio }}; --nav-fg-fraco:{{ tema_cor.contraste_sec_fraco }};
+   }
+@@ -137,6 +137,11 @@
+ 
+   .container { max-width:1150px; margin:0 auto; padding:24px 20px; }
+ 
++  .tab-switch { display:inline-flex; gap:2px; background:var(--card-bg); border:1px solid var(--cinza2); border-radius:9px; padding:4px; margin-bottom:20px; box-shadow:var(--sombra); }
++  .tab-switch a { display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:6px; font-size:13.5px; font-weight:600; text-decoration:none; color:var(--sub); transition:.15s; white-space:nowrap; }
++  .tab-switch a:hover { color:var(--texto); background:var(--cinza1); }
++  .tab-switch a.ativo { background:var(--azul); color:var(--nav-fg); }
++
+   .card { background:var(--card-bg); border:1px solid var(--cinza2); border-radius:6px; box-shadow:var(--sombra); overflow:hidden; }
+   .card-header { padding:14px 20px; border-bottom:1px solid var(--cinza2); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+   .card-header h2 { font-size:15px; font-weight:600; color:var(--texto); letter-spacing:-.1px; }
+diff --git a/app/templates/dashboard.html b/app/templates/dashboard.html
+index 1881b15..28470a2 100644
+--- a/app/templates/dashboard.html
++++ b/app/templates/dashboard.html
+@@ -79,7 +79,7 @@
+   .venc-grid th, .venc-grid td { padding:7px 5px; }
+   .venc-grid .badge { padding:2px 7px; font-size:10px; }
+   .venc-grid .btn-sm { padding:3px 9px; font-size:11px; }
+-  .venc-grid { margin-top:-16px; }
++  .venc-grid { margin-top:0; }
+ 
+   /* Card de clientes esticado a largura total, no mesmo padrão do venc-grid */
+   .card-full {
+@@ -95,9 +95,9 @@
+   body:has(.venc-grid) { overflow:hidden; height:100vh; }
+ </style>
+ 
+-<div style="display:flex;gap:8px;margin-bottom:10px;">
+-  <a href="/" class="btn btn-primary btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
+-  <a href="/dashboard/geral" class="btn btn-outline btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
++<div class="tab-switch">
++  <a href="/" class="ativo">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
++  <a href="/dashboard/geral">{{ icon('car','icon icon-sm') }} Visão geral</a>
+ </div>
+ 
+ <div class="venc-grid">
+diff --git a/app/templates/dashboard_geral.html b/app/templates/dashboard_geral.html
+index c9851fb..1ccd2ab 100644
+--- a/app/templates/dashboard_geral.html
++++ b/app/templates/dashboard_geral.html
+@@ -3,9 +3,9 @@
+ {% block breadcrumb %}<span>Início</span><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
+ 
+ {% block content %}
+-<div style="display:flex;gap:8px;margin-bottom:14px;">
+-  <a href="/" class="btn btn-outline btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
+-  <a href="/dashboard/geral" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
++<div class="tab-switch">
++  <a href="/">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
++  <a href="/dashboard/geral" class="ativo">{{ icon('car','icon icon-sm') }} Visão geral</a>
+ </div>
+ 
+ <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px;">
+diff --git a/app/templates/veiculos_geral.html b/app/templates/veiculos_geral.html
+index 319621f..dde39ea 100644
+--- a/app/templates/veiculos_geral.html
++++ b/app/templates/veiculos_geral.html
+@@ -3,9 +3,9 @@
+ {% block breadcrumb %}<span>Veículos</span>{% endblock %}
+ 
+ {% block content %}
+-<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+-  <a href="/veiculos" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+-  <a href="/veiculos/vencimentos-placa" class="btn btn-outline btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
++<div class="tab-switch">
++  <a href="/veiculos" class="ativo">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
++  <a href="/veiculos/vencimentos-placa">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+ </div>
+ 
+ <!-- Resumo por espécie -->
+diff --git a/app/templates/vencimentos_placa.html b/app/templates/vencimentos_placa.html
+index 5883c1f..e8948bd 100644
+--- a/app/templates/vencimentos_placa.html
++++ b/app/templates/vencimentos_placa.html
+@@ -3,9 +3,9 @@
+ {% block breadcrumb %}<a href="/veiculos">Veículos</a><span class="sep">›</span><span>Vencimentos por final de placa</span>{% endblock %}
+ 
+ {% block content %}
+-<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+-  <a href="/veiculos" class="btn btn-outline btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+-  <a href="/veiculos/vencimentos-placa" class="btn btn-primary btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
++<div class="tab-switch">
++  <a href="/veiculos">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
++  <a href="/veiculos/vencimentos-placa" class="ativo">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+ </div>
+ 
+ <!-- ── Configuração das regras ─────────────────────────────────────────── -->

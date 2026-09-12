@@ -103,6 +103,28 @@ def api_salvar_regra():
     return jsonify({"ok": True, "regra": regra.to_dict()})
 
 
+@bp.route("/api/regras-vencimento/lote", methods=["POST"])
+@login_required
+@requer_permissao("gerenciar_regras_vencimento")
+def api_salvar_regras_lote():
+    """Cria/atualiza uma regra para cada combinação de final de placa x espécie marcada."""
+    dados = request.get_json(silent=True) or {}
+    finais = dados.get("finais") or []
+    especies = dados.get("especies") or []
+    if not isinstance(finais, list) or not finais:
+        return jsonify({"ok": False, "erro": "Selecione ao menos um final de placa."}), 400
+    if not isinstance(especies, list) or not especies:
+        return jsonify({"ok": False, "erro": "Selecione ao menos uma espécie."}), 400
+
+    salvas, erros = _svc_regras().salvar_regras_lote(
+        finais, especies, dados.get("mes_vencimento"), dados.get("dia_vencimento"),
+        dados.get("ativo", True),
+    )
+    for r in salvas:
+        _log().registrar("salvar_regra_vencimento", "regra_vencimento", r.id, r.to_dict())
+    return jsonify({"ok": True, "salvas": len(salvas), "erros": erros})
+
+
 @bp.route("/api/regras-vencimento/<int:rid>", methods=["DELETE"])
 @login_required
 @requer_permissao("gerenciar_regras_vencimento")

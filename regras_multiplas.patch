@@ -1,0 +1,233 @@
+diff --git a/app/routes/veiculos_geral.py b/app/routes/veiculos_geral.py
+index 054e550..e54e562 100644
+--- a/app/routes/veiculos_geral.py
++++ b/app/routes/veiculos_geral.py
+@@ -103,6 +103,28 @@ def api_salvar_regra():
+     return jsonify({"ok": True, "regra": regra.to_dict()})
+ 
+ 
++@bp.route("/api/regras-vencimento/lote", methods=["POST"])
++@login_required
++@requer_permissao("gerenciar_regras_vencimento")
++def api_salvar_regras_lote():
++    """Cria/atualiza uma regra para cada combinação de final de placa x espécie marcada."""
++    dados = request.get_json(silent=True) or {}
++    finais = dados.get("finais") or []
++    especies = dados.get("especies") or []
++    if not isinstance(finais, list) or not finais:
++        return jsonify({"ok": False, "erro": "Selecione ao menos um final de placa."}), 400
++    if not isinstance(especies, list) or not especies:
++        return jsonify({"ok": False, "erro": "Selecione ao menos uma espécie."}), 400
++
++    salvas, erros = _svc_regras().salvar_regras_lote(
++        finais, especies, dados.get("mes_vencimento"), dados.get("dia_vencimento"),
++        dados.get("ativo", True),
++    )
++    for r in salvas:
++        _log().registrar("salvar_regra_vencimento", "regra_vencimento", r.id, r.to_dict())
++    return jsonify({"ok": True, "salvas": len(salvas), "erros": erros})
++
++
+ @bp.route("/api/regras-vencimento/<int:rid>", methods=["DELETE"])
+ @login_required
+ @requer_permissao("gerenciar_regras_vencimento")
+diff --git a/app/services/vencimento_regra_service.py b/app/services/vencimento_regra_service.py
+index 40c96e9..3e889c9 100644
+--- a/app/services/vencimento_regra_service.py
++++ b/app/services/vencimento_regra_service.py
+@@ -105,6 +105,33 @@ class VencimentoRegraService:
+         self._session.commit()
+         return True, ""
+ 
++    def salvar_regras_lote(
++        self, finais: list[str], especies: list[str],
++        mes_vencimento, dia_vencimento, ativo: bool = True,
++    ) -> tuple[list[RegraVencimento], list[str]]:
++        """
++        Cria/atualiza uma regra para CADA combinação de final de placa x
++        espécie selecionada (ex.: finais=['0','1'], especies=['carga','passeio']
++        gera 4 regras). Cada combinação é salva de forma independente — se uma
++        falhar (ex.: dado inválido), as outras continuam sendo salvas.
++        """
++        salvas: list[RegraVencimento] = []
++        erros: list[str] = []
++        for final in finais:
++            for especie in especies:
++                regra, erro = self.salvar_regra({
++                    "final_placa": final,
++                    "especie": especie,
++                    "mes_vencimento": mes_vencimento,
++                    "dia_vencimento": dia_vencimento,
++                    "ativo": ativo,
++                })
++                if regra:
++                    salvas.append(regra)
++                else:
++                    erros.append(f"Final {final} / {especie}: {erro}")
++        return salvas, erros
++
+     # ── Cálculo de data prevista ─────────────────────────────────────────────
+ 
+     def _data_prevista(self, regra: RegraVencimento, ano: int) -> str:
+diff --git a/app/templates/vencimentos_placa.html b/app/templates/vencimentos_placa.html
+index e8948bd..9ec6e16 100644
+--- a/app/templates/vencimentos_placa.html
++++ b/app/templates/vencimentos_placa.html
+@@ -3,6 +3,18 @@
+ {% block breadcrumb %}<a href="/veiculos">Veículos</a><span class="sep">›</span><span>Vencimentos por final de placa</span>{% endblock %}
+ 
+ {% block content %}
++<style>
++  .chk-final-item { position:relative; }
++  .chk-final-item input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
++  .chk-final-item span {
++    display:flex; align-items:center; justify-content:center; width:32px; height:32px;
++    border:1.5px solid var(--cinza3); border-radius:6px; font-weight:600; font-size:14px;
++    color:var(--sub); transition:.12s; user-select:none;
++  }
++  .chk-final-item input:checked + span { background:var(--azul); border-color:var(--azul); color:var(--nav-fg); }
++  .chk-final-item input:disabled + span { opacity:.4; cursor:not-allowed; }
++  .chk-final-item input:not(:disabled):hover + span { border-color:var(--azul2); }
++</style>
+ <div class="tab-switch">
+   <a href="/veiculos">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+   <a href="/veiculos/vencimentos-placa" class="ativo">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+@@ -90,21 +102,28 @@
+ 
+ <!-- Modal de regra -->
+ <div class="modal-overlay" id="modal-regra">
+-  <div class="modal">
++  <div class="modal" style="max-width:440px;">
+     <div class="modal-header"><h3 id="modal-regra-titulo">Nova regra</h3></div>
+     <div class="modal-body">
+       <input type="hidden" id="r-id">
+       <div class="field">
+-        <label>Final da placa</label>
+-        <select id="r-final">{% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
++        <label id="r-final-label">Final(is) da placa</label>
++        <div id="r-final-grupo" style="display:flex;flex-wrap:wrap;gap:6px;">
++          {% for n in range(10) %}
++          <label class="chk-final-item">
++            <input type="checkbox" class="r-final-chk" value="{{ n }}">
++            <span>{{ n }}</span>
++          </label>
++          {% endfor %}
++        </div>
+       </div>
+       <div class="field">
+-        <label>Espécie</label>
+-        <select id="r-especie">
+-          <option value="passeio">Passeio</option>
+-          <option value="carga">Carga</option>
+-          <option value="reboque">Reboque</option>
+-        </select>
++        <label id="r-especie-label">Espécie(s)</label>
++        <div style="display:flex;gap:16px;flex-wrap:wrap;">
++          <label class="check-item"><input type="checkbox" class="r-especie-chk" value="passeio"> Passeio</label>
++          <label class="check-item"><input type="checkbox" class="r-especie-chk" value="carga"> Carga</label>
++          <label class="check-item"><input type="checkbox" class="r-especie-chk" value="reboque"> Reboque</label>
++        </div>
+       </div>
+       <div class="field">
+         <label>Mês de vencimento</label>
+@@ -119,6 +138,9 @@
+         <input type="number" id="r-dia" min="1" max="31" placeholder="Ex.: 15">
+       </div>
+       <label class="check-item"><input type="checkbox" id="r-ativo" checked> Regra ativa</label>
++      <p id="r-aviso-multi" style="font-size:12px;color:var(--sub);display:none;">
++        Uma regra separada será criada para cada combinação marcada (final × espécie).
++      </p>
+     </div>
+     <div class="modal-footer">
+       <button class="btn btn-ghost" onclick="fecharModalRegra()">Cancelar</button>
+@@ -185,41 +207,75 @@ async function carregarRegras() {
+ function abrirModalRegra() {
+   document.getElementById('modal-regra-titulo').textContent = 'Nova regra';
+   document.getElementById('r-id').value = '';
+-  document.getElementById('r-final').value = '0';
+-  document.getElementById('r-especie').value = 'passeio';
++  document.querySelectorAll('.r-final-chk').forEach(c => { c.checked = false; c.disabled = false; });
++  document.querySelectorAll('.r-especie-chk').forEach(c => { c.checked = false; c.disabled = false; });
+   document.getElementById('r-mes').value = '1';
+   document.getElementById('r-dia').value = '';
+   document.getElementById('r-ativo').checked = true;
++  document.getElementById('r-final-label').textContent = 'Final(is) da placa';
++  document.getElementById('r-especie-label').textContent = 'Espécie(s)';
++  document.getElementById('r-aviso-multi').style.display = 'block';
+   document.getElementById('modal-regra').classList.add('open');
+ }
+ 
+ function editarRegra(r) {
+   document.getElementById('modal-regra-titulo').textContent = 'Editar regra';
+   document.getElementById('r-id').value = r.id;
+-  document.getElementById('r-final').value = r.final_placa;
+-  document.getElementById('r-especie').value = r.especie;
++  document.querySelectorAll('.r-final-chk').forEach(c => {
++    c.checked = (c.value === String(r.final_placa));
++    c.disabled = !c.checked;
++  });
++  document.querySelectorAll('.r-especie-chk').forEach(c => {
++    c.checked = (c.value === r.especie);
++    c.disabled = !c.checked;
++  });
+   document.getElementById('r-mes').value = r.mes_vencimento;
+   document.getElementById('r-dia').value = r.dia_vencimento || '';
+   document.getElementById('r-ativo').checked = r.ativo;
++  document.getElementById('r-final-label').textContent = 'Final da placa';
++  document.getElementById('r-especie-label').textContent = 'Espécie';
++  document.getElementById('r-aviso-multi').style.display = 'none';
+   document.getElementById('modal-regra').classList.add('open');
+ }
+ 
+ function fecharModalRegra() { document.getElementById('modal-regra').classList.remove('open'); }
+ 
+ async function salvarRegra() {
+-  const dados = {
+-    id: document.getElementById('r-id').value || null,
+-    final_placa: document.getElementById('r-final').value,
+-    especie: document.getElementById('r-especie').value,
+-    mes_vencimento: parseInt(document.getElementById('r-mes').value, 10),
+-    dia_vencimento: document.getElementById('r-dia').value ? parseInt(document.getElementById('r-dia').value, 10) : null,
+-    ativo: document.getElementById('r-ativo').checked,
+-  };
+-  const resp = await apiFetch('/api/regras-vencimento', {
+-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dados),
++  const id = document.getElementById('r-id').value || null;
++  const finais = Array.from(document.querySelectorAll('.r-final-chk:checked')).map(c => c.value);
++  const especies = Array.from(document.querySelectorAll('.r-especie-chk:checked')).map(c => c.value);
++  const mes_vencimento = parseInt(document.getElementById('r-mes').value, 10);
++  const dia_vencimento = document.getElementById('r-dia').value ? parseInt(document.getElementById('r-dia').value, 10) : null;
++  const ativo = document.getElementById('r-ativo').checked;
++
++  if (!finais.length) { toast('Selecione ao menos um final de placa.', 'err'); return; }
++  if (!especies.length) { toast('Selecione ao menos uma espécie.', 'err'); return; }
++
++  if (id) {
++    // Edição de uma regra existente — sempre 1 final x 1 espécie.
++    const resp = await apiFetch('/api/regras-vencimento', {
++      method: 'POST', headers: {'Content-Type': 'application/json'},
++      body: JSON.stringify({ id, final_placa: finais[0], especie: especies[0], mes_vencimento, dia_vencimento, ativo }),
++    });
++    if (resp && resp.ok) {
++      toast('Regra salva.', 'ok');
++      fecharModalRegra();
++      carregarRegras();
++      carregarPrevisao();
++    }
++    return;
++  }
++
++  // Criação — uma regra por combinação final x espécie marcada.
++  const resp = await apiFetch('/api/regras-vencimento/lote', {
++    method: 'POST', headers: {'Content-Type': 'application/json'},
++    body: JSON.stringify({ finais, especies, mes_vencimento, dia_vencimento, ativo }),
+   });
+   if (resp && resp.ok) {
+-    toast('Regra salva.', 'ok');
++    const msg = resp.erros && resp.erros.length
++      ? `${resp.salvas} regra(s) salva(s), ${resp.erros.length} com erro.`
++      : `${resp.salvas} regra(s) salva(s).`;
++    toast(msg, resp.erros && resp.erros.length ? 'err' : 'ok');
+     fecharModalRegra();
+     carregarRegras();
+     carregarPrevisao();

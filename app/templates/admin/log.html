@@ -3,9 +3,9 @@
 {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Log</span>{% endblock %}
 
 {% block content %}
-<div style="display:flex;gap:8px;margin-bottom:14px;">
-  <a href="/admin/usuarios" class="btn btn-outline btn-sm">{{ icon('users','icon icon-sm') }} Usuários</a>
-  <a href="/admin/log" class="btn btn-primary btn-sm">{{ icon('security','icon icon-sm') }} Log de ações</a>
+<div class="tab-switch">
+  <a href="/admin/usuarios">{{ icon('users','icon icon-sm') }} Usuários</a>
+  <a href="/admin/log" class="ativo">{{ icon('security','icon icon-sm') }} Log de ações</a>
 </div>
 <div class="card">
   <div class="card-header">

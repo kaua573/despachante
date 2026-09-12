@@ -3,9 +3,9 @@
 {% block breadcrumb %}<span>Início</span><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
 
 {% block content %}
-<div style="display:flex;gap:8px;margin-bottom:14px;">
-  <a href="/" class="btn btn-outline btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
-  <a href="/dashboard/geral" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
+<div class="tab-switch">
+  <a href="/">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
+  <a href="/dashboard/geral" class="ativo">{{ icon('car','icon icon-sm') }} Visão geral</a>
 </div>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px;">

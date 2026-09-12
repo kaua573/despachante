@@ -105,6 +105,33 @@ class VencimentoRegraService:
         self._session.commit()
         return True, ""
 
+    def salvar_regras_lote(
+        self, finais: list[str], especies: list[str],
+        mes_vencimento, dia_vencimento, ativo: bool = True,
+    ) -> tuple[list[RegraVencimento], list[str]]:
+        """
+        Cria/atualiza uma regra para CADA combinação de final de placa x
+        espécie selecionada (ex.: finais=['0','1'], especies=['carga','passeio']
+        gera 4 regras). Cada combinação é salva de forma independente — se uma
+        falhar (ex.: dado inválido), as outras continuam sendo salvas.
+        """
+        salvas: list[RegraVencimento] = []
+        erros: list[str] = []
+        for final in finais:
+            for especie in especies:
+                regra, erro = self.salvar_regra({
+                    "final_placa": final,
+                    "especie": especie,
+                    "mes_vencimento": mes_vencimento,
+                    "dia_vencimento": dia_vencimento,
+                    "ativo": ativo,
+                })
+                if regra:
+                    salvas.append(regra)
+                else:
+                    erros.append(f"Final {final} / {especie}: {erro}")
+        return salvas, erros
+
     # ── Cálculo de data prevista ─────────────────────────────────────────────
 
     def _data_prevista(self, regra: RegraVencimento, ano: int) -> str:

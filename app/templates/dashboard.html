@@ -79,7 +79,7 @@
   .venc-grid th, .venc-grid td { padding:7px 5px; }
   .venc-grid .badge { padding:2px 7px; font-size:10px; }
   .venc-grid .btn-sm { padding:3px 9px; font-size:11px; }
-  .venc-grid { margin-top:-16px; }
+  .venc-grid { margin-top:0; }
 
   /* Card de clientes esticado a largura total, no mesmo padrão do venc-grid */
   .card-full {
@@ -95,9 +95,9 @@
   body:has(.venc-grid) { overflow:hidden; height:100vh; }
 </style>
 
-<div style="display:flex;gap:8px;margin-bottom:10px;">
-  <a href="/" class="btn btn-primary btn-sm">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
-  <a href="/dashboard/geral" class="btn btn-outline btn-sm">{{ icon('car','icon icon-sm') }} Visão geral</a>
+<div class="tab-switch">
+  <a href="/" class="ativo">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
+  <a href="/dashboard/geral">{{ icon('car','icon icon-sm') }} Visão geral</a>
 </div>
 
 <div class="venc-grid">

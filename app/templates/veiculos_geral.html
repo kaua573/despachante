@@ -3,9 +3,9 @@
 {% block breadcrumb %}<span>Veículos</span>{% endblock %}
 
 {% block content %}
-<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
-  <a href="/veiculos" class="btn btn-primary btn-sm">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
-  <a href="/veiculos/vencimentos-placa" class="btn btn-outline btn-sm">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+<div class="tab-switch">
+  <a href="/veiculos" class="ativo">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+  <a href="/veiculos/vencimentos-placa">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
 </div>
 
 <!-- Resumo por espécie -->
