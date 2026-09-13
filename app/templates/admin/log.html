@@ -3,6 +3,10 @@
 {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Log</span>{% endblock %}
 
 {% block content %}
+<div class="page-header">
+  <h1>{{ icon('security') }} Administração</h1>
+  <p>Usuários do sistema e histórico de ações, com o que mudou em cada edição.</p>
+</div>
 <div class="tab-switch">
   <a href="/admin/usuarios">{{ icon('users','icon icon-sm') }} Usuários</a>
   <a href="/admin/log" class="ativo">{{ icon('security','icon icon-sm') }} Log de ações</a>

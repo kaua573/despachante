@@ -15,28 +15,37 @@
   .chk-final-item input:disabled + span { opacity:.4; cursor:not-allowed; }
   .chk-final-item input:not(:disabled):hover + span { border-color:var(--azul2); }
 </style>
+<div class="page-header">
+  <h1>{{ icon('calendar') }} Vencimentos por final de placa</h1>
+  <p>Configure as regras de vencimento e lance licenciamentos em lote com base no final da placa e na espécie do veículo.</p>
+</div>
 <div class="tab-switch">
   <a href="/veiculos">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
   <a href="/veiculos/vencimentos-placa" class="ativo">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
 </div>
 
 <!-- ── Configuração das regras ─────────────────────────────────────────── -->
-<div class="card" style="margin-bottom:20px;">
-  <div class="card-header">
+<div class="card collapse" id="collapse-regras" style="margin-bottom:20px;">
+  <div class="card-header collapse-header" onclick="toggleCollapse('collapse-regras')">
     <h2>{{ icon('config') }} Regras de vencimento (por final de placa + espécie)</h2>
-    {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
-      <button class="btn btn-primary btn-sm" onclick="abrirModalRegra()">+ Nova regra</button>
-    {% endif %}
+    <div style="display:flex;align-items:center;gap:12px;">
+      {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); abrirModalRegra()">+ Nova regra</button>
+      {% endif %}
+      <span class="chevron">▾</span>
+    </div>
   </div>
-  <p style="padding:12px 20px 0;color:var(--sub);font-size:13px;">
-    Defina em que mês (e opcionalmente dia) costuma vencer o licenciamento de cada combinação de final de placa e
-    espécie de veículo. Essas regras alimentam a previsão abaixo — elas não alteram nenhum veículo por conta própria.
-  </p>
-  <div class="tabela-wrap">
-    <table>
-      <thead><tr><th>Final da placa</th><th>Espécie</th><th>Vencimento padrão</th><th>Ativa</th><th>Ação</th></tr></thead>
-      <tbody id="tbody-regras"><tr><td colspan="5"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
-    </table>
+  <div class="collapse-body">
+    <p style="padding:12px 20px 0;color:var(--sub);font-size:13px;">
+      Defina em que mês (e opcionalmente dia) costuma vencer o licenciamento de cada combinação de final de placa e
+      espécie de veículo. Essas regras alimentam a previsão abaixo — elas não alteram nenhum veículo por conta própria.
+    </p>
+    <div class="tabela-wrap">
+      <table>
+        <thead><tr><th>Final da placa</th><th>Espécie</th><th>Vencimento padrão</th><th>Ativa</th><th>Ação</th></tr></thead>
+        <tbody id="tbody-regras"><tr><td colspan="5"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -44,38 +53,45 @@
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('calendar') }} Previsão de vencimentos</h2>
-    <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
+      <button class="btn btn-outline btn-sm" onclick="toggleCollapse('collapse-filtros-previsao')">{{ icon('find','icon icon-sm') }} Filtros</button>
+    </div>
   </div>
 
-  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
-    <div class="field" style="min-width:110px;">
-      <label>Ano</label>
-      <input type="number" id="p-ano" value="{{ ano_atual }}" style="width:100px;">
+  <div class="collapse" id="collapse-filtros-previsao">
+    <div class="collapse-body">
+      <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
+        <div class="field" style="min-width:110px;">
+          <label>Ano</label>
+          <input type="number" id="p-ano" value="{{ ano_atual }}" style="width:100px;">
+        </div>
+        <div class="field" style="min-width:200px;">
+          <label>Cliente</label>
+          <select id="p-cliente"><option value="">Todos</option></select>
+        </div>
+        <div class="field" style="min-width:140px;">
+          <label>Espécie</label>
+          <select id="p-especie">
+            <option value="">Todas</option>
+            <option value="passeio">Passeio</option>
+            <option value="carga">Carga</option>
+            <option value="reboque">Reboque</option>
+          </select>
+        </div>
+        <div class="field" style="min-width:130px;">
+          <label>Final da placa</label>
+          <select id="p-final">
+            <option value="">Todos</option>
+            {% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </div>
+        <label class="check-item" style="align-self:flex-end;padding-bottom:8px;">
+          <input type="checkbox" id="p-apenas-sem-lic"> Só sem licenciamento lançado
+        </label>
+        <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarPrevisao()">Filtrar</button>
+      </div>
     </div>
-    <div class="field" style="min-width:200px;">
-      <label>Cliente</label>
-      <select id="p-cliente"><option value="">Todos</option></select>
-    </div>
-    <div class="field" style="min-width:140px;">
-      <label>Espécie</label>
-      <select id="p-especie">
-        <option value="">Todas</option>
-        <option value="passeio">Passeio</option>
-        <option value="carga">Carga</option>
-        <option value="reboque">Reboque</option>
-      </select>
-    </div>
-    <div class="field" style="min-width:130px;">
-      <label>Final da placa</label>
-      <select id="p-final">
-        <option value="">Todos</option>
-        {% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-      </select>
-    </div>
-    <label class="check-item" style="align-self:flex-end;padding-bottom:8px;">
-      <input type="checkbox" id="p-apenas-sem-lic"> Só sem licenciamento lançado
-    </label>
-    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarPrevisao()">Filtrar</button>
   </div>
 
   {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}

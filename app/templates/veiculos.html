@@ -195,7 +195,9 @@ async function carregar() {
   const filtrado = filtro ? dados.filter(v => v.situacao === filtro) : dados;
   const tbody = document.getElementById('tbody');
   if (!filtrado.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhum veículo cadastrado</p></div></td></tr>`;
+    tbody.innerHTML = dados.length
+      ? `<tr><td colspan="8"><div class="empty-state"><p>Nenhum veículo com esse filtro de situação.</p></div></td></tr>`
+      : `<tr><td colspan="8"><div class="empty-state"><p>Nenhum veículo cadastrado ainda.</p><button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="abrirModal()">+ Novo veículo</button></div></td></tr>`;
     return;
   }
   tbody.innerHTML = filtrado.map(v => `

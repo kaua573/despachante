@@ -32,10 +32,10 @@
   </div>
 </div>
 
-<div class="tabs">
-  <button class="tab-btn ativa" data-aba="ipva"          onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA</button>
-  <button class="tab-btn"       data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento</button>
-  <button class="tab-btn"       data-aba="multas"        onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas</button>
+<div class="tab-switch">
+  <button class="ativa" data-aba="ipva"          onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA <span class="contador" id="cont-ipva"></span></button>
+  <button class="" data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento <span class="contador" id="cont-licenciamento"></span></button>
+  <button class="" data-aba="multas"        onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas <span class="contador" id="cont-multas"></span></button>
 </div>
 
 <!-- ── Painel IPVA ──────────────────────────────────────────────────────────── -->
@@ -189,6 +189,8 @@ async function carregarIpva() {
   modalTipo = 'ipva';
   const all = await apiFetch(`/api/veiculos/${VID}/ipva`);
   if (!all) return;
+  const pendentesIpva = all.filter(r => !r.pago).length;
+  document.getElementById('cont-ipva').textContent = pendentesIpva ? `(${pendentesIpva})` : '';
   const dados = filtrarStatus(all, document.getElementById('filtro-ipva-status').value);
   const tbody = document.getElementById('tbody-ipva');
 
@@ -244,6 +246,8 @@ async function carregarLicenciamento() {
   modalTipo = 'licenciamento';
   const all = await apiFetch(`/api/veiculos/${VID}/licenciamento`);
   if (!all) return;
+  const pendentesLic = all.filter(r => !r.pago).length;
+  document.getElementById('cont-licenciamento').textContent = pendentesLic ? `(${pendentesLic})` : '';
   const dados = filtrarStatus(all, document.getElementById('filtro-lic-status').value);
   const tbody = document.getElementById('tbody-licenciamento');
   if (!dados.length) {
@@ -270,6 +274,8 @@ async function carregarMultas() {
   modalTipo = 'multas';
   const all = await apiFetch(`/api/veiculos/${VID}/multas`);
   if (!all) return;
+  const pendentesMultas = all.filter(r => !r.pago).length;
+  document.getElementById('cont-multas').textContent = pendentesMultas ? `(${pendentesMultas})` : '';
   const dados = filtrarStatus(all, document.getElementById('filtro-multa-status').value);
   const tbody = document.getElementById('tbody-multas');
   if (!dados.length) {
@@ -853,5 +859,7 @@ async function excluir(tipo, id) {
 }
 
 carregarIpva();
+carregarLicenciamento();
+carregarMultas();
 </script>
 {% endblock %}

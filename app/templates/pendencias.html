@@ -2,7 +2,7 @@
 {% block title %}Pendências — {{ cliente.nome }}{% endblock %}
 {% block breadcrumb %}
   <a href="/clientes">Clientes</a><span class="sep">›</span>
-  <span>{{ cliente.nome }}</span><span class="sep">›</span><span>Pendências</span>
+  <a href="/clientes/{{ cliente.id }}/veiculos">{{ cliente.nome }}</a><span class="sep">›</span><span>Pendências</span>
 {% endblock %}
 
 {% block content %}
@@ -45,7 +45,7 @@
         <option value="pendente">Pendente</option>
         <option value="pago">Pago</option>
       </select>
-      <div class="toggle-visualizacao">
+      <div class="tab-switch" style="margin-bottom:0;">
         <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
         <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
       </div>

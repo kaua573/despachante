@@ -1,0 +1,388 @@
+diff --git a/app/templates/admin/log.html b/app/templates/admin/log.html
+index d9c85ce..9510c5f 100644
+--- a/app/templates/admin/log.html
++++ b/app/templates/admin/log.html
+@@ -3,6 +3,10 @@
+ {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Log</span>{% endblock %}
+ 
+ {% block content %}
++<div class="page-header">
++  <h1>{{ icon('security') }} Administração</h1>
++  <p>Usuários do sistema e histórico de ações, com o que mudou em cada edição.</p>
++</div>
+ <div class="tab-switch">
+   <a href="/admin/usuarios">{{ icon('users','icon icon-sm') }} Usuários</a>
+   <a href="/admin/log" class="ativo">{{ icon('security','icon icon-sm') }} Log de ações</a>
+diff --git a/app/templates/admin/usuarios.html b/app/templates/admin/usuarios.html
+index 8350e2d..07f5bb8 100644
+--- a/app/templates/admin/usuarios.html
++++ b/app/templates/admin/usuarios.html
+@@ -3,6 +3,10 @@
+ {% block breadcrumb %}<span>Administração</span><span class="sep">›</span><span>Usuários</span>{% endblock %}
+ 
+ {% block content %}
++<div class="page-header">
++  <h1>{{ icon('security') }} Administração</h1>
++  <p>Usuários do sistema e histórico de ações, com o que mudou em cada edição.</p>
++</div>
+ <div class="tab-switch">
+   <a href="/admin/usuarios" class="ativo">{{ icon('users','icon icon-sm') }} Usuários</a>
+   <a href="/admin/log">{{ icon('security','icon icon-sm') }} Log de ações</a>
+diff --git a/app/templates/base.html b/app/templates/base.html
+index 84f6cf7..5eb2edc 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -92,6 +92,11 @@
+   .nav-usuario .badge-adm { background:var(--nav-fg-fraco); color:var(--nav-fg); font-size:10px; font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:.4px; }
+   .nav-usuario a { color:var(--nav-fg-medio); text-decoration:none; padding:5px 10px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:5px; font-size:13px; }
+   .nav-usuario a:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
++  .nav-usuario-toggle {
++    background:transparent; border:none; cursor:pointer; color:var(--nav-fg-forte); font:inherit; font-size:13px;
++    display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:6px; transition:.15s;
++  }
++  .nav-usuario-toggle:hover { background:var(--nav-fg-fraco); }
+ 
+   .nav-notificacoes { position:relative; margin-left:6px; }
+   .btn-sino { background:transparent; border:none; cursor:pointer; padding:7px; border-radius:8px; color:var(--nav-fg-medio); display:flex; align-items:center; position:relative; transition:.15s; }
+@@ -142,6 +147,10 @@
+   .tab-switch a:hover { color:var(--texto); background:var(--cinza1); }
+   .tab-switch a.ativo { background:var(--azul); color:var(--nav-fg); }
+ 
++  .page-header { margin-bottom:18px; }
++  .page-header h1 { font-size:21px; font-weight:700; letter-spacing:-.3px; color:var(--texto); display:flex; align-items:center; gap:10px; }
++  .page-header p { font-size:13.5px; color:var(--sub); margin-top:3px; }
++
+   .card { background:var(--card-bg); border:1px solid var(--cinza2); border-radius:6px; box-shadow:var(--sombra); overflow:hidden; }
+   .card-header { padding:14px 20px; border-bottom:1px solid var(--cinza2); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+   .card-header h2 { font-size:15px; font-weight:600; color:var(--texto); letter-spacing:-.1px; }
+@@ -226,8 +235,22 @@
+   .detalhe-valor { font-size:14px; color:var(--texto); text-align:right; font-weight:600; }
+ 
+   .empty-state { text-align:center; padding:36px 20px; color:var(--sub); }
++  .empty-state::before {
++    content:''; display:block; width:36px; height:36px; margin:0 auto 10px;
++    background:var(--cinza1); border:1px solid var(--cinza3); border-radius:8px;
++    -webkit-mask:url('{{ url_for("static", filename="icons/folder.svg") }}') center/18px no-repeat;
++    mask:url('{{ url_for("static", filename="icons/folder.svg") }}') center/18px no-repeat;
++    background-color:var(--sub);
++  }
+   .empty-state p { font-size:14px; margin-top:8px; }
+ 
++  /* Recolher/expandir genérico — usado em painéis de filtro e seções longas */
++  .collapse-header { display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; gap:12px; }
++  .collapse-header .chevron { display:inline-block; font-size:12px; color:var(--sub); transition:transform .15s; }
++  .collapse.aberto .collapse-header .chevron { transform:rotate(180deg); }
++  .collapse-body { display:none; }
++  .collapse.aberto .collapse-body { display:block; }
++
+   #toast { position:fixed; bottom:24px; right:24px; background:var(--texto); color:var(--card-bg); padding:12px 20px; border-radius:8px; font-size:14px; box-shadow:0 4px 16px rgba(0,0,0,.25); transform:translateY(80px); opacity:0; transition:all .3s; z-index:9999; }
+   #toast.show { transform:translateY(0); opacity:1; }
+   #toast.ok  { background:var(--verde); color:#fff; }
+@@ -299,12 +322,6 @@
+     {% if current_user.is_authenticated and current_user.tem_permissao('gerar_relatorios') %}
+       <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
+     {% endif %}
+-    {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
+-      <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
+-    {% endif %}
+-    {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
+-      <a href="/admin/usuarios" class="{{ 'ativa' if '/admin' in request.path else '' }}">{{ icon('security') }} Admin</a>
+-    {% endif %}
+   </div>
+ 
+   <!-- Usuário logado -->
+@@ -321,12 +338,21 @@
+       </div>
+     </div>
+   </div>
+-  <div class="nav-usuario">
+-    <span>{{ current_user.nome_completo }}</span>
+-    {% if current_user.perfil == 'administrador' %}
+-      <span class="badge-adm">Adm</span>
+-    {% endif %}
+-    <a href="/logout" title="Sair">{{ icon('padlock','icon icon-sm') }} Sair</a>
++  <div class="nav-usuario" style="position:relative;">
++    <button type="button" class="nav-usuario-toggle" onclick="toggleMenuAcoes(event, 'dropdown-usuario')">
++      <span>{{ current_user.nome_completo }}</span>
++      {% if current_user.perfil == 'administrador' %}
++        <span class="badge-adm">Adm</span>
++      {% endif %}
++      {{ icon('more','icon icon-sm') }}
++    </button>
++    <div class="dropdown-acoes" id="dropdown-usuario" style="right:0;">
++      {% if current_user.perfil == 'administrador' %}
++        <a href="/configuracoes">{{ icon('config','icon icon-sm') }} Configurações</a>
++        <a href="/admin/usuarios">{{ icon('security','icon icon-sm') }} Administração</a>
++      {% endif %}
++      <a href="/logout">{{ icon('padlock','icon icon-sm') }} Sair</a>
++    </div>
+   </div>
+   {% endif %}
+ 
+@@ -544,6 +570,11 @@ function toggleNotificacoes(ev) {
+   document.getElementById('painel-notificacoes').classList.toggle('aberto');
+ }
+ 
++// ── Recolher/expandir genérico (painéis de filtro, seções longas) ───────────
++function toggleCollapse(id) {
++  document.getElementById(id).classList.toggle('aberto');
++}
++
+ // ── Menu "mais ações" (usado em Clientes e Veículos, por exemplo) ───────────
+ // Genérico: cada botão que abre um menu passa o id do dropdown que ele controla.
+ function toggleMenuAcoes(ev, idDropdown) {
+diff --git a/app/templates/dashboard_geral.html b/app/templates/dashboard_geral.html
+index 1ccd2ab..005cd6b 100644
+--- a/app/templates/dashboard_geral.html
++++ b/app/templates/dashboard_geral.html
+@@ -3,6 +3,10 @@
+ {% block breadcrumb %}<span>Início</span><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
+ 
+ {% block content %}
++<div class="page-header">
++  <h1>{{ icon('car') }} Visão Geral</h1>
++  <p>Panorama do sistema: veículos por espécie, licenciamentos pendentes e clientes com mais pendências.</p>
++</div>
+ <div class="tab-switch">
+   <a href="/">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
+   <a href="/dashboard/geral" class="ativo">{{ icon('car','icon icon-sm') }} Visão geral</a>
+diff --git a/app/templates/veiculos_geral.html b/app/templates/veiculos_geral.html
+index dde39ea..3b21ebd 100644
+--- a/app/templates/veiculos_geral.html
++++ b/app/templates/veiculos_geral.html
+@@ -3,6 +3,10 @@
+ {% block breadcrumb %}<span>Veículos</span>{% endblock %}
+ 
+ {% block content %}
++<div class="page-header">
++  <h1>{{ icon('car') }} Veículos</h1>
++  <p>Visão geral de todos os veículos cadastrados no sistema, com filtros por cliente, espécie e situação.</p>
++</div>
+ <div class="tab-switch">
+   <a href="/veiculos" class="ativo">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+   <a href="/veiculos/vencimentos-placa">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+@@ -14,40 +18,47 @@
+ <div class="card">
+   <div class="card-header">
+     <h2>{{ icon('car') }} Veículos — todos os clientes</h2>
+-    <span id="total-resultado" style="font-size:12px;color:var(--sub);"></span>
++    <div style="display:flex;align-items:center;gap:14px;">
++      <span id="total-resultado" style="font-size:12px;color:var(--sub);"></span>
++      <button class="btn btn-outline btn-sm" onclick="toggleCollapse('collapse-filtros-veiculos')">{{ icon('find','icon icon-sm') }} Filtros</button>
++    </div>
+   </div>
+ 
+-  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
+-    <div class="field" style="min-width:200px;">
+-      <label>Cliente</label>
+-      <select id="f-cliente"><option value="">Todos</option></select>
+-    </div>
+-    <div class="field" style="min-width:150px;">
+-      <label>Espécie</label>
+-      <select id="f-especie">
+-        <option value="">Todas</option>
+-        <option value="passeio">Passeio</option>
+-        <option value="carga">Carga</option>
+-        <option value="reboque">Reboque</option>
+-      </select>
+-    </div>
+-    <div class="field" style="min-width:150px;">
+-      <label>Situação</label>
+-      <select id="f-situacao">
+-        <option value="">Todas</option>
+-        <option value="ativo">Ativo</option>
+-        <option value="desativado">Desativado</option>
+-      </select>
+-    </div>
+-    <div class="field" style="min-width:190px;">
+-      <label>Licenciamento</label>
+-      <select id="f-sem-lic">
+-        <option value="">Não filtrar</option>
+-        <option value="{{ ano_atual }}">Sem licenciamento de {{ ano_atual }}</option>
+-      </select>
++  <div class="collapse" id="collapse-filtros-veiculos">
++    <div class="collapse-body">
++      <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
++        <div class="field" style="min-width:200px;">
++          <label>Cliente</label>
++          <select id="f-cliente"><option value="">Todos</option></select>
++        </div>
++        <div class="field" style="min-width:150px;">
++          <label>Espécie</label>
++          <select id="f-especie">
++            <option value="">Todas</option>
++            <option value="passeio">Passeio</option>
++            <option value="carga">Carga</option>
++            <option value="reboque">Reboque</option>
++          </select>
++        </div>
++        <div class="field" style="min-width:150px;">
++          <label>Situação</label>
++          <select id="f-situacao">
++            <option value="">Todas</option>
++            <option value="ativo">Ativo</option>
++            <option value="desativado">Desativado</option>
++          </select>
++        </div>
++        <div class="field" style="min-width:190px;">
++          <label>Licenciamento</label>
++          <select id="f-sem-lic">
++            <option value="">Não filtrar</option>
++            <option value="{{ ano_atual }}">Sem licenciamento de {{ ano_atual }}</option>
++          </select>
++        </div>
++        <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarVeiculos()">Filtrar</button>
++        <button class="btn btn-ghost btn-sm" style="align-self:flex-end;" onclick="limparFiltrosGeral()">Limpar</button>
++      </div>
+     </div>
+-    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarVeiculos()">Filtrar</button>
+-    <button class="btn btn-ghost btn-sm" style="align-self:flex-end;" onclick="limparFiltrosGeral()">Limpar</button>
+   </div>
+ 
+   <div class="tabela-wrap">
+@@ -136,9 +147,11 @@ async function carregarVeiculos() {
+ // Aplica filtros vindos por querystring (ex.: link "Ver lista completa" do dashboard)
+ (function aplicarFiltrosDaUrl() {
+   const params = new URLSearchParams(window.location.search);
+-  if (params.get('especie')) document.getElementById('f-especie').value = params.get('especie');
+-  if (params.get('sem_licenciamento_ano')) document.getElementById('f-sem-lic').value = params.get('sem_licenciamento_ano');
+-  if (params.get('cliente_id')) document.getElementById('f-cliente').value = params.get('cliente_id');
++  let temFiltro = false;
++  if (params.get('especie')) { document.getElementById('f-especie').value = params.get('especie'); temFiltro = true; }
++  if (params.get('sem_licenciamento_ano')) { document.getElementById('f-sem-lic').value = params.get('sem_licenciamento_ano'); temFiltro = true; }
++  if (params.get('cliente_id')) { document.getElementById('f-cliente').value = params.get('cliente_id'); temFiltro = true; }
++  if (temFiltro) document.getElementById('collapse-filtros-veiculos').classList.add('aberto');
+ })();
+ 
+ carregarClientesOpcoes().then(() => {
+diff --git a/app/templates/vencimentos_placa.html b/app/templates/vencimentos_placa.html
+index 9ec6e16..545a95c 100644
+--- a/app/templates/vencimentos_placa.html
++++ b/app/templates/vencimentos_placa.html
+@@ -15,28 +15,37 @@
+   .chk-final-item input:disabled + span { opacity:.4; cursor:not-allowed; }
+   .chk-final-item input:not(:disabled):hover + span { border-color:var(--azul2); }
+ </style>
++<div class="page-header">
++  <h1>{{ icon('calendar') }} Vencimentos por final de placa</h1>
++  <p>Configure as regras de vencimento e lance licenciamentos em lote com base no final da placa e na espécie do veículo.</p>
++</div>
+ <div class="tab-switch">
+   <a href="/veiculos">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
+   <a href="/veiculos/vencimentos-placa" class="ativo">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
+ </div>
+ 
+ <!-- ── Configuração das regras ─────────────────────────────────────────── -->
+-<div class="card" style="margin-bottom:20px;">
+-  <div class="card-header">
++<div class="card collapse" id="collapse-regras" style="margin-bottom:20px;">
++  <div class="card-header collapse-header" onclick="toggleCollapse('collapse-regras')">
+     <h2>{{ icon('config') }} Regras de vencimento (por final de placa + espécie)</h2>
+-    {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
+-      <button class="btn btn-primary btn-sm" onclick="abrirModalRegra()">+ Nova regra</button>
+-    {% endif %}
++    <div style="display:flex;align-items:center;gap:12px;">
++      {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}
++        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); abrirModalRegra()">+ Nova regra</button>
++      {% endif %}
++      <span class="chevron">▾</span>
++    </div>
+   </div>
+-  <p style="padding:12px 20px 0;color:var(--sub);font-size:13px;">
+-    Defina em que mês (e opcionalmente dia) costuma vencer o licenciamento de cada combinação de final de placa e
+-    espécie de veículo. Essas regras alimentam a previsão abaixo — elas não alteram nenhum veículo por conta própria.
+-  </p>
+-  <div class="tabela-wrap">
+-    <table>
+-      <thead><tr><th>Final da placa</th><th>Espécie</th><th>Vencimento padrão</th><th>Ativa</th><th>Ação</th></tr></thead>
+-      <tbody id="tbody-regras"><tr><td colspan="5"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
+-    </table>
++  <div class="collapse-body">
++    <p style="padding:12px 20px 0;color:var(--sub);font-size:13px;">
++      Defina em que mês (e opcionalmente dia) costuma vencer o licenciamento de cada combinação de final de placa e
++      espécie de veículo. Essas regras alimentam a previsão abaixo — elas não alteram nenhum veículo por conta própria.
++    </p>
++    <div class="tabela-wrap">
++      <table>
++        <thead><tr><th>Final da placa</th><th>Espécie</th><th>Vencimento padrão</th><th>Ativa</th><th>Ação</th></tr></thead>
++        <tbody id="tbody-regras"><tr><td colspan="5"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
++      </table>
++    </div>
+   </div>
+ </div>
+ 
+@@ -44,38 +53,45 @@
+ <div class="card">
+   <div class="card-header">
+     <h2>{{ icon('calendar') }} Previsão de vencimentos</h2>
+-    <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
++    <div style="display:flex;align-items:center;gap:14px;">
++      <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
++      <button class="btn btn-outline btn-sm" onclick="toggleCollapse('collapse-filtros-previsao')">{{ icon('find','icon icon-sm') }} Filtros</button>
++    </div>
+   </div>
+ 
+-  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
+-    <div class="field" style="min-width:110px;">
+-      <label>Ano</label>
+-      <input type="number" id="p-ano" value="{{ ano_atual }}" style="width:100px;">
+-    </div>
+-    <div class="field" style="min-width:200px;">
+-      <label>Cliente</label>
+-      <select id="p-cliente"><option value="">Todos</option></select>
+-    </div>
+-    <div class="field" style="min-width:140px;">
+-      <label>Espécie</label>
+-      <select id="p-especie">
+-        <option value="">Todas</option>
+-        <option value="passeio">Passeio</option>
+-        <option value="carga">Carga</option>
+-        <option value="reboque">Reboque</option>
+-      </select>
+-    </div>
+-    <div class="field" style="min-width:130px;">
+-      <label>Final da placa</label>
+-      <select id="p-final">
+-        <option value="">Todos</option>
+-        {% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+-      </select>
++  <div class="collapse" id="collapse-filtros-previsao">
++    <div class="collapse-body">
++      <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
++        <div class="field" style="min-width:110px;">
++          <label>Ano</label>
++          <input type="number" id="p-ano" value="{{ ano_atual }}" style="width:100px;">
++        </div>
++        <div class="field" style="min-width:200px;">
++          <label>Cliente</label>
++          <select id="p-cliente"><option value="">Todos</option></select>
++        </div>
++        <div class="field" style="min-width:140px;">
++          <label>Espécie</label>
++          <select id="p-especie">
++            <option value="">Todas</option>
++            <option value="passeio">Passeio</option>
++            <option value="carga">Carga</option>
++            <option value="reboque">Reboque</option>
++          </select>
++        </div>
++        <div class="field" style="min-width:130px;">
++          <label>Final da placa</label>
++          <select id="p-final">
++            <option value="">Todos</option>
++            {% for n in range(10) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
++          </select>
++        </div>
++        <label class="check-item" style="align-self:flex-end;padding-bottom:8px;">
++          <input type="checkbox" id="p-apenas-sem-lic"> Só sem licenciamento lançado
++        </label>
++        <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarPrevisao()">Filtrar</button>
++      </div>
+     </div>
+-    <label class="check-item" style="align-self:flex-end;padding-bottom:8px;">
+-      <input type="checkbox" id="p-apenas-sem-lic"> Só sem licenciamento lançado
+-    </label>
+-    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarPrevisao()">Filtrar</button>
+   </div>
+ 
+   {% if current_user.tem_permissao('gerenciar_regras_vencimento') %}

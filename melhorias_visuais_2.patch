@@ -1,0 +1,165 @@
+diff --git a/app/templates/base.html b/app/templates/base.html
+index 5eb2edc..81cfb40 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -143,9 +143,14 @@
+   .container { max-width:1150px; margin:0 auto; padding:24px 20px; }
+ 
+   .tab-switch { display:inline-flex; gap:2px; background:var(--card-bg); border:1px solid var(--cinza2); border-radius:9px; padding:4px; margin-bottom:20px; box-shadow:var(--sombra); }
+-  .tab-switch a { display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:6px; font-size:13.5px; font-weight:600; text-decoration:none; color:var(--sub); transition:.15s; white-space:nowrap; }
+-  .tab-switch a:hover { color:var(--texto); background:var(--cinza1); }
+-  .tab-switch a.ativo { background:var(--azul); color:var(--nav-fg); }
++  .tab-switch a, .tab-switch button {
++    display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:6px; font-size:13.5px; font-weight:600;
++    text-decoration:none; color:var(--sub); transition:.15s; white-space:nowrap;
++    background:transparent; border:none; cursor:pointer; font-family:inherit;
++  }
++  .tab-switch a:hover, .tab-switch button:hover { color:var(--texto); background:var(--cinza1); }
++  .tab-switch a.ativo, .tab-switch a.ativa, .tab-switch button.ativo, .tab-switch button.ativa { background:var(--azul); color:var(--nav-fg); }
++  .tab-switch .contador { font-size:11px; font-weight:700; opacity:.75; }
+ 
+   .page-header { margin-bottom:18px; }
+   .page-header h1 { font-size:21px; font-weight:700; letter-spacing:-.3px; color:var(--texto); display:flex; align-items:center; gap:10px; }
+diff --git a/app/templates/clientes.html b/app/templates/clientes.html
+index 9e5f7e2..f7df4da 100644
+--- a/app/templates/clientes.html
++++ b/app/templates/clientes.html
+@@ -290,7 +290,9 @@
+     if (!dados) return;
+     const tbody = document.getElementById('tbody');
+     if (!dados.length) {
+-      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
++      tbody.innerHTML = busca
++        ? `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado para "${escapeHtml(busca)}".</p></div></td></tr>`
++        : `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente cadastrado ainda.</p><button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="abrirModal()">+ Novo cliente</button></div></td></tr>`;
+       return;
+     }
+     tbody.innerHTML = dados.map(c => `
+@@ -301,13 +303,18 @@
+       <td>${escapeHtml(c.email) || '—'}</td>
+       <td class="col-obs" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
+       <td>
+-        <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
++        <div style="display:flex;gap:5px;align-items:center;">
+           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
+-          <a class="btn btn-outline btn-sm btn-icon" title="Pendências" href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }}</a>
+-          <button class="btn btn-outline btn-sm btn-icon" title="Documentos" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }}</button>
+-          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${escapeHtml(c.nome)}')">{{ icon('file','icon icon-sm') }}</button>
+-          <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${escapeHtml(JSON.stringify(c))})'>{{ icon('edit','icon icon-sm') }}</button>
+-          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${escapeHtml(c.nome)}')">{{ icon('delete','icon icon-sm') }}</button>
++          <div style="position:relative;">
++            <button type="button" class="btn btn-outline btn-sm btn-icon" title="Mais ações" onclick="toggleMenuAcoes(event,'dropdown-row-cli-${c.id}')">{{ icon('more','icon icon-sm') }}</button>
++            <div id="dropdown-row-cli-${c.id}" class="dropdown-acoes">
++              <a href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }} Pendências</a>
++              <button type="button" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }} Documentos</button>
++              <button type="button" onclick="abrirModalPdf(${c.id},'${escapeHtml(c.nome)}')">{{ icon('file','icon icon-sm') }} Gerar PDF</button>
++              <button type="button" onclick='editar(${escapeHtml(JSON.stringify(c))})'>{{ icon('edit','icon icon-sm') }} Editar</button>
++              <button type="button" onclick="excluir(${c.id},'${escapeHtml(c.nome)}')" style="color:var(--vermelho);">{{ icon('delete','icon icon-sm') }} Excluir</button>
++            </div>
++          </div>
+         </div>
+       </td>
+     </tr>
+diff --git a/app/templates/dashboard_geral.html b/app/templates/dashboard_geral.html
+index 005cd6b..d1edfb2 100644
+--- a/app/templates/dashboard_geral.html
++++ b/app/templates/dashboard_geral.html
+@@ -1,6 +1,6 @@
+ {% extends "base.html" %}
+ {% block title %}Visão Geral{% endblock %}
+-{% block breadcrumb %}<span>Início</span><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
++{% block breadcrumb %}<a href="/">Início</a><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
+ 
+ {% block content %}
+ <div class="page-header">
+diff --git a/app/templates/painel.html b/app/templates/painel.html
+index 1fd5c5e..a5acbf6 100644
+--- a/app/templates/painel.html
++++ b/app/templates/painel.html
+@@ -32,10 +32,10 @@
+   </div>
+ </div>
+ 
+-<div class="tabs">
+-  <button class="tab-btn ativa" data-aba="ipva"          onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA</button>
+-  <button class="tab-btn"       data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento</button>
+-  <button class="tab-btn"       data-aba="multas"        onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas</button>
++<div class="tab-switch">
++  <button class="ativa" data-aba="ipva"          onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA <span class="contador" id="cont-ipva"></span></button>
++  <button class="" data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento <span class="contador" id="cont-licenciamento"></span></button>
++  <button class="" data-aba="multas"        onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas <span class="contador" id="cont-multas"></span></button>
+ </div>
+ 
+ <!-- ── Painel IPVA ──────────────────────────────────────────────────────────── -->
+@@ -189,6 +189,8 @@ async function carregarIpva() {
+   modalTipo = 'ipva';
+   const all = await apiFetch(`/api/veiculos/${VID}/ipva`);
+   if (!all) return;
++  const pendentesIpva = all.filter(r => !r.pago).length;
++  document.getElementById('cont-ipva').textContent = pendentesIpva ? `(${pendentesIpva})` : '';
+   const dados = filtrarStatus(all, document.getElementById('filtro-ipva-status').value);
+   const tbody = document.getElementById('tbody-ipva');
+ 
+@@ -244,6 +246,8 @@ async function carregarLicenciamento() {
+   modalTipo = 'licenciamento';
+   const all = await apiFetch(`/api/veiculos/${VID}/licenciamento`);
+   if (!all) return;
++  const pendentesLic = all.filter(r => !r.pago).length;
++  document.getElementById('cont-licenciamento').textContent = pendentesLic ? `(${pendentesLic})` : '';
+   const dados = filtrarStatus(all, document.getElementById('filtro-lic-status').value);
+   const tbody = document.getElementById('tbody-licenciamento');
+   if (!dados.length) {
+@@ -270,6 +274,8 @@ async function carregarMultas() {
+   modalTipo = 'multas';
+   const all = await apiFetch(`/api/veiculos/${VID}/multas`);
+   if (!all) return;
++  const pendentesMultas = all.filter(r => !r.pago).length;
++  document.getElementById('cont-multas').textContent = pendentesMultas ? `(${pendentesMultas})` : '';
+   const dados = filtrarStatus(all, document.getElementById('filtro-multa-status').value);
+   const tbody = document.getElementById('tbody-multas');
+   if (!dados.length) {
+@@ -853,5 +859,7 @@ async function excluir(tipo, id) {
+ }
+ 
+ carregarIpva();
++carregarLicenciamento();
++carregarMultas();
+ </script>
+ {% endblock %}
+diff --git a/app/templates/pendencias.html b/app/templates/pendencias.html
+index 6eca557..3749feb 100644
+--- a/app/templates/pendencias.html
++++ b/app/templates/pendencias.html
+@@ -2,7 +2,7 @@
+ {% block title %}Pendências — {{ cliente.nome }}{% endblock %}
+ {% block breadcrumb %}
+   <a href="/clientes">Clientes</a><span class="sep">›</span>
+-  <span>{{ cliente.nome }}</span><span class="sep">›</span><span>Pendências</span>
++  <a href="/clientes/{{ cliente.id }}/veiculos">{{ cliente.nome }}</a><span class="sep">›</span><span>Pendências</span>
+ {% endblock %}
+ 
+ {% block content %}
+@@ -45,7 +45,7 @@
+         <option value="pendente">Pendente</option>
+         <option value="pago">Pago</option>
+       </select>
+-      <div class="toggle-visualizacao">
++      <div class="tab-switch" style="margin-bottom:0;">
+         <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
+         <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
+       </div>
+diff --git a/app/templates/veiculos.html b/app/templates/veiculos.html
+index 1ddbafc..ec1162d 100644
+--- a/app/templates/veiculos.html
++++ b/app/templates/veiculos.html
+@@ -195,7 +195,9 @@ async function carregar() {
+   const filtrado = filtro ? dados.filter(v => v.situacao === filtro) : dados;
+   const tbody = document.getElementById('tbody');
+   if (!filtrado.length) {
+-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhum veículo cadastrado</p></div></td></tr>`;
++    tbody.innerHTML = dados.length
++      ? `<tr><td colspan="8"><div class="empty-state"><p>Nenhum veículo com esse filtro de situação.</p></div></td></tr>`
++      : `<tr><td colspan="8"><div class="empty-state"><p>Nenhum veículo cadastrado ainda.</p><button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="abrirModal()">+ Novo veículo</button></div></td></tr>`;
+     return;
+   }
+   tbody.innerHTML = filtrado.map(v => `

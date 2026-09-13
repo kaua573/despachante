@@ -3,6 +3,10 @@
 {% block breadcrumb %}<span>Veículos</span>{% endblock %}
 
 {% block content %}
+<div class="page-header">
+  <h1>{{ icon('car') }} Veículos</h1>
+  <p>Visão geral de todos os veículos cadastrados no sistema, com filtros por cliente, espécie e situação.</p>
+</div>
 <div class="tab-switch">
   <a href="/veiculos" class="ativo">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
   <a href="/veiculos/vencimentos-placa">{{ icon('calendar','icon icon-sm') }} Vencimentos por final de placa</a>
@@ -14,40 +18,47 @@
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('car') }} Veículos — todos os clientes</h2>
-    <span id="total-resultado" style="font-size:12px;color:var(--sub);"></span>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span id="total-resultado" style="font-size:12px;color:var(--sub);"></span>
+      <button class="btn btn-outline btn-sm" onclick="toggleCollapse('collapse-filtros-veiculos')">{{ icon('find','icon icon-sm') }} Filtros</button>
+    </div>
   </div>
 
-  <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
-    <div class="field" style="min-width:200px;">
-      <label>Cliente</label>
-      <select id="f-cliente"><option value="">Todos</option></select>
+  <div class="collapse" id="collapse-filtros-veiculos">
+    <div class="collapse-body">
+      <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
+        <div class="field" style="min-width:200px;">
+          <label>Cliente</label>
+          <select id="f-cliente"><option value="">Todos</option></select>
+        </div>
+        <div class="field" style="min-width:150px;">
+          <label>Espécie</label>
+          <select id="f-especie">
+            <option value="">Todas</option>
+            <option value="passeio">Passeio</option>
+            <option value="carga">Carga</option>
+            <option value="reboque">Reboque</option>
+          </select>
+        </div>
+        <div class="field" style="min-width:150px;">
+          <label>Situação</label>
+          <select id="f-situacao">
+            <option value="">Todas</option>
+            <option value="ativo">Ativo</option>
+            <option value="desativado">Desativado</option>
+          </select>
+        </div>
+        <div class="field" style="min-width:190px;">
+          <label>Licenciamento</label>
+          <select id="f-sem-lic">
+            <option value="">Não filtrar</option>
+            <option value="{{ ano_atual }}">Sem licenciamento de {{ ano_atual }}</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarVeiculos()">Filtrar</button>
+        <button class="btn btn-ghost btn-sm" style="align-self:flex-end;" onclick="limparFiltrosGeral()">Limpar</button>
+      </div>
     </div>
-    <div class="field" style="min-width:150px;">
-      <label>Espécie</label>
-      <select id="f-especie">
-        <option value="">Todas</option>
-        <option value="passeio">Passeio</option>
-        <option value="carga">Carga</option>
-        <option value="reboque">Reboque</option>
-      </select>
-    </div>
-    <div class="field" style="min-width:150px;">
-      <label>Situação</label>
-      <select id="f-situacao">
-        <option value="">Todas</option>
-        <option value="ativo">Ativo</option>
-        <option value="desativado">Desativado</option>
-      </select>
-    </div>
-    <div class="field" style="min-width:190px;">
-      <label>Licenciamento</label>
-      <select id="f-sem-lic">
-        <option value="">Não filtrar</option>
-        <option value="{{ ano_atual }}">Sem licenciamento de {{ ano_atual }}</option>
-      </select>
-    </div>
-    <button class="btn btn-primary btn-sm" style="align-self:flex-end;" onclick="carregarVeiculos()">Filtrar</button>
-    <button class="btn btn-ghost btn-sm" style="align-self:flex-end;" onclick="limparFiltrosGeral()">Limpar</button>
   </div>
 
   <div class="tabela-wrap">
@@ -136,9 +147,11 @@ async function carregarVeiculos() {
 // Aplica filtros vindos por querystring (ex.: link "Ver lista completa" do dashboard)
 (function aplicarFiltrosDaUrl() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('especie')) document.getElementById('f-especie').value = params.get('especie');
-  if (params.get('sem_licenciamento_ano')) document.getElementById('f-sem-lic').value = params.get('sem_licenciamento_ano');
-  if (params.get('cliente_id')) document.getElementById('f-cliente').value = params.get('cliente_id');
+  let temFiltro = false;
+  if (params.get('especie')) { document.getElementById('f-especie').value = params.get('especie'); temFiltro = true; }
+  if (params.get('sem_licenciamento_ano')) { document.getElementById('f-sem-lic').value = params.get('sem_licenciamento_ano'); temFiltro = true; }
+  if (params.get('cliente_id')) { document.getElementById('f-cliente').value = params.get('cliente_id'); temFiltro = true; }
+  if (temFiltro) document.getElementById('collapse-filtros-veiculos').classList.add('aberto');
 })();
 
 carregarClientesOpcoes().then(() => {

@@ -92,6 +92,11 @@
   .nav-usuario .badge-adm { background:var(--nav-fg-fraco); color:var(--nav-fg); font-size:10px; font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:.4px; }
   .nav-usuario a { color:var(--nav-fg-medio); text-decoration:none; padding:5px 10px; border-radius:6px; transition:.15s; display:flex; align-items:center; gap:5px; font-size:13px; }
   .nav-usuario a:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
+  .nav-usuario-toggle {
+    background:transparent; border:none; cursor:pointer; color:var(--nav-fg-forte); font:inherit; font-size:13px;
+    display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:6px; transition:.15s;
+  }
+  .nav-usuario-toggle:hover { background:var(--nav-fg-fraco); }
 
   .nav-notificacoes { position:relative; margin-left:6px; }
   .btn-sino { background:transparent; border:none; cursor:pointer; padding:7px; border-radius:8px; color:var(--nav-fg-medio); display:flex; align-items:center; position:relative; transition:.15s; }
@@ -138,9 +143,18 @@
   .container { max-width:1150px; margin:0 auto; padding:24px 20px; }
 
   .tab-switch { display:inline-flex; gap:2px; background:var(--card-bg); border:1px solid var(--cinza2); border-radius:9px; padding:4px; margin-bottom:20px; box-shadow:var(--sombra); }
-  .tab-switch a { display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:6px; font-size:13.5px; font-weight:600; text-decoration:none; color:var(--sub); transition:.15s; white-space:nowrap; }
-  .tab-switch a:hover { color:var(--texto); background:var(--cinza1); }
-  .tab-switch a.ativo { background:var(--azul); color:var(--nav-fg); }
+  .tab-switch a, .tab-switch button {
+    display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:6px; font-size:13.5px; font-weight:600;
+    text-decoration:none; color:var(--sub); transition:.15s; white-space:nowrap;
+    background:transparent; border:none; cursor:pointer; font-family:inherit;
+  }
+  .tab-switch a:hover, .tab-switch button:hover { color:var(--texto); background:var(--cinza1); }
+  .tab-switch a.ativo, .tab-switch a.ativa, .tab-switch button.ativo, .tab-switch button.ativa { background:var(--azul); color:var(--nav-fg); }
+  .tab-switch .contador { font-size:11px; font-weight:700; opacity:.75; }
+
+  .page-header { margin-bottom:18px; }
+  .page-header h1 { font-size:21px; font-weight:700; letter-spacing:-.3px; color:var(--texto); display:flex; align-items:center; gap:10px; }
+  .page-header p { font-size:13.5px; color:var(--sub); margin-top:3px; }
 
   .card { background:var(--card-bg); border:1px solid var(--cinza2); border-radius:6px; box-shadow:var(--sombra); overflow:hidden; }
   .card-header { padding:14px 20px; border-bottom:1px solid var(--cinza2); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
@@ -226,7 +240,21 @@
   .detalhe-valor { font-size:14px; color:var(--texto); text-align:right; font-weight:600; }
 
   .empty-state { text-align:center; padding:36px 20px; color:var(--sub); }
+  .empty-state::before {
+    content:''; display:block; width:36px; height:36px; margin:0 auto 10px;
+    background:var(--cinza1); border:1px solid var(--cinza3); border-radius:8px;
+    -webkit-mask:url('{{ url_for("static", filename="icons/folder.svg") }}') center/18px no-repeat;
+    mask:url('{{ url_for("static", filename="icons/folder.svg") }}') center/18px no-repeat;
+    background-color:var(--sub);
+  }
   .empty-state p { font-size:14px; margin-top:8px; }
+
+  /* Recolher/expandir genérico — usado em painéis de filtro e seções longas */
+  .collapse-header { display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; gap:12px; }
+  .collapse-header .chevron { display:inline-block; font-size:12px; color:var(--sub); transition:transform .15s; }
+  .collapse.aberto .collapse-header .chevron { transform:rotate(180deg); }
+  .collapse-body { display:none; }
+  .collapse.aberto .collapse-body { display:block; }
 
   #toast { position:fixed; bottom:24px; right:24px; background:var(--texto); color:var(--card-bg); padding:12px 20px; border-radius:8px; font-size:14px; box-shadow:0 4px 16px rgba(0,0,0,.25); transform:translateY(80px); opacity:0; transition:all .3s; z-index:9999; }
   #toast.show { transform:translateY(0); opacity:1; }
@@ -299,12 +327,6 @@
     {% if current_user.is_authenticated and current_user.tem_permissao('gerar_relatorios') %}
       <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
     {% endif %}
-    {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
-      <a href="/configuracoes" class="{{ 'ativa' if '/configuracoes' in request.path else '' }}">{{ icon('config') }} Configurações</a>
-    {% endif %}
-    {% if current_user.is_authenticated and current_user.perfil == 'administrador' %}
-      <a href="/admin/usuarios" class="{{ 'ativa' if '/admin' in request.path else '' }}">{{ icon('security') }} Admin</a>
-    {% endif %}
   </div>
 
   <!-- Usuário logado -->
@@ -321,12 +343,21 @@
       </div>
     </div>
   </div>
-  <div class="nav-usuario">
-    <span>{{ current_user.nome_completo }}</span>
-    {% if current_user.perfil == 'administrador' %}
-      <span class="badge-adm">Adm</span>
-    {% endif %}
-    <a href="/logout" title="Sair">{{ icon('padlock','icon icon-sm') }} Sair</a>
+  <div class="nav-usuario" style="position:relative;">
+    <button type="button" class="nav-usuario-toggle" onclick="toggleMenuAcoes(event, 'dropdown-usuario')">
+      <span>{{ current_user.nome_completo }}</span>
+      {% if current_user.perfil == 'administrador' %}
+        <span class="badge-adm">Adm</span>
+      {% endif %}
+      {{ icon('more','icon icon-sm') }}
+    </button>
+    <div class="dropdown-acoes" id="dropdown-usuario" style="right:0;">
+      {% if current_user.perfil == 'administrador' %}
+        <a href="/configuracoes">{{ icon('config','icon icon-sm') }} Configurações</a>
+        <a href="/admin/usuarios">{{ icon('security','icon icon-sm') }} Administração</a>
+      {% endif %}
+      <a href="/logout">{{ icon('padlock','icon icon-sm') }} Sair</a>
+    </div>
   </div>
   {% endif %}
 
@@ -542,6 +573,11 @@ async function _carregarNotificacoes() {
 function toggleNotificacoes(ev) {
   ev.stopPropagation();
   document.getElementById('painel-notificacoes').classList.toggle('aberto');
+}
+
+// ── Recolher/expandir genérico (painéis de filtro, seções longas) ───────────
+function toggleCollapse(id) {
+  document.getElementById(id).classList.toggle('aberto');
 }
 
 // ── Menu "mais ações" (usado em Clientes e Veículos, por exemplo) ───────────

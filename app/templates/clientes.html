@@ -290,7 +290,9 @@
     if (!dados) return;
     const tbody = document.getElementById('tbody');
     if (!dados.length) {
-      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
+      tbody.innerHTML = busca
+        ? `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado para "${escapeHtml(busca)}".</p></div></td></tr>`
+        : `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente cadastrado ainda.</p><button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="abrirModal()">+ Novo cliente</button></div></td></tr>`;
       return;
     }
     tbody.innerHTML = dados.map(c => `
@@ -301,13 +303,18 @@
       <td>${escapeHtml(c.email) || '—'}</td>
       <td class="col-obs" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
       <td>
-        <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
+        <div style="display:flex;gap:5px;align-items:center;">
           <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
-          <a class="btn btn-outline btn-sm btn-icon" title="Pendências" href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }}</a>
-          <button class="btn btn-outline btn-sm btn-icon" title="Documentos" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }}</button>
-          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${escapeHtml(c.nome)}')">{{ icon('file','icon icon-sm') }}</button>
-          <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${escapeHtml(JSON.stringify(c))})'>{{ icon('edit','icon icon-sm') }}</button>
-          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${escapeHtml(c.nome)}')">{{ icon('delete','icon icon-sm') }}</button>
+          <div style="position:relative;">
+            <button type="button" class="btn btn-outline btn-sm btn-icon" title="Mais ações" onclick="toggleMenuAcoes(event,'dropdown-row-cli-${c.id}')">{{ icon('more','icon icon-sm') }}</button>
+            <div id="dropdown-row-cli-${c.id}" class="dropdown-acoes">
+              <a href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }} Pendências</a>
+              <button type="button" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }} Documentos</button>
+              <button type="button" onclick="abrirModalPdf(${c.id},'${escapeHtml(c.nome)}')">{{ icon('file','icon icon-sm') }} Gerar PDF</button>
+              <button type="button" onclick='editar(${escapeHtml(JSON.stringify(c))})'>{{ icon('edit','icon icon-sm') }} Editar</button>
+              <button type="button" onclick="excluir(${c.id},'${escapeHtml(c.nome)}')" style="color:var(--vermelho);">{{ icon('delete','icon icon-sm') }} Excluir</button>
+            </div>
+          </div>
         </div>
       </td>
     </tr>
