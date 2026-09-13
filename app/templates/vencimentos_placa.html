@@ -14,6 +14,29 @@
   .chk-final-item input:checked + span { background:var(--azul); border-color:var(--azul); color:var(--nav-fg); }
   .chk-final-item input:disabled + span { opacity:.4; cursor:not-allowed; }
   .chk-final-item input:not(:disabled):hover + span { border-color:var(--azul2); }
+
+  .toggle-visualizacao { display:flex; border:1px solid var(--cinza3); border-radius:8px; overflow:hidden; }
+  .toggle-visualizacao button { border:none; background:transparent; color:var(--sub); padding:7px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; transition:.15s; }
+  .toggle-visualizacao button.ativo { background:var(--azul); color:#fff; }
+  .toggle-visualizacao button:not(.ativo):hover { background:var(--cinza1); }
+
+  .seletor-ano { display:none; align-items:center; justify-content:center; gap:18px; padding:10px 14px; border-bottom:1px solid var(--cinza2); }
+  .seletor-ano button { border:1px solid var(--cinza3); background:var(--card-bg); color:var(--texto); width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; }
+  .seletor-ano button:hover { background:var(--cinza1); }
+
+  .grid-cards { display:none; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px; padding:14px; }
+  .card-mes { border:1px solid var(--cinza2); border-radius:10px; padding:10px; }
+  .card-mes-header { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin:0 0 8px; cursor:pointer; color:var(--texto); }
+  .card-mes-header .contagem { color:var(--sub); font-weight:400; }
+  .card-mes-vazio { font-size:12px; color:var(--sub); margin:0; }
+  .item-card-veiculo { display:flex; gap:6px; border:1px solid var(--cinza2); border-radius:6px; padding:6px 8px; font-size:11.5px; margin-bottom:5px; cursor:pointer; }
+  .item-card-veiculo:last-child { margin-bottom:0; }
+  .item-card-veiculo input[type="checkbox"] { margin-top:2px; flex-shrink:0; }
+  .item-card-veiculo input[type="checkbox"]:disabled { opacity:.4; }
+  .item-card-veiculo .topo { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .item-card-veiculo .placa { font-family:'JetBrains Mono',monospace; font-weight:600; }
+  .item-card-veiculo .sub { color:var(--sub); margin-top:2px; }
+  .card-mes-sem-regra { grid-column:1/-1; border:1px dashed var(--cinza3); border-radius:10px; padding:10px 14px; font-size:12.5px; color:var(--sub); }
 </style>
 <div class="page-header">
   <h1>{{ icon('calendar') }} Vencimentos por final de placa</h1>
@@ -53,8 +76,12 @@
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('calendar') }} Previsão de vencimentos</h2>
-    <div style="display:flex;align-items:center;gap:14px;">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
       <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
+      <div class="toggle-visualizacao">
+        <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
+        <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
+      </div>
       <button class="btn btn-outline btn-sm" onclick="toggleCollapse('collapse-filtros-previsao')">{{ icon('find','icon icon-sm') }} Filtros</button>
     </div>
   </div>
@@ -102,7 +129,13 @@
   </div>
   {% endif %}
 
-  <div class="tabela-wrap">
+  <div id="seletor-ano-cards" class="seletor-ano">
+    <button type="button" onclick="mudarAnoCards(-1)" title="Ano anterior">‹</button>
+    <strong id="ano-atual-cards" style="font-size:14px;"></strong>
+    <button type="button" onclick="mudarAnoCards(1)" title="Próximo ano">›</button>
+  </div>
+
+  <div id="visao-lista" class="tabela-wrap">
     <table>
       <thead>
         <tr>
@@ -114,6 +147,8 @@
       <tbody id="tbody-previsao"><tr><td colspan="7"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
     </table>
   </div>
+
+  <div id="grid-cards" class="grid-cards"></div>
 </div>
 
 <!-- Modal de regra -->
@@ -194,7 +229,13 @@
 const PODE_GERENCIAR = {{ 'true' if current_user.tem_permissao('gerenciar_regras_vencimento') else 'false' }};
 const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
 const MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const MESES_NOME = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
 let previsaoAtual = [];
+let MODO = 'lista';                 // 'lista' | 'cards'
+let SELECIONADOS_VEIC = new Set();  // índices (em previsaoAtual) marcados para lançamento em lote
 
 // ── Regras ───────────────────────────────────────────────────────────────
 async function carregarRegras() {
@@ -331,16 +372,28 @@ async function carregarPrevisao() {
   const lista = await apiFetch(`/api/regras-vencimento/previsao?${params.toString()}`);
   if (!lista) return;
   previsaoAtual = lista;
+  SELECIONADOS_VEIC.clear();
   document.getElementById('total-previsao').textContent = `${lista.length} veículo(s)`;
+  const chkTodos = document.getElementById('chk-todos');
+  if (chkTodos) chkTodos.checked = false;
+  renderizarPrevisao();
+}
 
+function renderizarPrevisao() {
+  if (MODO === 'lista') renderizarLista(); else renderizarCards();
+  atualizarQtdSelecionados();
+}
+
+// ── Modo Lista ───────────────────────────────────────────────────────────
+function renderizarLista() {
   const tbody = document.getElementById('tbody-previsao');
-  if (!lista.length) {
+  if (!previsaoAtual.length) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>Nenhum veículo encontrado com esses filtros.</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = lista.map((v, i) => `
+  tbody.innerHTML = previsaoAtual.map((v, i) => `
     <tr>
-      ${PODE_GERENCIAR ? `<td><input type="checkbox" class="chk-veiculo" data-idx="${i}" ${v.ja_lancado_no_ano ? 'disabled' : ''}></td>` : ''}
+      ${PODE_GERENCIAR ? `<td><input type="checkbox" class="chk-veiculo" data-idx="${i}" ${v.ja_lancado_no_ano ? 'disabled' : ''} ${SELECIONADOS_VEIC.has(i) ? 'checked' : ''} onchange="toggleVeiculo(${i}, this.checked)"></td>` : ''}
       <td><span class="chip-placa">${escapeHtml(v.placa)}</span></td>
       <td>${v.final_placa ?? '—'}</td>
       <td>${escapeHtml(v.cliente_nome)}</td>
@@ -348,28 +401,112 @@ async function carregarPrevisao() {
       <td>${v.vencimento_previsto ? fmtData(v.vencimento_previsto) : '<span style="color:var(--sub);">sem regra</span>'}</td>
       <td>${v.ja_lancado_no_ano ? '<span class="badge badge-pago">Já lançado</span>' : '<span class="badge badge-pendente">Pendente</span>'}</td>
     </tr>`).join('');
+}
+
+// ── Modo Cards (agrupado por mês do vencimento previsto) ──────────────────
+function renderizarCards() {
+  document.getElementById('ano-atual-cards').textContent = document.getElementById('p-ano').value;
+
+  const porMes = Array.from({ length: 12 }, () => []);
+  const semRegra = [];
+  previsaoAtual.forEach((v, i) => {
+    if (!v.vencimento_previsto) { semRegra.push(i); return; }
+    const mes = parseInt(v.vencimento_previsto.split('-')[1], 10) - 1;
+    if (mes >= 0 && mes <= 11) porMes[mes].push(i);
+  });
+
+  const itemCard = (i) => {
+    const v = previsaoAtual[i];
+    return `<label class="item-card-veiculo">
+      <input type="checkbox" ${v.ja_lancado_no_ano || !PODE_GERENCIAR ? 'disabled' : ''} ${SELECIONADOS_VEIC.has(i) ? 'checked' : ''} onchange="toggleVeiculo(${i}, this.checked)">
+      <div style="flex:1;min-width:0;">
+        <div class="topo">
+          <span class="placa">${escapeHtml(v.placa)}</span>
+          ${v.ja_lancado_no_ano ? '<span class="badge badge-pago">Já lançado</span>' : '<span class="badge badge-pendente">Pendente</span>'}
+        </div>
+        <p class="sub">${escapeHtml(v.cliente_nome)} · ${ESPECIE_LABEL[v.especie] || v.especie}</p>
+        <p class="sub">Final ${v.final_placa ?? '—'} · vence ${fmtData(v.vencimento_previsto)}</p>
+      </div>
+    </label>`;
+  };
+
+  const grid = document.getElementById('grid-cards');
+  const cardsMeses = MESES_NOME.map((nomeMes, idx) => {
+    const idxsMes = porMes[idx];
+    const idxsMarcaveis = idxsMes.filter(i => !previsaoAtual[i].ja_lancado_no_ano);
+    const todosMarcados = idxsMarcaveis.length > 0 && idxsMarcaveis.every(i => SELECIONADOS_VEIC.has(i));
+
+    const corpo = !idxsMes.length
+      ? `<p class="card-mes-vazio">Nenhum veículo</p>`
+      : idxsMes.map(itemCard).join('');
+
+    return `<div class="card-mes">
+      <label class="card-mes-header">
+        <input type="checkbox" ${idxsMarcaveis.length && PODE_GERENCIAR ? '' : 'disabled'} ${todosMarcados ? 'checked' : ''} onchange="toggleMes(${idx}, this.checked)">
+        ${nomeMes} <span class="contagem">· ${idxsMes.length}</span>
+      </label>
+      ${corpo}
+    </div>`;
+  }).join('');
+
+  const cardSemRegra = semRegra.length
+    ? `<div class="card-mes-sem-regra">⚠️ ${semRegra.length} veículo(s) sem regra de vencimento definida (não aparecem em nenhum mês): ${semRegra.map(i => `<span class="chip-placa" style="margin-left:4px;">${escapeHtml(previsaoAtual[i].placa)}</span>`).join('')}</div>`
+    : '';
+
+  grid.innerHTML = cardsMeses + cardSemRegra;
+}
+
+function toggleVeiculo(idx, marcado) {
+  if (marcado) SELECIONADOS_VEIC.add(idx); else SELECIONADOS_VEIC.delete(idx);
+  if (MODO === 'cards') renderizarCards();   // atualiza o checkbox "mês inteiro"
   atualizarQtdSelecionados();
+}
+
+function toggleMes(idxMes, marcado) {
+  previsaoAtual.forEach((v, i) => {
+    if (v.ja_lancado_no_ano || !v.vencimento_previsto) return;
+    const mes = parseInt(v.vencimento_previsto.split('-')[1], 10) - 1;
+    if (mes !== idxMes) return;
+    if (marcado) SELECIONADOS_VEIC.add(i); else SELECIONADOS_VEIC.delete(i);
+  });
+  renderizarCards();
+  atualizarQtdSelecionados();
+}
+
+function mudarAnoCards(delta) {
+  document.getElementById('p-ano').value = parseInt(document.getElementById('p-ano').value, 10) + delta;
+  carregarPrevisao();
+}
+
+// ── Alternância de modo de visualização ───────────────────────────────────
+function mudarModo(modo) {
+  MODO = modo;
+  document.getElementById('btn-modo-lista').classList.toggle('ativo', modo === 'lista');
+  document.getElementById('btn-modo-cards').classList.toggle('ativo', modo === 'cards');
+  document.getElementById('visao-lista').style.display     = modo === 'lista' ? '' : 'none';
+  document.getElementById('grid-cards').style.display       = modo === 'cards' ? 'grid' : 'none';
+  document.getElementById('seletor-ano-cards').style.display = modo === 'cards' ? 'flex' : 'none';
+  renderizarPrevisao();
 }
 
 function alternarTodos(origem) {
-  document.querySelectorAll('.chk-veiculo:not(:disabled)').forEach(c => c.checked = origem.checked);
-  atualizarQtdSelecionados();
+  previsaoAtual.forEach((v, i) => {
+    if (v.ja_lancado_no_ano) return;
+    if (origem.checked) SELECIONADOS_VEIC.add(i); else SELECIONADOS_VEIC.delete(i);
+  });
+  renderizarPrevisao();
 }
 
-document.addEventListener('change', (e) => {
-  if (e.target.classList.contains('chk-veiculo')) atualizarQtdSelecionados();
-});
-
 function atualizarQtdSelecionados() {
-  const n = document.querySelectorAll('.chk-veiculo:checked').length;
+  const n = SELECIONADOS_VEIC.size;
   const span = document.getElementById('qtd-selecionados');
   if (span) span.textContent = n ? `${n} selecionado(s)` : '';
 }
 
 // ── Lançamento em lote ───────────────────────────────────────────────────
 function abrirResumoLote() {
-  const marcados = Array.from(document.querySelectorAll('.chk-veiculo:checked'))
-    .map(c => previsaoAtual[parseInt(c.dataset.idx, 10)])
+  const marcados = Array.from(SELECIONADOS_VEIC)
+    .map(i => previsaoAtual[i])
     .filter(v => v.vencimento_previsto); // só entra no lote quem tem data (regra definida)
 
   if (!marcados.length) {

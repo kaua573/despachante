@@ -1,5 +1,5 @@
 diff --git a/app/templates/vencimentos_placa.html b/app/templates/vencimentos_placa.html
-index 9ec6e16..90f02cb 100644
+index 545a95c..e4677aa 100644
 --- a/app/templates/vencimentos_placa.html
 +++ b/app/templates/vencimentos_placa.html
 @@ -14,6 +14,29 @@
@@ -30,27 +30,23 @@ index 9ec6e16..90f02cb 100644
 +  .item-card-veiculo .sub { color:var(--sub); margin-top:2px; }
 +  .card-mes-sem-regra { grid-column:1/-1; border:1px dashed var(--cinza3); border-radius:10px; padding:10px 14px; font-size:12.5px; color:var(--sub); }
  </style>
- <div class="tab-switch">
-   <a href="/veiculos">{{ icon('car','icon icon-sm') }} Todos os veículos</a>
-@@ -42,9 +65,15 @@
- 
- <!-- ── Previsão ─────────────────────────────────────────────────────────── -->
+ <div class="page-header">
+   <h1>{{ icon('calendar') }} Vencimentos por final de placa</h1>
+@@ -53,8 +76,12 @@
  <div class="card">
--  <div class="card-header">
-+  <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+   <div class="card-header">
      <h2>{{ icon('calendar') }} Previsão de vencimentos</h2>
--    <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
-+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-+      <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
+-    <div style="display:flex;align-items:center;gap:14px;">
++    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+       <span id="total-previsao" style="font-size:12px;color:var(--sub);"></span>
 +      <div class="toggle-visualizacao">
 +        <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
 +        <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
 +      </div>
-+    </div>
+       <button class="btn btn-outline btn-sm" onclick="toggleCollapse('collapse-filtros-previsao')">{{ icon('find','icon icon-sm') }} Filtros</button>
+     </div>
    </div>
- 
-   <div class="filtros-venc" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid var(--cinza2);">
-@@ -86,7 +115,13 @@
+@@ -102,7 +129,13 @@
    </div>
    {% endif %}
  
@@ -65,7 +61,7 @@ index 9ec6e16..90f02cb 100644
      <table>
        <thead>
          <tr>
-@@ -98,6 +133,8 @@
+@@ -114,6 +147,8 @@
        <tbody id="tbody-previsao"><tr><td colspan="7"><div class="empty-state"><p>Carregando...</p></div></td></tr></tbody>
      </table>
    </div>
@@ -74,7 +70,7 @@ index 9ec6e16..90f02cb 100644
  </div>
  
  <!-- Modal de regra -->
-@@ -178,7 +215,13 @@
+@@ -194,7 +229,13 @@
  const PODE_GERENCIAR = {{ 'true' if current_user.tem_permissao('gerenciar_regras_vencimento') else 'false' }};
  const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
  const MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -88,7 +84,7 @@ index 9ec6e16..90f02cb 100644
  
  // ── Regras ───────────────────────────────────────────────────────────────
  async function carregarRegras() {
-@@ -315,16 +358,28 @@ async function carregarPrevisao() {
+@@ -331,16 +372,28 @@ async function carregarPrevisao() {
    const lista = await apiFetch(`/api/regras-vencimento/previsao?${params.toString()}`);
    if (!lista) return;
    previsaoAtual = lista;
@@ -120,7 +116,7 @@ index 9ec6e16..90f02cb 100644
        <td><span class="chip-placa">${escapeHtml(v.placa)}</span></td>
        <td>${v.final_placa ?? '—'}</td>
        <td>${escapeHtml(v.cliente_nome)}</td>
-@@ -332,28 +387,112 @@ async function carregarPrevisao() {
+@@ -348,28 +401,112 @@ async function carregarPrevisao() {
        <td>${v.vencimento_previsto ? fmtData(v.vencimento_previsto) : '<span style="color:var(--sub);">sem regra</span>'}</td>
        <td>${v.ja_lancado_no_ano ? '<span class="badge badge-pago">Já lançado</span>' : '<span class="badge badge-pendente">Pendente</span>'}</td>
      </tr>`).join('');
