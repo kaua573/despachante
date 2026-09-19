@@ -7,19 +7,17 @@
   <h1>{{ icon('car') }} Visão Geral</h1>
   <p>Panorama do sistema: veículos por espécie, licenciamentos pendentes e clientes com mais pendências.</p>
 </div>
-<div class="tab-switch">
-  <a href="/">{{ icon('dashboard','icon icon-sm') }} Painel principal</a>
-  <a href="/dashboard/geral" class="ativo">{{ icon('car','icon icon-sm') }} Visão geral</a>
-</div>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px;">
   <div class="card" style="padding:18px 20px;">
-    <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
+    <div
+      style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px;">
       Veículos por espécie</div>
     <div id="especies-lista" style="display:flex;flex-direction:column;gap:8px;">—</div>
   </div>
 
-  <a href="/veiculos" id="card-sem-lic" class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
+  <a href="/veiculos" id="card-sem-lic" class="card"
+    style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
     {{ icon('warning','icon icon-lg') }}
     <div>
       <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">
@@ -29,7 +27,8 @@
     </div>
   </a>
 
-  <a href="/veiculos/vencimentos-placa" class="card" style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
+  <a href="/veiculos/vencimentos-placa" class="card"
+    style="padding:18px 20px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;">
     {{ icon('calendar','icon icon-lg') }}
     <div>
       <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;">
@@ -45,9 +44,20 @@
   </div>
   <div class="tabela-wrap">
     <table>
-      <thead><tr><th>Cliente</th><th>Pendências em aberto</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Pendências em aberto</th>
+        </tr>
+      </thead>
       <tbody id="tbody-top-pendencias">
-        <tr><td colspan="2"><div class="empty-state"><p>Carregando...</p></div></td></tr>
+        <tr>
+          <td colspan="2">
+            <div class="empty-state">
+              <p>Carregando...</p>
+            </div>
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -56,32 +66,32 @@
 
 {% block scripts %}
 <script>
-async function carregarVisaoGeral() {
-  const d = await apiFetch('/api/dashboard/geral');
-  if (!d) return;
+  async function carregarVisaoGeral() {
+    const d = await apiFetch('/api/dashboard/geral');
+    if (!d) return;
 
-  document.getElementById('ano-sem-lic').textContent = `(${d.ano})`;
-  document.getElementById('tot-sem-lic').textContent = d.sem_licenciamento_total;
-  document.getElementById('card-sem-lic').href = `/veiculos?sem_licenciamento_ano=${d.ano}`;
+    document.getElementById('ano-sem-lic').textContent = `(${d.ano})`;
+    document.getElementById('tot-sem-lic').textContent = d.sem_licenciamento_total;
+    document.getElementById('card-sem-lic').href = `/veiculos?sem_licenciamento_ano=${d.ano}`;
 
-  document.getElementById('especies-lista').innerHTML = d.por_especie.map(e => `
+    document.getElementById('especies-lista').innerHTML = d.por_especie.map(e => `
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <a href="/veiculos?especie=${e.especie}" style="text-decoration:none;color:var(--texto);font-size:14px;">${escapeHtml(e.label)}</a>
       <span style="font-weight:700;color:var(--azul);">${e.total}</span>
     </div>`).join('');
 
-  const tbody = document.getElementById('tbody-top-pendencias');
-  if (!d.top_pendencias.length) {
-    tbody.innerHTML = '<tr><td colspan="2"><div class="empty-state"><p>Nenhuma pendência em aberto 🎉</p></div></td></tr>';
-  } else {
-    tbody.innerHTML = d.top_pendencias.map(p => `
+    const tbody = document.getElementById('tbody-top-pendencias');
+    if (!d.top_pendencias.length) {
+      tbody.innerHTML = '<tr><td colspan="2"><div class="empty-state"><p>Nenhuma pendência em aberto 🎉</p></div></td></tr>';
+    } else {
+      tbody.innerHTML = d.top_pendencias.map(p => `
       <tr>
         <td><a href="/clientes/${p.cliente_id}/pendencias" style="color:var(--azul2);text-decoration:none;">${escapeHtml(p.cliente_nome)}</a></td>
         <td><span class="badge badge-vencido">${p.total_pendencias}</span></td>
       </tr>`).join('');
+    }
   }
-}
 
-carregarVisaoGeral();
+  carregarVisaoGeral();
 </script>
 {% endblock %}

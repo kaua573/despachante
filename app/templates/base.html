@@ -101,6 +101,16 @@
   .nav-notificacoes { position:relative; margin-left:6px; }
   .btn-sino { background:transparent; border:none; cursor:pointer; padding:7px; border-radius:8px; color:var(--nav-fg-medio); display:flex; align-items:center; position:relative; transition:.15s; }
   .btn-sino:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
+
+  .nav-busca .input-busca-global {
+    width:100%; background:rgba(0,0,0,.18); color:var(--nav-fg);
+    border:1px solid rgba(255,255,255,.16); border-radius:8px;
+    padding:7px 12px 7px 32px; font-size:13px; outline:none; transition:.15s;
+  }
+  .nav-busca .input-busca-global::placeholder { color:var(--nav-fg-medio); opacity:1; }
+  .nav-busca .input-busca-global:focus { background:rgba(0,0,0,.28); border-color:rgba(255,255,255,.3); }
+  html[data-tema="escuro"] .nav-busca .input-busca-global { background:rgba(0,0,0,.35); border-color:rgba(255,255,255,.08); }
+  html[data-tema="escuro"] .nav-busca .input-busca-global:focus { background:rgba(0,0,0,.5); }
   .badge-sino {
     position:absolute; top:1px; right:1px; background:var(--vermelho); color:#fff;
     font-size:10px; font-weight:700; line-height:1; padding:2.5px 5px; border-radius:999px;
@@ -317,7 +327,8 @@
   </a>
 
   <div class="nav-links">
-    <a href="/" class="{{ 'ativa' if request.path == '/' or request.path == '/dashboard/geral' else '' }}">{{ icon('dashboard') }} Início</a>
+    <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
+    <a href="/dashboard/geral" class="{{ 'ativa' if request.path == '/dashboard/geral' else '' }}">{{ icon('view') }} Panorama</a>
     {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_veiculos') %}
       <a href="/veiculos" class="{{ 'ativa' if request.path in ('/veiculos', '/veiculos/vencimentos-placa') else '' }}">{{ icon('car') }} Veículos</a>
     {% endif %}
@@ -336,11 +347,10 @@
   {% if current_user.is_authenticated %}
   <div class="nav-busca" style="flex:1;display:flex;justify-content:center;max-width:380px;position:relative;">
     <div style="position:relative;width:100%;max-width:320px;">
-      <input type="text" id="input-busca-global" placeholder="Buscar cliente ou placa...  ( / )"
+      <input type="text" id="input-busca-global" class="input-busca-global" placeholder="Buscar cliente ou placa...  ( / )"
              autocomplete="off"
              oninput="buscaGlobalDigitou()"
-             onfocus="buscaGlobalFoco()"
-             style="width:100%;background:var(--nav-fg-fraco);color:var(--nav-fg);border:1px solid transparent;border-radius:8px;padding:7px 12px 7px 32px;font-size:13px;outline:none;transition:.15s;">
+             onfocus="buscaGlobalFoco()">
       <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.75;display:flex;">{{ icon('find','icon icon-sm') }}</span>
       <div id="painel-busca-global" class="painel-notificacoes" style="width:340px;left:50%;transform:translateX(-50%);"></div>
     </div>
