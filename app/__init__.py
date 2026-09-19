@@ -158,6 +158,22 @@ def aplicar_migracoes_leves(app: Flask) -> None:
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_cnpj ON clientes (cnpj)"
                 ))
 
+        if "log_acao" in inspector.get_table_names():
+            colunas_log = {c["name"] for c in inspector.get_columns("log_acao")}
+            with db.engine.begin() as conn:
+                if "usuario_nome" not in colunas_log:
+                    conn.execute(text("ALTER TABLE log_acao ADD COLUMN usuario_nome VARCHAR(100)"))
+                if "hash_anterior" not in colunas_log:
+                    conn.execute(text("ALTER TABLE log_acao ADD COLUMN hash_anterior VARCHAR(64)"))
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_log_acao_hash_anterior ON log_acao (hash_anterior)"
+                    ))
+                if "hash_atual" not in colunas_log:
+                    conn.execute(text("ALTER TABLE log_acao ADD COLUMN hash_atual VARCHAR(64)"))
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_log_acao_hash_atual ON log_acao (hash_atual)"
+                    ))
+
 
 def _registrar_blueprints(app: Flask) -> None:
     from app.routes.main import bp as main_bp

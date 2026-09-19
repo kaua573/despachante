@@ -14,7 +14,12 @@
 <div class="card">
   <div class="card-header">
     <h2>{{ icon('security') }} Log de ações</h2>
-    <span style="font-size:12px;color:var(--sub);">{{ total }} registro(s)</span>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span id="badge-integridade" style="font-size:11.5px;padding:3px 9px;border-radius:20px;background:var(--cinza1);color:var(--sub);"></span>
+      <span style="font-size:12px;color:var(--sub);">{{ total }} registro(s)</span>
+      <button class="btn btn-outline btn-sm" onclick="verificarIntegridade()">{{ icon('security','icon icon-sm') }} Verificar integridade</button>
+      <a class="btn btn-outline btn-sm" href="/admin/log/exportar?usuario_id={{ filtros.usuario_id or '' }}&entidade={{ filtros.entidade or '' }}&acao={{ filtros.acao or '' }}&data_inicio={{ filtros.data_inicio or '' }}&data_fim={{ filtros.data_fim or '' }}">{{ icon('file','icon icon-sm') }} Exportar CSV</a>
+    </div>
   </div>
 
   <!-- Filtros -->
@@ -63,7 +68,7 @@
         {% set d = r.detalhe|fromjson %}
         <tr>
           <td style="font-size:13px;white-space:nowrap;">{{ r.criado_em.strftime('%d/%m/%Y %H:%M:%S') }}</td>
-          <td>{{ r.usuario.nome_completo if r.usuario else '—' }}</td>
+          <td>{{ r.usuario.nome_completo if r.usuario else (r.usuario_nome or '—') }}</td>
           <td><code style="font-size:12px;background:var(--cinza1);padding:2px 6px;border-radius:4px;">{{ r.acao }}</code></td>
           <td>{{ r.entidade or '—' }}</td>
           <td>{{ r.entidade_id or '—' }}</td>
@@ -129,4 +134,27 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function verificarIntegridade() {
+  const badge = document.getElementById('badge-integridade');
+  badge.textContent = 'Verificando...';
+  const resultado = await apiFetch('/admin/log/verificar-integridade');
+  if (!resultado) { badge.textContent = ''; return; }
+
+  if (resultado.integro) {
+    badge.textContent = `✓ Íntegro (${resultado.total_verificado} registro(s) conferido(s))`;
+    badge.style.color = 'var(--verde)';
+    badge.style.background = 'color-mix(in srgb, var(--verde) 14%, transparent)';
+    toast('Nenhuma alteração detectada no log.');
+  } else {
+    badge.textContent = `⚠ Possível alteração — registro #${resultado.registro_id}`;
+    badge.style.color = 'var(--vermelho)';
+    badge.style.background = 'color-mix(in srgb, var(--vermelho) 14%, transparent)';
+    toast(resultado.motivo, 'err');
+  }
+}
+</script>
 {% endblock %}

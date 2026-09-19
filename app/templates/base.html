@@ -324,6 +324,9 @@
     {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_clientes') %}
       <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
     {% endif %}
+    {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_veiculos') %}
+      <a href="/pendencias" class="{{ 'ativa' if request.path == '/pendencias' else '' }}">{{ icon('warning') }} Pendências</a>
+    {% endif %}
     {% if current_user.is_authenticated and current_user.tem_permissao('gerar_relatorios') %}
       <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
     {% endif %}

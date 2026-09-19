@@ -1,0 +1,431 @@
+{% extends "base.html" %}
+{% block title %}Central de pendências{% endblock %}
+{% block breadcrumb %}
+  <span>Central de pendências</span>
+{% endblock %}
+
+{% block content %}
+<style>
+  .toggle-visualizacao { display:flex; border:1px solid var(--cinza3); border-radius:8px; overflow:hidden; }
+  .toggle-visualizacao button { border:none; background:transparent; color:var(--sub); padding:7px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; transition:.15s; }
+  .toggle-visualizacao button.ativo { background:var(--azul); color:#fff; }
+  .toggle-visualizacao button:not(.ativo):hover { background:var(--cinza1); }
+
+  .seletor-ano { display:none; align-items:center; justify-content:center; gap:18px; padding:10px 14px; border-bottom:1px solid var(--cinza2); }
+  .seletor-ano button { border:1px solid var(--cinza3); background:var(--card-bg); color:var(--texto); width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; }
+  .seletor-ano button:hover { background:var(--cinza1); }
+
+  .grid-cards { display:none; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px; padding:14px; }
+  .card-mes { border:1px solid var(--cinza2); border-radius:10px; padding:10px; }
+  .card-mes-header { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin:0 0 8px; cursor:pointer; color:var(--texto); }
+  .card-mes-header .contagem { color:var(--sub); font-weight:400; }
+  .card-mes-vazio { font-size:12px; color:var(--sub); margin:0; }
+  .item-card { display:flex; gap:6px; border:1px solid var(--cinza2); border-radius:6px; padding:6px 8px; font-size:11.5px; margin-bottom:5px; }
+  .item-card:last-child { margin-bottom:0; }
+  .item-card input[type="checkbox"] { margin-top:2px; flex-shrink:0; }
+  .item-card .topo { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .item-card .placa { font-family:'JetBrains Mono',monospace; font-weight:600; }
+  .item-card .sub { color:var(--sub); margin-top:2px; }
+
+  .badge-contato { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; padding:2px 7px; border-radius:20px; background:var(--cinza1); color:var(--sub); white-space:nowrap; }
+  .btn-contato { border:1px solid var(--cinza3); background:transparent; color:var(--sub); font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer; white-space:nowrap; }
+  .btn-contato:hover { background:var(--cinza1); }
+  .btn-contato.marcado { border-color:var(--verde,#2e7d32); color:var(--verde,#2e7d32); }
+</style>
+
+<div class="card">
+  <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+    <h2>{{ icon('warning') }} Central de pendências</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select id="filtro-cliente" onchange="renderizar()" class="select-filtro">
+        <option value="">Todos os clientes</option>
+      </select>
+      <select id="filtro-tipo" onchange="renderizar()" class="select-filtro">
+        <option value="">Todos os tipos</option>
+        <option value="ipva_avista">IPVA (à vista)</option>
+        <option value="ipva_parcela">IPVA (parcela)</option>
+        <option value="licenciamento">Licenciamento</option>
+        <option value="multa">Multa</option>
+      </select>
+      <select id="filtro-status" onchange="renderizar()" class="select-filtro">
+        <option value="">Todos os status</option>
+        <option value="pendente">Pendente</option>
+        <option value="pago">Pago</option>
+      </select>
+      <select id="filtro-contato" onchange="renderizar()" class="select-filtro">
+        <option value="">Contato — todos</option>
+        <option value="nao_contatado">Ainda sem contato</option>
+        <option value="contatado">Já contatado</option>
+      </select>
+      <div class="tab-switch" style="margin-bottom:0;">
+        <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
+        <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="seletor-ano" class="seletor-ano">
+    <button type="button" onclick="mudarAno(-1)" title="Ano anterior">‹</button>
+    <strong id="ano-atual" style="font-size:14px;"></strong>
+    <button type="button" onclick="mudarAno(1)" title="Próximo ano">›</button>
+  </div>
+
+  <div id="visao-lista" class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th style="width:36px;"><input type="checkbox" id="chk-todos" onchange="toggleTodos()"></th>
+        <th>Cliente</th><th>Placa</th><th>Tipo</th><th>Descrição</th><th>Valor</th>
+        <th>Vencimento</th><th>Status</th><th>Contato</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="grid-cards" class="grid-cards"></div>
+</div>
+
+<div id="barra-selecao" style="display:none;position:sticky;bottom:16px;background:var(--card-bg);border:1px solid var(--cinza2);padding:14px 20px;justify-content:space-between;align-items:center;margin-top:14px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);">
+  <span id="contagem-selecao" style="font-size:14px;font-weight:600;"></span>
+  <button class="btn btn-success" onclick="abrirConfirmacaoQuitar()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
+</div>
+
+<div class="modal-overlay" id="modal-confirmar-quitar">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <h3>Confirmar quitação</h3>
+      <button class="btn-close" onclick="fecharConfirmacaoQuitar()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--sub);margin:0 0 12px;">Isso marca os itens abaixo como pagos hoje. Confira antes de continuar — pode ser mais de um cliente de uma vez.</p>
+      <div id="lista-confirmacao" style="border:1px solid var(--cinza2);border-radius:8px;padding:8px 10px;max-height:220px;overflow-y:auto;margin-bottom:12px;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span id="contagem-confirmacao" style="font-size:13px;color:var(--sub);"></span>
+        <strong id="total-confirmacao" style="font-size:17px;"></strong>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharConfirmacaoQuitar()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarQuitar()">{{ icon('save','icon icon-sm') }} Confirmar quitação</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-contato">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <h3>Marcar como contatado</h3>
+      <button class="btn-close" onclick="fecharModalContato()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--sub);margin:0 0 10px;">Registra que alguém do escritório já falou com o cliente sobre este item. Não quita nada e não envia nada automaticamente.</p>
+      <label style="font-size:12px;color:var(--sub);display:block;margin-bottom:4px;">Observação (opcional)</label>
+      <textarea id="obs-contato" rows="3" style="width:100%;resize:vertical;" placeholder="Ex.: cliente disse que paga até sexta"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalContato()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarContato()">{{ icon('save','icon icon-sm') }} Registrar contato</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let TODOS = [];
+let SELECIONADOS = new Set();   // chave = `${tipo}:${id}`
+let MODO = 'lista';             // 'lista' | 'cards'
+let ANO_SELECIONADO = new Date().getFullYear();
+let ITEM_CONTATO_ATUAL = null;  // item aguardando confirmação no modal de contato
+
+const TIPO_LABEL = {
+  ipva_avista:    'IPVA (à vista)',
+  ipva_parcela:   'IPVA (parcela)',
+  licenciamento:  'Licenciamento',
+  multa:          'Multa',
+};
+
+const MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
+function chave(item) { return `${item.tipo}:${item.id}`; }
+
+async function carregar() {
+  const dados = await apiFetch(`/api/pendencias`);
+  if (!dados) return;
+  TODOS = dados;
+  popularFiltroClientes();
+  renderizar();
+}
+
+function popularFiltroClientes() {
+  const sel = document.getElementById('filtro-cliente');
+  const atual = sel.value;
+  const clientes = [...new Map(TODOS.map(i => [i.cliente_id, i.cliente_nome])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  sel.innerHTML = '<option value="">Todos os clientes</option>' +
+    clientes.map(([id, nome]) => `<option value="${id}">${escapeHtml(nome)}</option>`).join('');
+  sel.value = atual;
+}
+
+function itensFiltrados() {
+  const filtroCliente = document.getElementById('filtro-cliente').value;
+  const filtroTipo    = document.getElementById('filtro-tipo').value;
+  const filtroStatus  = document.getElementById('filtro-status').value;
+  const filtroContato = document.getElementById('filtro-contato').value;
+
+  let itens = TODOS;
+  if (filtroCliente) itens = itens.filter(i => String(i.cliente_id) === filtroCliente);
+  if (filtroTipo)    itens = itens.filter(i => i.tipo === filtroTipo);
+  if (filtroStatus)  itens = itens.filter(i => (filtroStatus === 'pago') === i.pago);
+  if (filtroContato === 'contatado')    itens = itens.filter(i => !!i.contato);
+  if (filtroContato === 'nao_contatado') itens = itens.filter(i => !i.contato);
+  return itens;
+}
+
+function renderizar() {
+  if (MODO === 'lista') {
+    renderizarLista();
+  } else {
+    renderizarCards();
+  }
+  atualizarBarra();
+}
+
+// ── Botão/badge de contato (compartilhado entre lista e cards) ─────────────
+
+function chipContato(item) {
+  const k = chave(item);
+  if (item.contato) {
+    return `<span class="badge-contato" title="${escapeHtml(item.contato.observacao || '')}">✓ ${escapeHtml(item.contato.marcado_por || '')} · ${item.contato.marcado_em}</span>
+      <button class="btn-contato marcado" onclick="desmarcarContato('${k}')" title="Desfazer">desfazer</button>`;
+  }
+  return `<button class="btn-contato" onclick="abrirModalContato('${k}')">marcar contato</button>`;
+}
+
+// ── Modo Lista ───────────────────────────────────────────────────────────
+
+function renderizarLista() {
+  const itens = itensFiltrados();
+  const tbody = document.getElementById('tbody');
+  if (!itens.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><p>Nenhuma pendência encontrada</p></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = itens.map(item => {
+    const k = chave(item);
+    return `<tr>
+      <td><input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)"></td>
+      <td>${escapeHtml(item.cliente_nome)}</td>
+      <td><span class="chip-placa">${escapeHtml(item.placa)}</span></td>
+      <td>${TIPO_LABEL[item.tipo] || item.tipo}</td>
+      <td>${escapeHtml(item.descricao)}</td>
+      <td>${fmtMoeda(item.valor)}</td>
+      <td>${fmtData(item.vencimento)}</td>
+      <td>${statusVencimento(item.vencimento, item.pago)}</td>
+      <td>${chipContato(item)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Modo Cards (12 meses do ano selecionado) ────────────────────────────────
+
+function renderizarCards() {
+  document.getElementById('ano-atual').textContent = ANO_SELECIONADO;
+
+  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
+  const porMes = Array.from({ length: 12 }, () => []);
+  itensDoAno.forEach(item => {
+    const mes = parseInt(item.vencimento.split('-')[1], 10) - 1;
+    if (mes >= 0 && mes <= 11) porMes[mes].push(item);
+  });
+
+  const grid = document.getElementById('grid-cards');
+  grid.innerHTML = MESES.map((nomeMes, idx) => {
+    const itensMes = porMes[idx];
+    const chavesMes = itensMes.map(chave);
+    const todosMarcados = chavesMes.length > 0 && chavesMes.every(k => SELECIONADOS.has(k));
+
+    const corpo = !itensMes.length
+      ? `<p class="card-mes-vazio">Nenhuma pendência</p>`
+      : itensMes.map(item => {
+          const k = chave(item);
+          return `<div class="item-card">
+            <input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)">
+            <div style="flex:1;min-width:0;">
+              <div class="topo">
+                <span class="placa">${escapeHtml(item.placa)}</span>
+                ${statusVencimento(item.vencimento, item.pago)}
+              </div>
+              <p class="sub">${escapeHtml(item.cliente_nome)}</p>
+              <p class="sub">${TIPO_LABEL[item.tipo] || item.tipo} · ${escapeHtml(item.descricao)}</p>
+              <p class="sub">${fmtMoeda(item.valor)} · vence ${fmtData(item.vencimento)}</p>
+              <p class="sub">${chipContato(item)}</p>
+            </div>
+          </div>`;
+        }).join('');
+
+    return `<div class="card-mes">
+      <label class="card-mes-header">
+        <input type="checkbox" ${chavesMes.length ? '' : 'disabled'} ${todosMarcados ? 'checked' : ''} onchange="toggleMes(${idx}, this.checked)">
+        ${nomeMes} <span class="contagem">· ${itensMes.length}</span>
+      </label>
+      ${corpo}
+    </div>`;
+  }).join('');
+}
+
+function toggleMes(idxMes, marcado) {
+  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
+  itensDoAno
+    .filter(i => parseInt(i.vencimento.split('-')[1], 10) - 1 === idxMes)
+    .forEach(item => {
+      const k = chave(item);
+      if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
+    });
+  renderizarCards();
+  atualizarBarra();
+}
+
+function mudarAno(delta) {
+  ANO_SELECIONADO += delta;
+  renderizarCards();
+}
+
+// ── Alternância de modo de visualização ─────────────────────────────────────
+
+function mudarModo(modo) {
+  MODO = modo;
+  document.getElementById('btn-modo-lista').classList.toggle('ativo', modo === 'lista');
+  document.getElementById('btn-modo-cards').classList.toggle('ativo', modo === 'cards');
+  document.getElementById('visao-lista').style.display  = modo === 'lista' ? '' : 'none';
+  document.getElementById('grid-cards').style.display   = modo === 'cards' ? 'grid' : 'none';
+  document.getElementById('seletor-ano').style.display  = modo === 'cards' ? 'flex' : 'none';
+  renderizar();
+}
+
+// ── Seleção (compartilhada entre os dois modos) ─────────────────────────────
+
+function toggleItem(k, marcado) {
+  if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
+  if (MODO === 'cards') renderizarCards();   // atualiza o checkbox "mês inteiro"
+  atualizarBarra();
+}
+
+function toggleTodos() {
+  const marcarTudo = document.getElementById('chk-todos').checked;
+  document.querySelectorAll('#tbody input[type=checkbox]').forEach(cb => {
+    cb.checked = marcarTudo;
+    if (marcarTudo) SELECIONADOS.add(cb.dataset.chave); else SELECIONADOS.delete(cb.dataset.chave);
+  });
+  atualizarBarra();
+}
+
+function atualizarBarra() {
+  const barra = document.getElementById('barra-selecao');
+  const n = SELECIONADOS.size;
+  document.getElementById('contagem-selecao').textContent = n === 1 ? '1 item selecionado' : `${n} itens selecionados`;
+  barra.style.display = n ? 'flex' : 'none';
+}
+
+// ── Confirmação antes de quitar em massa ─────────────────────────────────────
+
+function abrirConfirmacaoQuitar() {
+  if (!SELECIONADOS.size) return;
+
+  const selecionados = TODOS.filter(item => SELECIONADOS.has(chave(item)));
+  const total = selecionados.reduce((soma, item) => soma + (item.valor || 0), 0);
+
+  document.getElementById('lista-confirmacao').innerHTML = selecionados.map(item => `
+    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--cinza2);">
+      <span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">${escapeHtml(item.placa)}</span> · ${escapeHtml(item.cliente_nome)} · ${escapeHtml(item.descricao)}</span>
+      <span>${fmtMoeda(item.valor)}</span>
+    </div>`).join('');
+
+  document.getElementById('contagem-confirmacao').textContent =
+    selecionados.length === 1 ? '1 item selecionado' : `${selecionados.length} itens selecionados`;
+  document.getElementById('total-confirmacao').textContent = fmtMoeda(total);
+
+  document.getElementById('modal-confirmar-quitar').classList.add('open');
+}
+
+function fecharConfirmacaoQuitar() {
+  document.getElementById('modal-confirmar-quitar').classList.remove('open');
+}
+
+async function confirmarQuitar() {
+  const itens = [...SELECIONADOS].map(k => {
+    const [tipo, id] = k.split(':');
+    return { tipo, id: parseInt(id) };
+  });
+
+  const resultado = await apiFetch(`/api/pendencias/quitar-lote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itens }),
+  });
+
+  fecharConfirmacaoQuitar();
+  if (!resultado) return;
+
+  SELECIONADOS.clear();
+  const chkTodos = document.getElementById('chk-todos');
+  if (chkTodos) chkTodos.checked = false;
+
+  if (resultado.sucesso) toast(`${resultado.sucesso} item(ns) quitado(s)!`);
+  if (resultado.falhas && resultado.falhas.length) {
+    toast(`${resultado.falhas.length} item(ns) não puderam ser quitados (verifique se já não estavam pagos ou permissão).`, 'err');
+  }
+  await carregar();
+}
+
+// ── Marcar/desmarcar contato com o cliente ──────────────────────────────────
+
+function abrirModalContato(k) {
+  ITEM_CONTATO_ATUAL = k;
+  document.getElementById('obs-contato').value = '';
+  document.getElementById('modal-contato').classList.add('open');
+}
+
+function fecharModalContato() {
+  document.getElementById('modal-contato').classList.remove('open');
+  ITEM_CONTATO_ATUAL = null;
+}
+
+async function confirmarContato() {
+  if (!ITEM_CONTATO_ATUAL) return;
+  const [tipo, id] = ITEM_CONTATO_ATUAL.split(':');
+  const observacao = document.getElementById('obs-contato').value.trim();
+
+  const resultado = await apiFetch('/api/pendencias/contato', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tipo, id: parseInt(id), observacao }),
+  });
+
+  fecharModalContato();
+  if (!resultado) return;
+  toast('Contato registrado.');
+  await carregar();
+}
+
+async function desmarcarContato(k) {
+  const [tipo, id] = k.split(':');
+  const resultado = await apiFetch(`/api/pendencias/contato/${tipo}/${id}`, { method: 'DELETE' });
+  if (!resultado) return;
+  toast('Contato desfeito.');
+  await carregar();
+}
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    if (document.getElementById('modal-confirmar-quitar').classList.contains('open')) fecharConfirmacaoQuitar();
+    if (document.getElementById('modal-contato').classList.contains('open')) fecharModalContato();
+  }
+});
+
+carregar();
+</script>
+{% endblock %}

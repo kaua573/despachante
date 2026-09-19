@@ -1,0 +1,1442 @@
+diff --git a/app/__init__.py b/app/__init__.py
+index d7d9375..640adff 100644
+--- a/app/__init__.py
++++ b/app/__init__.py
+@@ -158,6 +158,22 @@ def aplicar_migracoes_leves(app: Flask) -> None:
+                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_cnpj ON clientes (cnpj)"
+                 ))
+ 
++        if "log_acao" in inspector.get_table_names():
++            colunas_log = {c["name"] for c in inspector.get_columns("log_acao")}
++            with db.engine.begin() as conn:
++                if "usuario_nome" not in colunas_log:
++                    conn.execute(text("ALTER TABLE log_acao ADD COLUMN usuario_nome VARCHAR(100)"))
++                if "hash_anterior" not in colunas_log:
++                    conn.execute(text("ALTER TABLE log_acao ADD COLUMN hash_anterior VARCHAR(64)"))
++                    conn.execute(text(
++                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_log_acao_hash_anterior ON log_acao (hash_anterior)"
++                    ))
++                if "hash_atual" not in colunas_log:
++                    conn.execute(text("ALTER TABLE log_acao ADD COLUMN hash_atual VARCHAR(64)"))
++                    conn.execute(text(
++                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_log_acao_hash_atual ON log_acao (hash_atual)"
++                    ))
++
+ 
+ def _registrar_blueprints(app: Flask) -> None:
+     from app.routes.main import bp as main_bp
+diff --git a/app/models/__init__.py b/app/models/__init__.py
+index 26d5aee..60fade4 100644
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -11,11 +11,12 @@ from app.models.usuario import Usuario
+ from app.models.permissao_usuario import PermissaoUsuario
+ from app.models.log_acao import LogAcao
+ from app.models.regra_vencimento import RegraVencimento
++from app.models.contato_pendencia import ContatoPendencia
+ 
+ __all__ = [
+     "Cliente", "Veiculo", "Ipva", "IpvaParcela",
+     "Licenciamento", "Multa", "Documento",
+     "Configuracao", "TemplateRelatorio",
+     "Usuario", "PermissaoUsuario", "LogAcao",
+-    "RegraVencimento",
++    "RegraVencimento", "ContatoPendencia",
+ ]
+diff --git a/app/models/contato_pendencia.py b/app/models/contato_pendencia.py
+new file mode 100644
+index 0000000..5f28625
+--- /dev/null
++++ b/app/models/contato_pendencia.py
+@@ -0,0 +1,50 @@
++from datetime import datetime
++
++from app import db
++
++
++class ContatoPendencia(db.Model):
++    """
++    Registra que algum funcionário do escritório já entrou em contato com o
++    cliente sobre uma pendência específica (IPVA à vista/parcela,
++    licenciamento ou multa).
++
++    Existe para dar suporte à "Central de pendências" (visão de todos os
++    clientes numa tela só): como o sistema roda em rede local para várias
++    máquinas do mesmo escritório, isso evita que duas pessoas liguem para o
++    mesmo cliente sobre a mesma cobrança. Não dispara nenhum contato
++    automático (e-mail/WhatsApp) — só registra que uma pessoa humana já
++    tratou daquele item.
++    """
++    __tablename__ = "contato_pendencia"
++
++    id = db.Column(db.Integer, primary_key=True)
++
++    # Mesmo vocabulário de "tipo" usado em PendenciaService: ipva_avista,
++    # ipva_parcela, licenciamento, multa. "pendencia_id" é o id do registro
++    # de origem correspondente (Ipva.id, IpvaParcela.id, etc.).
++    tipo = db.Column(db.String(20), nullable=False)
++    pendencia_id = db.Column(db.Integer, nullable=False)
++
++    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
++    veiculo_id = db.Column(db.Integer, db.ForeignKey("veiculos.id"), nullable=False)
++
++    marcado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
++    marcado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
++    observacao = db.Column(db.String(280))
++
++    marcado_por = db.relationship("Usuario")
++
++    __table_args__ = (
++        db.UniqueConstraint("tipo", "pendencia_id", name="uq_contato_tipo_pendencia"),
++    )
++
++    def to_dict(self) -> dict:
++        return {
++            "id": self.id,
++            "tipo": self.tipo,
++            "pendencia_id": self.pendencia_id,
++            "marcado_por": self.marcado_por.nome_completo if self.marcado_por else None,
++            "marcado_em": self.marcado_em.strftime("%d/%m/%Y %H:%M") if self.marcado_em else None,
++            "observacao": self.observacao,
++        }
+diff --git a/app/models/log_acao.py b/app/models/log_acao.py
+index ab499eb..417c0da 100644
+--- a/app/models/log_acao.py
++++ b/app/models/log_acao.py
+@@ -7,9 +7,28 @@ class LogAcao(db.Model):
+ 
+     id          = db.Column(db.Integer, primary_key=True)
+     usuario_id  = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
++    # Nome do usuário "congelado" no momento do registro — garante que o
++    # log continue mostrando quem fez o quê mesmo que o usuário seja
++    # excluído depois (usuario_id vira NULL, mas o nome permanece).
++    usuario_nome = db.Column(db.String(100), nullable=True)
+     acao        = db.Column(db.String(100), nullable=False)
+     entidade    = db.Column(db.String(50), nullable=True)
+     entidade_id = db.Column(db.Integer, nullable=True)
+     detalhe     = db.Column(db.Text, nullable=True)
+     ip          = db.Column(db.String(45), nullable=True)
+     criado_em   = db.Column(db.DateTime, default=datetime.now)
++
++    # Corrente de hashes (estilo "blockchain" simples): cada registro guarda
++    # o hash do registro anterior + um hash próprio calculado a partir do
++    # seu conteúdo. Alterar ou apagar um registro no meio da corrente quebra
++    # a sequência de forma detectável — ver LogService.verificar_integridade().
++    # Registros gravados ANTES dessa coluna existir ficam com hash NULL
++    # (não são verificáveis, mas não invalidam o restante da corrente).
++    #
++    # `hash_anterior` é UNIQUE de propósito: é o que impede duas gravações
++    # concorrentes (rede local com várias máquinas) de "bifurcarem" a
++    # corrente reivindicando o mesmo pai ao mesmo tempo — a segunda gravação
++    # esbarra na constraint e tenta de novo com o pai atualizado
++    # (LogService.registrar já trata esse retry).
++    hash_anterior = db.Column(db.String(64), nullable=True, unique=True)
++    hash_atual    = db.Column(db.String(64), nullable=True, unique=True)
+diff --git a/app/routes/admin.py b/app/routes/admin.py
+index 81b2216..2060dce 100644
+--- a/app/routes/admin.py
++++ b/app/routes/admin.py
+@@ -1,5 +1,6 @@
+-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
++from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort, Response
+ from flask_login import login_required, current_user
++from datetime import datetime
+ 
+ from app import db
+ from app.services.auth_service import AuthService
+@@ -145,3 +146,59 @@ def log_acoes():
+     return render_template("admin/log.html", **resultado, usuarios=usuarios, entidades=entidades,
+                            filtros={"usuario_id": usuario_id, "acao": acao, "entidade": entidade,
+                                     "data_inicio": data_inicio, "data_fim": data_fim})
++
++
++@bp.route("/admin/log/verificar-integridade")
++@login_required
++def log_verificar_integridade():
++    """Confere a corrente de hashes do log de ações — ver
++    LogService.verificar_integridade() para a explicação completa."""
++    _somente_admin()
++    resultado = LogService(db.session).verificar_integridade()
++    LogService(db.session).registrar("verificar_integridade_log", detalhe={"integro": resultado["integro"]})
++    return jsonify(resultado)
++
++
++@bp.route("/admin/log/exportar")
++@login_required
++def log_exportar():
++    """Exporta pra CSV os mesmos registros filtrados na tela — pra auditoria
++    externa ou pra guardar fora do sistema."""
++    _somente_admin()
++    import csv
++    import io
++
++    usuario_id  = request.args.get("usuario_id") or None
++    acao        = request.args.get("acao", "").strip() or None
++    entidade    = request.args.get("entidade", "").strip() or None
++    data_inicio = request.args.get("data_inicio", "").strip() or None
++    data_fim    = request.args.get("data_fim", "").strip() or None
++
++    resultado = LogService(db.session).listar(
++        usuario_id=int(usuario_id) if usuario_id else None,
++        acao=acao, entidade=entidade, data_inicio=data_inicio, data_fim=data_fim,
++        pagina=1, por_pagina=100000,
++    )
++
++    buffer = io.StringIO()
++    escritor = csv.writer(buffer, delimiter=";")
++    escritor.writerow(["Data/Hora", "Usuário", "Ação", "Entidade", "ID entidade", "Detalhe", "IP"])
++    for r in resultado["registros"]:
++        escritor.writerow([
++            r.criado_em.strftime("%d/%m/%Y %H:%M:%S"),
++            r.usuario.nome_completo if r.usuario else (r.usuario_nome or "—"),
++            r.acao,
++            r.entidade or "",
++            r.entidade_id or "",
++            r.detalhe or "",
++            r.ip or "",
++        ])
++
++    LogService(db.session).registrar("exportar_log", detalhe={"quantidade": len(resultado["registros"])})
++
++    nome_arquivo = f"log_acoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
++    return Response(
++        "\ufeff" + buffer.getvalue(),  # BOM — Excel abre acentuação certa
++        mimetype="text/csv",
++        headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"},
++    )
+diff --git a/app/routes/main.py b/app/routes/main.py
+index bfc537b..d1cf1e7 100644
+--- a/app/routes/main.py
++++ b/app/routes/main.py
+@@ -1,5 +1,5 @@
+-from flask import Blueprint, render_template, jsonify, send_from_directory, current_app
+-from flask_login import login_required
++from flask import Blueprint, render_template, jsonify, send_from_directory, current_app, request
++from flask_login import login_required, current_user
+ from app import db
+ from app.services.dashboard_service import DashboardService
+ 
+@@ -32,6 +32,52 @@ def api_dashboard_geral():
+     return jsonify(svc.resumo_geral())
+ 
+ 
++@bp.route("/api/busca-global")
++@login_required
++def api_busca_global():
++    """Busca rápida usada pela caixa de pesquisa do topo — cliente por
++    nome/CPF/CNPJ e veículo por placa, cada um só entra no resultado se o
++    usuário logado tiver a permissão de visualização correspondente."""
++    termo = (request.args.get("q") or "").strip()
++    resultado = {"clientes": [], "veiculos": []}
++    if len(termo) < 2:
++        return jsonify(resultado)
++
++    like = f"%{termo}%"
++
++    if current_user.tem_permissao("visualizar_clientes"):
++        from app.models.cliente import Cliente
++        clientes = (
++            db.session.query(Cliente)
++            .filter(db.or_(Cliente.nome.ilike(like), Cliente.cpf.ilike(like), Cliente.cnpj.ilike(like)))
++            .order_by(Cliente.nome)
++            .limit(8)
++            .all()
++        )
++        resultado["clientes"] = [
++            {"id": c.id, "nome": c.nome, "documento": c.cpf or c.cnpj or ""}
++            for c in clientes
++        ]
++
++    if current_user.tem_permissao("visualizar_veiculos"):
++        from app.models.veiculo import Veiculo
++        from app.models.cliente import Cliente
++        veiculos = (
++            db.session.query(Veiculo)
++            .join(Cliente, Veiculo.cliente_id == Cliente.id)
++            .filter(Veiculo.placa.ilike(like))
++            .order_by(Veiculo.placa)
++            .limit(8)
++            .all()
++        )
++        resultado["veiculos"] = [
++            {"id": v.id, "placa": v.placa, "cliente_id": v.cliente_id, "cliente_nome": v.cliente.nome}
++            for v in veiculos
++        ]
++
++    return jsonify(resultado)
++
++
+ @bp.route("/static/uploads/documentos/<nome>")
+ @login_required
+ def baixar_documento(nome):
+diff --git a/app/routes/pendencias.py b/app/routes/pendencias.py
+index bfb228e..bec3e4d 100644
+--- a/app/routes/pendencias.py
++++ b/app/routes/pendencias.py
+@@ -4,7 +4,7 @@ from app import db
+ from app.models.cliente import Cliente
+ from app.services.auth_service import requer_permissao
+ from app.services.log_service import LogService
+-from app.services.pendencia_service import PendenciaService, PERMISSAO_POR_TIPO
++from app.services.pendencia_service import PendenciaService, PERMISSAO_POR_TIPO, TIPOS_VALIDOS
+ 
+ bp = Blueprint("pendencias", __name__)
+ 
+@@ -29,6 +29,13 @@ def pendencias(cid):
+     return render_template("pendencias.html", cliente=cliente.to_dict())
+ 
+ 
++@bp.route("/pendencias")
++@login_required
++@requer_permissao("visualizar_veiculos")
++def pendencias_geral():
++    return render_template("pendencias_geral.html")
++
++
+ # ── API ──────────────────────────────────────────────────────────────────────
+ 
+ @bp.route("/api/clientes/<int:cid>/pendencias", methods=["GET"])
+@@ -38,6 +45,13 @@ def api_listar_pendencias(cid):
+     return jsonify(_svc().listar(cid))
+ 
+ 
++@bp.route("/api/pendencias", methods=["GET"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_listar_pendencias_todas():
++    return jsonify(_svc().listar_todas())
++
++
+ @bp.route("/api/clientes/<int:cid>/pendencias/quitar-lote", methods=["POST"])
+ @login_required
+ def api_quitar_lote(cid):
+@@ -70,3 +84,76 @@ def api_quitar_lote(cid):
+             {"quantidade": resultado["sucesso"]},
+         )
+     return jsonify({"ok": True, **resultado})
++
++
++@bp.route("/api/pendencias/quitar-lote", methods=["POST"])
++@login_required
++def api_quitar_lote_geral():
++    """Igual ao endpoint por cliente acima, mas para a Central de pendências
++    — os itens do lote podem pertencer a clientes diferentes, então não há
++    um único `cid` para checar."""
++    dados = request.get_json(silent=True) or {}
++    itens = dados.get("itens") or []
++    if not isinstance(itens, list) or not itens:
++        return jsonify({"ok": False, "erro": "Nenhum item selecionado."}), 400
++
++    permitidos, negados = [], []
++    for item in itens:
++        codigo = PERMISSAO_POR_TIPO.get(item.get("tipo"))
++        if codigo and current_user.tem_permissao(codigo):
++            permitidos.append(item)
++        else:
++            negados.append({
++                "tipo": item.get("tipo"),
++                "id": item.get("id"),
++                "erro": "Sem permissão para quitar este tipo de item.",
++            })
++
++    resultado = _svc().quitar_lote(permitidos)
++    resultado["falhas"] = negados + resultado["falhas"]
++
++    if resultado["sucesso"]:
++        _log().registrar(
++            "quitar_lote_pendencias", "sistema", None,
++            {"quantidade": resultado["sucesso"]},
++        )
++    return jsonify({"ok": True, **resultado})
++
++
++# ── Registro de contato com o cliente (Central de pendências) ───────────────
++# Só sinaliza que alguém do escritório já ligou/entrou em contato — não
++# quita nada e não dispara nenhum envio automático (e-mail/WhatsApp).
++
++@bp.route("/api/pendencias/contato", methods=["POST"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_marcar_contato():
++    dados = request.get_json(silent=True) or {}
++    tipo = dados.get("tipo")
++    pendencia_id = dados.get("id")
++    observacao = dados.get("observacao")
++
++    if tipo not in TIPOS_VALIDOS or not isinstance(pendencia_id, int):
++        return jsonify({"ok": False, "erro": "Item inválido."}), 400
++
++    ok, msg = _svc().marcar_contato(tipo, pendencia_id, current_user.id, observacao)
++    if not ok:
++        return jsonify({"ok": False, "erro": msg}), 404
++
++    _log().registrar("marcar_contato_pendencia", tipo, pendencia_id, {"observacao": observacao or ""})
++    return jsonify({"ok": True})
++
++
++@bp.route("/api/pendencias/contato/<string:tipo>/<int:pendencia_id>", methods=["DELETE"])
++@login_required
++@requer_permissao("visualizar_veiculos")
++def api_desmarcar_contato(tipo, pendencia_id):
++    if tipo not in TIPOS_VALIDOS:
++        return jsonify({"ok": False, "erro": "Tipo inválido."}), 400
++
++    removido = _svc().desmarcar_contato(tipo, pendencia_id)
++    if not removido:
++        return jsonify({"ok": False, "erro": "Nenhum contato registrado para este item."}), 404
++
++    _log().registrar("desmarcar_contato_pendencia", tipo, pendencia_id, {})
++    return jsonify({"ok": True})
+diff --git a/app/services/log_service.py b/app/services/log_service.py
+index aa55e51..1431dce 100644
+--- a/app/services/log_service.py
++++ b/app/services/log_service.py
+@@ -4,20 +4,52 @@ Centraliza o registro de toda ação relevante no sistema.
+ """
+ from __future__ import annotations
+ 
++import hashlib
+ import json
++import logging
++import random
++import time
++from datetime import datetime
+ from typing import Any, Optional
+ 
+ from flask import request
+ from flask_login import current_user
++from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.models.log_acao import LogAcao
+ 
++logger = logging.getLogger(__name__)
++
++# Hash "raiz" — pai do primeiro registro que já existir com corrente ativa.
++HASH_GENESIS = "0" * 64
++
++# Quantas vezes tenta regravar se outra máquina da rede local gravou um
++# registro no meio do caminho (mesmo "pai" disputado por duas gravações
++# concorrentes) — normal em uma instalação com várias estações.
++_TENTATIVAS_HASH = 8
++
+ 
+ class LogService:
+     def __init__(self, session: Session) -> None:
+         self._s = session
+ 
++    @staticmethod
++    def _calcular_hash(
++        hash_anterior: str, usuario_id, acao: str, entidade, entidade_id,
++        detalhe_str, criado_em: datetime,
++    ) -> str:
++        base = "|".join([
++            hash_anterior,
++            str(usuario_id or ""),
++            acao,
++            str(entidade or ""),
++            str(entidade_id or ""),
++            detalhe_str or "",
++            criado_em.isoformat(),
++        ])
++        return hashlib.sha256(base.encode("utf-8")).hexdigest()
++
+     def registrar(
+         self,
+         acao: str,
+@@ -33,10 +65,17 @@ class LogService:
+             entidade: nome da entidade afetada (ex: 'veiculo', 'cliente')
+             entidade_id: PK do registro afetado
+             detalhe: dado extra — será serializado como JSON se for dict/list
++
++        Cada registro encadeia um hash com o do registro anterior (ver
++        `verificar_integridade`). Isso nunca deve impedir a ação de negócio
++        que originou o log: qualquer falha aqui é registrada no logger do
++        Python e engolida, sem propagar exceção pra fora.
+         """
+         usuario_id = None
++        usuario_nome = None
+         if current_user and current_user.is_authenticated:
+             usuario_id = current_user.id
++            usuario_nome = current_user.nome_completo
+ 
+         ip = request.remote_addr if request else None
+ 
+@@ -44,16 +83,92 @@ class LogService:
+         if detalhe is not None:
+             detalhe_str = json.dumps(detalhe, ensure_ascii=False) if isinstance(detalhe, (dict, list)) else str(detalhe)
+ 
++        criado_em = datetime.now()
++
++        for tentativa in range(_TENTATIVAS_HASH):
++            ultimo = self._s.query(LogAcao).order_by(LogAcao.id.desc()).first()
++            hash_anterior = ultimo.hash_atual if (ultimo and ultimo.hash_atual) else HASH_GENESIS
++            hash_atual = self._calcular_hash(
++                hash_anterior, usuario_id, acao, entidade, entidade_id, detalhe_str, criado_em,
++            )
++            self._s.add(LogAcao(
++                usuario_id=usuario_id,
++                usuario_nome=usuario_nome,
++                acao=acao,
++                entidade=entidade,
++                entidade_id=entidade_id,
++                detalhe=detalhe_str,
++                ip=ip,
++                criado_em=criado_em,
++                hash_anterior=hash_anterior,
++                hash_atual=hash_atual,
++            ))
++            try:
++                self._s.commit()
++                return
++            except IntegrityError:
++                # Duas gravações concorrentes disputaram o mesmo "pai" — tenta
++                # de novo com o hash mais recente (outra máquina da rede local
++                # gravou entre a leitura e o commit). Um pequeno atraso
++                # aleatório reduz a chance de duas tentativas colidirem de novo.
++                self._s.rollback()
++                time.sleep(random.uniform(0.01, 0.05) * (tentativa + 1))
++                continue
++
++        # Esgotou as tentativas de encadear: grava mesmo assim, sem hash,
++        # pra nunca perder o registro da ação em si por causa da corrente.
++        logger.warning("Não foi possível encadear o hash do log de ações após %s tentativas (acao=%s)", _TENTATIVAS_HASH, acao)
+         self._s.add(LogAcao(
+-            usuario_id=usuario_id,
+-            acao=acao,
+-            entidade=entidade,
+-            entidade_id=entidade_id,
+-            detalhe=detalhe_str,
+-            ip=ip,
++            usuario_id=usuario_id, usuario_nome=usuario_nome, acao=acao, entidade=entidade,
++            entidade_id=entidade_id, detalhe=detalhe_str, ip=ip, criado_em=criado_em,
+         ))
+         self._s.commit()
+ 
++    def verificar_integridade(self) -> dict:
++        """
++        Percorre a corrente de hashes em ordem e confirma que cada registro
++        aponta pro hash do anterior e que o conteúdo de cada um ainda bate
++        com o hash gravado na hora da criação.
++
++        Registros antigos, gravados antes dessa coluna existir, ficam de
++        fora da verificação (hash_atual NULL) — não contam como violação,
++        só como "não verificável".
++        """
++        registros = (
++            self._s.query(LogAcao)
++            .filter(LogAcao.hash_atual.isnot(None))
++            .order_by(LogAcao.id.asc())
++            .all()
++        )
++        total_sem_hash = self._s.query(LogAcao).filter(LogAcao.hash_atual.is_(None)).count()
++
++        esperado = HASH_GENESIS
++        for r in registros:
++            if r.hash_anterior != esperado:
++                return {
++                    "integro": False,
++                    "motivo": f"O registro #{r.id} não encaixa na sequência esperada — indício de registro apagado, "
++                              f"inserido fora de ordem ou alterado.",
++                    "registro_id": r.id,
++                }
++            recalculado = self._calcular_hash(
++                r.hash_anterior, r.usuario_id, r.acao, r.entidade, r.entidade_id, r.detalhe, r.criado_em,
++            )
++            if recalculado != r.hash_atual:
++                return {
++                    "integro": False,
++                    "motivo": f"O conteúdo do registro #{r.id} foi alterado depois de criado.",
++                    "registro_id": r.id,
++                }
++            esperado = r.hash_atual
++
++        return {
++            "integro": True,
++            "motivo": "Nenhuma alteração detectada na corrente de registros.",
++            "total_verificado": len(registros),
++            "total_legado_sem_hash": total_sem_hash,
++        }
++
+     # Campos que nunca fazem sentido aparecer no diff (ruído, não "alteração").
+     _CAMPOS_IGNORADOS_DIFF = {"id", "criado_em", "num_parcelas"}
+ 
+diff --git a/app/services/pendencia_service.py b/app/services/pendencia_service.py
+index 0f3f531..eceade3 100644
+--- a/app/services/pendencia_service.py
++++ b/app/services/pendencia_service.py
+@@ -12,14 +12,18 @@ IPVA.
+ """
+ from __future__ import annotations
+ 
+-from datetime import date
++from datetime import date, datetime
+ from typing import Optional
+ 
+-from sqlalchemy.orm import Session
++from sqlalchemy.orm import Session, joinedload
+ 
+ from app.models.veiculo import Veiculo
++from app.models.cliente import Cliente
++from app.models.ipva import Ipva
++from app.models.ipva_parcela import IpvaParcela
+ from app.models.licenciamento import Licenciamento
+ from app.models.multa import Multa
++from app.models.contato_pendencia import ContatoPendencia
+ from app.services.ipva_service import IpvaService
+ 
+ # Cada tipo de item mapeia para a permissão necessária para quitá-lo.
+@@ -30,13 +34,15 @@ PERMISSAO_POR_TIPO = {
+     "multa":         "gerenciar_multas",
+ }
+ 
++TIPOS_VALIDOS = set(PERMISSAO_POR_TIPO.keys())
++
+ 
+ class PendenciaService:
+     def __init__(self, session: Session) -> None:
+         self._session = session
+         self._ipva_svc = IpvaService(session)
+ 
+-    # ── Listagem consolidada ────────────────────────────────────────────────
++    # ── Listagem consolidada (um cliente) ───────────────────────────────────
+ 
+     def listar(self, cliente_id: int) -> list[dict]:
+         veiculos = (
+@@ -52,6 +58,118 @@ class PendenciaService:
+             itens.extend(self._itens_multa(v))
+         return itens
+ 
++    # ── Listagem consolidada (TODOS os clientes — Central de pendências) ────
++
++    def listar_todas(self, apenas_ativos: bool = True) -> list[dict]:
++        """
++        Mesma ideia de `listar()`, mas cruzando a carteira inteira — usado
++        pela Central de pendências (/pendencias). Usa eager loading porque
++        aqui, diferente do `listar()` de um cliente só, o volume de veículos
++        pode ser grande e uma consulta por relação evitaria N+1 em cada um.
++
++        Por padrão só considera veículos com situacao='ativo', mesma regra
++        já usada no dashboard e na previsão de vencimentos (um veículo
++        vendido/desativado não deve gerar pendência para ninguém contatar).
++        """
++        q = (
++            self._session.query(Veiculo)
++            .options(
++                joinedload(Veiculo.cliente),
++                joinedload(Veiculo.ipva_list).joinedload(Ipva.parcelas),
++                joinedload(Veiculo.licenciamentos),
++                joinedload(Veiculo.multas),
++            )
++            .join(Cliente, Veiculo.cliente_id == Cliente.id)
++        )
++        if apenas_ativos:
++            q = q.filter(Veiculo.situacao == "ativo")
++        veiculos = q.order_by(Cliente.nome, Veiculo.placa).all()
++
++        contatos = self._mapa_contatos()
++
++        itens: list[dict] = []
++        for v in veiculos:
++            itens_veiculo = self._itens_ipva(v) + self._itens_licenciamento(v) + self._itens_multa(v)
++            for item in itens_veiculo:
++                item["cliente_id"] = v.cliente_id
++                item["cliente_nome"] = v.cliente.nome if v.cliente else ""
++                item["cliente_telefone"] = (v.cliente.telefone or "") if v.cliente else ""
++                item["contato"] = contatos.get((item["tipo"], item["id"]))
++            itens.extend(itens_veiculo)
++        return itens
++
++    def _mapa_contatos(self) -> dict[tuple[str, int], dict]:
++        """(tipo, pendencia_id) -> dict do ContatoPendencia mais recente."""
++        registros = self._session.query(ContatoPendencia).all()
++        return {(c.tipo, c.pendencia_id): c.to_dict() for c in registros}
++
++    # ── Marcar/desmarcar contato feito com o cliente ────────────────────────
++    # Nunca confia em cliente_id/veiculo_id vindos do front — sempre resolve
++    # o item de origem (Ipva/IpvaParcela/Licenciamento/Multa) no banco antes
++    # de gravar, pra não deixar o registro de contato associado a um
++    # veículo/cliente errado.
++
++    def _resolver_origem(self, tipo: str, pendencia_id: int) -> Optional[dict]:
++        if tipo not in TIPOS_VALIDOS:
++            return None
++
++        modelo = {
++            "ipva_avista":   Ipva,
++            "ipva_parcela":  IpvaParcela,
++            "licenciamento": Licenciamento,
++            "multa":         Multa,
++        }[tipo]
++        obj = self._session.get(modelo, pendencia_id)
++        if not obj:
++            return None
++
++        if tipo == "ipva_parcela":
++            veiculo_id = obj.ipva.veiculo_id
++        else:
++            veiculo_id = obj.veiculo_id
++        veiculo = self._session.get(Veiculo, veiculo_id)
++        if not veiculo:
++            return None
++        return {"veiculo_id": veiculo_id, "cliente_id": veiculo.cliente_id}
++
++    def marcar_contato(
++        self, tipo: str, pendencia_id: int, usuario_id: int, observacao: Optional[str] = None,
++    ) -> tuple[bool, str]:
++        origem = self._resolver_origem(tipo, pendencia_id)
++        if not origem:
++            return False, "Pendência não encontrada."
++
++        obs = (observacao or "").strip()[:280] or None
++        existente = (
++            self._session.query(ContatoPendencia)
++            .filter_by(tipo=tipo, pendencia_id=pendencia_id)
++            .first()
++        )
++        if existente:
++            existente.marcado_por_id = usuario_id
++            existente.marcado_em = datetime.now()
++            existente.observacao = obs
++        else:
++            self._session.add(ContatoPendencia(
++                tipo=tipo, pendencia_id=pendencia_id,
++                cliente_id=origem["cliente_id"], veiculo_id=origem["veiculo_id"],
++                marcado_por_id=usuario_id, observacao=obs,
++            ))
++        self._session.commit()
++        return True, ""
++
++    def desmarcar_contato(self, tipo: str, pendencia_id: int) -> bool:
++        existente = (
++            self._session.query(ContatoPendencia)
++            .filter_by(tipo=tipo, pendencia_id=pendencia_id)
++            .first()
++        )
++        if not existente:
++            return False
++        self._session.delete(existente)
++        self._session.commit()
++        return True
++
+     def _itens_ipva(self, v: Veiculo) -> list[dict]:
+         itens = []
+         for ipva in v.ipva_list:
+diff --git a/app/templates/admin/log.html b/app/templates/admin/log.html
+index 9510c5f..9d861ac 100644
+--- a/app/templates/admin/log.html
++++ b/app/templates/admin/log.html
+@@ -14,7 +14,12 @@
+ <div class="card">
+   <div class="card-header">
+     <h2>{{ icon('security') }} Log de ações</h2>
+-    <span style="font-size:12px;color:var(--sub);">{{ total }} registro(s)</span>
++    <div style="display:flex;align-items:center;gap:10px;">
++      <span id="badge-integridade" style="font-size:11.5px;padding:3px 9px;border-radius:20px;background:var(--cinza1);color:var(--sub);"></span>
++      <span style="font-size:12px;color:var(--sub);">{{ total }} registro(s)</span>
++      <button class="btn btn-outline btn-sm" onclick="verificarIntegridade()">{{ icon('security','icon icon-sm') }} Verificar integridade</button>
++      <a class="btn btn-outline btn-sm" href="/admin/log/exportar?usuario_id={{ filtros.usuario_id or '' }}&entidade={{ filtros.entidade or '' }}&acao={{ filtros.acao or '' }}&data_inicio={{ filtros.data_inicio or '' }}&data_fim={{ filtros.data_fim or '' }}">{{ icon('file','icon icon-sm') }} Exportar CSV</a>
++    </div>
+   </div>
+ 
+   <!-- Filtros -->
+@@ -63,7 +68,7 @@
+         {% set d = r.detalhe|fromjson %}
+         <tr>
+           <td style="font-size:13px;white-space:nowrap;">{{ r.criado_em.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+-          <td>{{ r.usuario.nome_completo if r.usuario else '—' }}</td>
++          <td>{{ r.usuario.nome_completo if r.usuario else (r.usuario_nome or '—') }}</td>
+           <td><code style="font-size:12px;background:var(--cinza1);padding:2px 6px;border-radius:4px;">{{ r.acao }}</code></td>
+           <td>{{ r.entidade or '—' }}</td>
+           <td>{{ r.entidade_id or '—' }}</td>
+@@ -130,3 +135,26 @@
+   {% endif %}
+ </div>
+ {% endblock %}
++
++{% block scripts %}
++<script>
++async function verificarIntegridade() {
++  const badge = document.getElementById('badge-integridade');
++  badge.textContent = 'Verificando...';
++  const resultado = await apiFetch('/admin/log/verificar-integridade');
++  if (!resultado) { badge.textContent = ''; return; }
++
++  if (resultado.integro) {
++    badge.textContent = `✓ Íntegro (${resultado.total_verificado} registro(s) conferido(s))`;
++    badge.style.color = 'var(--verde)';
++    badge.style.background = 'color-mix(in srgb, var(--verde) 14%, transparent)';
++    toast('Nenhuma alteração detectada no log.');
++  } else {
++    badge.textContent = `⚠ Possível alteração — registro #${resultado.registro_id}`;
++    badge.style.color = 'var(--vermelho)';
++    badge.style.background = 'color-mix(in srgb, var(--vermelho) 14%, transparent)';
++    toast(resultado.motivo, 'err');
++  }
++}
++</script>
++{% endblock %}
+diff --git a/app/templates/auth/login.html b/app/templates/auth/login.html
+index 05587a2..e563289 100644
+--- a/app/templates/auth/login.html
++++ b/app/templates/auth/login.html
+@@ -1,44 +1,185 @@
+ <!DOCTYPE html>
+-<html lang="pt-BR">
++<html lang="pt-BR" data-tema="{{ tema_modo }}">
+ <head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+-<title>Login — Despachante</title>
++<title>Entrar — {{ escritorio_nome or 'Despachante' }}</title>
++
++{% if escritorio_logo_url %}
++  <link rel="icon" type="image/png" href="{{ escritorio_logo_url }}">
++  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
++{% endif %}
++
+ <style>
+-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+-  .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.10); padding: 40px 36px; width: 100%; max-width: 380px; }
+-  h1 { font-size: 20px; font-weight: 700; color: #1a4f8a; margin-bottom: 6px; }
+-  p.sub { font-size: 13px; color: #5a6680; margin-bottom: 28px; }
+-  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
+-  label { font-size: 12px; font-weight: 700; color: #5a6680; text-transform: uppercase; letter-spacing: .4px; }
+-  input { border: 1px solid #c8d0dc; border-radius: 6px; padding: 9px 12px; font-size: 14px; outline: none; transition: border-color .15s; }
+-  input:focus { border-color: #2563ae; box-shadow: 0 0 0 3px rgba(37,99,174,.12); }
+-  .btn { width: 100%; padding: 10px; background: #1a4f8a; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: filter .15s; }
+-  .btn:hover { filter: brightness(1.1); }
+-  .erro { background: #fee2e2; color: #991b1b; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
++  @font-face { font-family:'Inter'; font-style:normal; font-weight:400; font-display:swap;
++    src:url('{{ url_for("static", filename="fonts/inter/inter-latin-400-normal.woff2") }}') format('woff2'); }
++  @font-face { font-family:'Inter'; font-style:normal; font-weight:600; font-display:swap;
++    src:url('{{ url_for("static", filename="fonts/inter/inter-latin-600-normal.woff2") }}') format('woff2'); }
++  @font-face { font-family:'Inter'; font-style:normal; font-weight:700; font-display:swap;
++    src:url('{{ url_for("static", filename="fonts/inter/inter-latin-700-normal.woff2") }}') format('woff2'); }
++
++  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
++
++  :root, html[data-tema="claro"] {
++    --azul:{{ tema_cor.principal }}; --azul2:{{ tema_cor.secundaria }};
++    --cinza1:#F4F2EC; --cinza2:#E6E2D8; --cinza3:#D8D4C8;
++    --texto:#16181C; --sub:#63697A; --vermelho:#A6291F;
++    --card-bg:#ffffff; --body-bg:#FAFAF7;
++    --input-bg:#ffffff; --input-texto:#16181C;
++    --nav-fg:{{ tema_cor.contraste }};
++    --sombra:0 1px 3px rgba(20,18,14,.06);
++  }
++  html[data-tema="escuro"] {
++    --azul:{{ tema_cor.secundaria }}; --azul2:{{ tema_cor.secundaria }};
++    --cinza1:#2B2620; --cinza2:#3E3830; --cinza3:#544D40;
++    --texto:#ECEAE3; --sub:#A79F8E; --vermelho:#e8685f;
++    --card-bg:#211E19; --body-bg:#131210;
++    --input-bg:#2B2620; --input-texto:#ECEAE3;
++    --nav-fg:{{ tema_cor.contraste_sec }};
++    --sombra:0 1px 4px rgba(0,0,0,.5);
++  }
++
++  body {
++    font-family:'Inter',system-ui,-apple-system,sans-serif;
++    background:
++      radial-gradient(circle at 15% -10%, color-mix(in srgb, var(--azul) 22%, transparent), transparent 55%),
++      radial-gradient(circle at 100% 110%, color-mix(in srgb, var(--azul2) 16%, transparent), transparent 55%),
++      var(--body-bg);
++    color:var(--texto);
++    min-height:100vh;
++    display:flex; align-items:center; justify-content:center;
++    padding:24px;
++    -webkit-font-smoothing:antialiased;
++  }
++
++  .card {
++    background:var(--card-bg);
++    border:1px solid var(--cinza2);
++    border-radius:16px;
++    box-shadow:0 12px 40px rgba(20,18,14,.14), var(--sombra);
++    padding:40px 36px;
++    width:100%; max-width:380px;
++  }
++
++  .marca { display:flex; flex-direction:column; align-items:center; text-align:center; margin-bottom:26px; }
++  .marca .logo-icone {
++    width:52px; height:52px; border-radius:14px; margin-bottom:14px;
++    display:flex; align-items:center; justify-content:center;
++    background:linear-gradient(135deg, var(--azul), var(--azul2));
++    box-shadow:0 6px 18px color-mix(in srgb, var(--azul) 45%, transparent);
++    overflow:hidden;
++  }
++  .marca .logo-icone img { width:100%; height:100%; object-fit:cover; }
++  .marca .logo-icone .icon { width:26px; height:26px; color:var(--nav-fg); }
++  .marca h1 { font-size:19px; font-weight:700; color:var(--texto); margin-bottom:3px; }
++  .marca p { font-size:13px; color:var(--sub); }
++
++  .field { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
++  label { font-size:11.5px; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:.5px; }
++  .input-wrap { position:relative; }
++  input {
++    width:100%; background-color:var(--input-bg); color:var(--input-texto);
++    border:1px solid var(--cinza3); border-radius:8px; padding:10px 12px;
++    font-size:14px; font-family:inherit; outline:none; transition:border-color .15s, box-shadow .15s;
++  }
++  input:focus { border-color:var(--azul); box-shadow:0 0 0 3px color-mix(in srgb, var(--azul) 18%, transparent); }
++  input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
++    -webkit-box-shadow:0 0 0px 1000px var(--input-bg) inset !important;
++    -webkit-text-fill-color:var(--input-texto) !important;
++    transition:background-color 9999s ease-in-out 0s;
++  }
++  .toggle-senha {
++    position:absolute; right:4px; top:50%; transform:translateY(-50%);
++    background:none; border:none; color:var(--sub); font-size:11.5px; font-weight:600;
++    cursor:pointer; padding:6px 8px; border-radius:6px;
++  }
++  .toggle-senha:hover { background:var(--cinza1); color:var(--texto); }
++
++  .btn {
++    width:100%; padding:11px; margin-top:6px;
++    background:linear-gradient(135deg, var(--azul), var(--azul2));
++    color:var(--nav-fg); border:none; border-radius:8px;
++    font-size:14.5px; font-weight:600; cursor:pointer;
++    display:flex; align-items:center; justify-content:center; gap:8px;
++    transition:filter .15s, transform .1s;
++  }
++  .btn:hover { filter:brightness(1.08); }
++  .btn:active { transform:scale(.98); }
++  .btn:disabled { opacity:.7; cursor:default; }
++
++  .spinner {
++    width:15px; height:15px; border-radius:50%;
++    border:2px solid color-mix(in srgb, var(--nav-fg) 35%, transparent);
++    border-top-color:var(--nav-fg);
++    animation:girar .6s linear infinite;
++    display:none;
++  }
++  .btn.carregando .spinner { display:inline-block; }
++  .btn.carregando .btn-texto { display:none; }
++  @keyframes girar { to { transform:rotate(360deg); } }
++
++  .erro {
++    background:color-mix(in srgb, var(--vermelho) 12%, transparent);
++    border:1px solid color-mix(in srgb, var(--vermelho) 30%, transparent);
++    color:var(--vermelho);
++    border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:18px;
++    display:flex; align-items:center; gap:8px;
++  }
++
++  .rodape { text-align:center; font-size:11.5px; color:var(--sub); margin-top:22px; }
+ </style>
+ </head>
+ <body>
+ <div class="card">
+-  <h1>🚗 Despachante</h1>
+-  <p class="sub">Faça login para continuar</p>
++  <div class="marca">
++    <div class="logo-icone">
++      {% if escritorio_logo_url %}
++        <img src="{{ escritorio_logo_url }}" alt="Logo">
++      {% else %}
++        {{ icon('car', 'icon') }}
++      {% endif %}
++    </div>
++    <h1>{{ escritorio_nome or 'Despachante' }}</h1>
++    <p>Entrar no sistema</p>
++  </div>
+ 
+   {% if erro %}
+-    <div class="erro">{{ erro }}</div>
++    <div class="erro">{{ icon('warning', 'icon') }} {{ erro }}</div>
+   {% endif %}
+ 
+-  <form method="POST">
++  <form method="POST" id="form-login">
+     <div class="field">
+-      <label>Usuário</label>
+-      <input type="text" name="nome_usuario" autofocus autocomplete="username" required>
++      <label for="nome_usuario">Usuário</label>
++      <input type="text" id="nome_usuario" name="nome_usuario" autofocus autocomplete="username" required>
+     </div>
+     <div class="field">
+-      <label>Senha</label>
+-      <input type="password" name="senha" autocomplete="current-password" required>
++      <label for="senha">Senha</label>
++      <div class="input-wrap">
++        <input type="password" id="senha" name="senha" autocomplete="current-password" required style="padding-right:64px;">
++        <button type="button" class="toggle-senha" onclick="alternarSenha()">Mostrar</button>
++      </div>
+     </div>
+-    <button type="submit" class="btn">Entrar</button>
++    <button type="submit" class="btn" id="btn-entrar">
++      <span class="spinner"></span>
++      <span class="btn-texto">Entrar</span>
++    </button>
+   </form>
++
++  <p class="rodape">Acesso restrito à equipe do escritório</p>
+ </div>
++
++<script>
++function alternarSenha() {
++  const campo = document.getElementById('senha');
++  const btn = document.querySelector('.toggle-senha');
++  const visivel = campo.type === 'text';
++  campo.type = visivel ? 'password' : 'text';
++  btn.textContent = visivel ? 'Mostrar' : 'Ocultar';
++}
++document.getElementById('form-login').addEventListener('submit', function () {
++  document.getElementById('btn-entrar').classList.add('carregando');
++  document.getElementById('btn-entrar').disabled = true;
++});
++</script>
+ </body>
+ </html>
+diff --git a/app/templates/base.html b/app/templates/base.html
+index 81cfb40..1e6de94 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -324,6 +324,9 @@
+     {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_clientes') %}
+       <a href="/clientes" class="{{ 'ativa' if '/clientes' in request.path else '' }}">{{ icon('users') }} Clientes</a>
+     {% endif %}
++    {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_veiculos') %}
++      <a href="/pendencias" class="{{ 'ativa' if request.path == '/pendencias' else '' }}">{{ icon('warning') }} Pendências</a>
++    {% endif %}
+     {% if current_user.is_authenticated and current_user.tem_permissao('gerar_relatorios') %}
+       <a href="/relatorios" class="{{ 'ativa' if '/relatorios' in request.path else '' }}">{{ icon('file') }} Relatórios</a>
+     {% endif %}
+diff --git a/app/templates/pendencias_geral.html b/app/templates/pendencias_geral.html
+new file mode 100644
+index 0000000..8d344db
+--- /dev/null
++++ b/app/templates/pendencias_geral.html
+@@ -0,0 +1,431 @@
++{% extends "base.html" %}
++{% block title %}Central de pendências{% endblock %}
++{% block breadcrumb %}
++  <span>Central de pendências</span>
++{% endblock %}
++
++{% block content %}
++<style>
++  .toggle-visualizacao { display:flex; border:1px solid var(--cinza3); border-radius:8px; overflow:hidden; }
++  .toggle-visualizacao button { border:none; background:transparent; color:var(--sub); padding:7px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; transition:.15s; }
++  .toggle-visualizacao button.ativo { background:var(--azul); color:#fff; }
++  .toggle-visualizacao button:not(.ativo):hover { background:var(--cinza1); }
++
++  .seletor-ano { display:none; align-items:center; justify-content:center; gap:18px; padding:10px 14px; border-bottom:1px solid var(--cinza2); }
++  .seletor-ano button { border:1px solid var(--cinza3); background:var(--card-bg); color:var(--texto); width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; }
++  .seletor-ano button:hover { background:var(--cinza1); }
++
++  .grid-cards { display:none; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px; padding:14px; }
++  .card-mes { border:1px solid var(--cinza2); border-radius:10px; padding:10px; }
++  .card-mes-header { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin:0 0 8px; cursor:pointer; color:var(--texto); }
++  .card-mes-header .contagem { color:var(--sub); font-weight:400; }
++  .card-mes-vazio { font-size:12px; color:var(--sub); margin:0; }
++  .item-card { display:flex; gap:6px; border:1px solid var(--cinza2); border-radius:6px; padding:6px 8px; font-size:11.5px; margin-bottom:5px; }
++  .item-card:last-child { margin-bottom:0; }
++  .item-card input[type="checkbox"] { margin-top:2px; flex-shrink:0; }
++  .item-card .topo { display:flex; justify-content:space-between; align-items:center; gap:6px; }
++  .item-card .placa { font-family:'JetBrains Mono',monospace; font-weight:600; }
++  .item-card .sub { color:var(--sub); margin-top:2px; }
++
++  .badge-contato { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; padding:2px 7px; border-radius:20px; background:var(--cinza1); color:var(--sub); white-space:nowrap; }
++  .btn-contato { border:1px solid var(--cinza3); background:transparent; color:var(--sub); font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer; white-space:nowrap; }
++  .btn-contato:hover { background:var(--cinza1); }
++  .btn-contato.marcado { border-color:var(--verde,#2e7d32); color:var(--verde,#2e7d32); }
++</style>
++
++<div class="card">
++  <div class="card-header" style="flex-wrap:wrap;gap:10px;">
++    <h2>{{ icon('warning') }} Central de pendências</h2>
++    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
++      <select id="filtro-cliente" onchange="renderizar()" class="select-filtro">
++        <option value="">Todos os clientes</option>
++      </select>
++      <select id="filtro-tipo" onchange="renderizar()" class="select-filtro">
++        <option value="">Todos os tipos</option>
++        <option value="ipva_avista">IPVA (à vista)</option>
++        <option value="ipva_parcela">IPVA (parcela)</option>
++        <option value="licenciamento">Licenciamento</option>
++        <option value="multa">Multa</option>
++      </select>
++      <select id="filtro-status" onchange="renderizar()" class="select-filtro">
++        <option value="">Todos os status</option>
++        <option value="pendente">Pendente</option>
++        <option value="pago">Pago</option>
++      </select>
++      <select id="filtro-contato" onchange="renderizar()" class="select-filtro">
++        <option value="">Contato — todos</option>
++        <option value="nao_contatado">Ainda sem contato</option>
++        <option value="contatado">Já contatado</option>
++      </select>
++      <div class="tab-switch" style="margin-bottom:0;">
++        <button type="button" id="btn-modo-lista" class="ativo" onclick="mudarModo('lista')">{{ icon('view','icon icon-sm') }} Lista</button>
++        <button type="button" id="btn-modo-cards" onclick="mudarModo('cards')">{{ icon('folder','icon icon-sm') }} Cards</button>
++      </div>
++    </div>
++  </div>
++
++  <div id="seletor-ano" class="seletor-ano">
++    <button type="button" onclick="mudarAno(-1)" title="Ano anterior">‹</button>
++    <strong id="ano-atual" style="font-size:14px;"></strong>
++    <button type="button" onclick="mudarAno(1)" title="Próximo ano">›</button>
++  </div>
++
++  <div id="visao-lista" class="tabela-wrap">
++    <table>
++      <thead><tr>
++        <th style="width:36px;"><input type="checkbox" id="chk-todos" onchange="toggleTodos()"></th>
++        <th>Cliente</th><th>Placa</th><th>Tipo</th><th>Descrição</th><th>Valor</th>
++        <th>Vencimento</th><th>Status</th><th>Contato</th>
++      </tr></thead>
++      <tbody id="tbody"></tbody>
++    </table>
++  </div>
++
++  <div id="grid-cards" class="grid-cards"></div>
++</div>
++
++<div id="barra-selecao" style="display:none;position:sticky;bottom:16px;background:var(--card-bg);border:1px solid var(--cinza2);padding:14px 20px;justify-content:space-between;align-items:center;margin-top:14px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.12);">
++  <span id="contagem-selecao" style="font-size:14px;font-weight:600;"></span>
++  <button class="btn btn-success" onclick="abrirConfirmacaoQuitar()">{{ icon('save','icon icon-sm') }} Quitar selecionados</button>
++</div>
++
++<div class="modal-overlay" id="modal-confirmar-quitar">
++  <div class="modal" style="max-width:440px;">
++    <div class="modal-header">
++      <h3>Confirmar quitação</h3>
++      <button class="btn-close" onclick="fecharConfirmacaoQuitar()">✕</button>
++    </div>
++    <div class="modal-body">
++      <p style="font-size:13px;color:var(--sub);margin:0 0 12px;">Isso marca os itens abaixo como pagos hoje. Confira antes de continuar — pode ser mais de um cliente de uma vez.</p>
++      <div id="lista-confirmacao" style="border:1px solid var(--cinza2);border-radius:8px;padding:8px 10px;max-height:220px;overflow-y:auto;margin-bottom:12px;"></div>
++      <div style="display:flex;justify-content:space-between;align-items:baseline;">
++        <span id="contagem-confirmacao" style="font-size:13px;color:var(--sub);"></span>
++        <strong id="total-confirmacao" style="font-size:17px;"></strong>
++      </div>
++    </div>
++    <div class="modal-footer">
++      <button class="btn btn-ghost" onclick="fecharConfirmacaoQuitar()">Cancelar</button>
++      <button class="btn btn-success" onclick="confirmarQuitar()">{{ icon('save','icon icon-sm') }} Confirmar quitação</button>
++    </div>
++  </div>
++</div>
++
++<div class="modal-overlay" id="modal-contato">
++  <div class="modal" style="max-width:400px;">
++    <div class="modal-header">
++      <h3>Marcar como contatado</h3>
++      <button class="btn-close" onclick="fecharModalContato()">✕</button>
++    </div>
++    <div class="modal-body">
++      <p style="font-size:13px;color:var(--sub);margin:0 0 10px;">Registra que alguém do escritório já falou com o cliente sobre este item. Não quita nada e não envia nada automaticamente.</p>
++      <label style="font-size:12px;color:var(--sub);display:block;margin-bottom:4px;">Observação (opcional)</label>
++      <textarea id="obs-contato" rows="3" style="width:100%;resize:vertical;" placeholder="Ex.: cliente disse que paga até sexta"></textarea>
++    </div>
++    <div class="modal-footer">
++      <button class="btn btn-ghost" onclick="fecharModalContato()">Cancelar</button>
++      <button class="btn btn-success" onclick="confirmarContato()">{{ icon('save','icon icon-sm') }} Registrar contato</button>
++    </div>
++  </div>
++</div>
++{% endblock %}
++
++{% block scripts %}
++<script>
++let TODOS = [];
++let SELECIONADOS = new Set();   // chave = `${tipo}:${id}`
++let MODO = 'lista';             // 'lista' | 'cards'
++let ANO_SELECIONADO = new Date().getFullYear();
++let ITEM_CONTATO_ATUAL = null;  // item aguardando confirmação no modal de contato
++
++const TIPO_LABEL = {
++  ipva_avista:    'IPVA (à vista)',
++  ipva_parcela:   'IPVA (parcela)',
++  licenciamento:  'Licenciamento',
++  multa:          'Multa',
++};
++
++const MESES = [
++  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
++  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
++];
++
++function chave(item) { return `${item.tipo}:${item.id}`; }
++
++async function carregar() {
++  const dados = await apiFetch(`/api/pendencias`);
++  if (!dados) return;
++  TODOS = dados;
++  popularFiltroClientes();
++  renderizar();
++}
++
++function popularFiltroClientes() {
++  const sel = document.getElementById('filtro-cliente');
++  const atual = sel.value;
++  const clientes = [...new Map(TODOS.map(i => [i.cliente_id, i.cliente_nome])).entries()]
++    .sort((a, b) => a[1].localeCompare(b[1]));
++  sel.innerHTML = '<option value="">Todos os clientes</option>' +
++    clientes.map(([id, nome]) => `<option value="${id}">${escapeHtml(nome)}</option>`).join('');
++  sel.value = atual;
++}
++
++function itensFiltrados() {
++  const filtroCliente = document.getElementById('filtro-cliente').value;
++  const filtroTipo    = document.getElementById('filtro-tipo').value;
++  const filtroStatus  = document.getElementById('filtro-status').value;
++  const filtroContato = document.getElementById('filtro-contato').value;
++
++  let itens = TODOS;
++  if (filtroCliente) itens = itens.filter(i => String(i.cliente_id) === filtroCliente);
++  if (filtroTipo)    itens = itens.filter(i => i.tipo === filtroTipo);
++  if (filtroStatus)  itens = itens.filter(i => (filtroStatus === 'pago') === i.pago);
++  if (filtroContato === 'contatado')    itens = itens.filter(i => !!i.contato);
++  if (filtroContato === 'nao_contatado') itens = itens.filter(i => !i.contato);
++  return itens;
++}
++
++function renderizar() {
++  if (MODO === 'lista') {
++    renderizarLista();
++  } else {
++    renderizarCards();
++  }
++  atualizarBarra();
++}
++
++// ── Botão/badge de contato (compartilhado entre lista e cards) ─────────────
++
++function chipContato(item) {
++  const k = chave(item);
++  if (item.contato) {
++    return `<span class="badge-contato" title="${escapeHtml(item.contato.observacao || '')}">✓ ${escapeHtml(item.contato.marcado_por || '')} · ${item.contato.marcado_em}</span>
++      <button class="btn-contato marcado" onclick="desmarcarContato('${k}')" title="Desfazer">desfazer</button>`;
++  }
++  return `<button class="btn-contato" onclick="abrirModalContato('${k}')">marcar contato</button>`;
++}
++
++// ── Modo Lista ───────────────────────────────────────────────────────────
++
++function renderizarLista() {
++  const itens = itensFiltrados();
++  const tbody = document.getElementById('tbody');
++  if (!itens.length) {
++    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><p>Nenhuma pendência encontrada</p></div></td></tr>`;
++    return;
++  }
++
++  tbody.innerHTML = itens.map(item => {
++    const k = chave(item);
++    return `<tr>
++      <td><input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)"></td>
++      <td>${escapeHtml(item.cliente_nome)}</td>
++      <td><span class="chip-placa">${escapeHtml(item.placa)}</span></td>
++      <td>${TIPO_LABEL[item.tipo] || item.tipo}</td>
++      <td>${escapeHtml(item.descricao)}</td>
++      <td>${fmtMoeda(item.valor)}</td>
++      <td>${fmtData(item.vencimento)}</td>
++      <td>${statusVencimento(item.vencimento, item.pago)}</td>
++      <td>${chipContato(item)}</td>
++    </tr>`;
++  }).join('');
++}
++
++// ── Modo Cards (12 meses do ano selecionado) ────────────────────────────────
++
++function renderizarCards() {
++  document.getElementById('ano-atual').textContent = ANO_SELECIONADO;
++
++  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
++  const porMes = Array.from({ length: 12 }, () => []);
++  itensDoAno.forEach(item => {
++    const mes = parseInt(item.vencimento.split('-')[1], 10) - 1;
++    if (mes >= 0 && mes <= 11) porMes[mes].push(item);
++  });
++
++  const grid = document.getElementById('grid-cards');
++  grid.innerHTML = MESES.map((nomeMes, idx) => {
++    const itensMes = porMes[idx];
++    const chavesMes = itensMes.map(chave);
++    const todosMarcados = chavesMes.length > 0 && chavesMes.every(k => SELECIONADOS.has(k));
++
++    const corpo = !itensMes.length
++      ? `<p class="card-mes-vazio">Nenhuma pendência</p>`
++      : itensMes.map(item => {
++          const k = chave(item);
++          return `<div class="item-card">
++            <input type="checkbox" data-chave="${k}" ${SELECIONADOS.has(k) ? 'checked' : ''} onchange="toggleItem('${k}', this.checked)">
++            <div style="flex:1;min-width:0;">
++              <div class="topo">
++                <span class="placa">${escapeHtml(item.placa)}</span>
++                ${statusVencimento(item.vencimento, item.pago)}
++              </div>
++              <p class="sub">${escapeHtml(item.cliente_nome)}</p>
++              <p class="sub">${TIPO_LABEL[item.tipo] || item.tipo} · ${escapeHtml(item.descricao)}</p>
++              <p class="sub">${fmtMoeda(item.valor)} · vence ${fmtData(item.vencimento)}</p>
++              <p class="sub">${chipContato(item)}</p>
++            </div>
++          </div>`;
++        }).join('');
++
++    return `<div class="card-mes">
++      <label class="card-mes-header">
++        <input type="checkbox" ${chavesMes.length ? '' : 'disabled'} ${todosMarcados ? 'checked' : ''} onchange="toggleMes(${idx}, this.checked)">
++        ${nomeMes} <span class="contagem">· ${itensMes.length}</span>
++      </label>
++      ${corpo}
++    </div>`;
++  }).join('');
++}
++
++function toggleMes(idxMes, marcado) {
++  const itensDoAno = itensFiltrados().filter(i => i.vencimento && i.vencimento.startsWith(String(ANO_SELECIONADO)));
++  itensDoAno
++    .filter(i => parseInt(i.vencimento.split('-')[1], 10) - 1 === idxMes)
++    .forEach(item => {
++      const k = chave(item);
++      if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
++    });
++  renderizarCards();
++  atualizarBarra();
++}
++
++function mudarAno(delta) {
++  ANO_SELECIONADO += delta;
++  renderizarCards();
++}
++
++// ── Alternância de modo de visualização ─────────────────────────────────────
++
++function mudarModo(modo) {
++  MODO = modo;
++  document.getElementById('btn-modo-lista').classList.toggle('ativo', modo === 'lista');
++  document.getElementById('btn-modo-cards').classList.toggle('ativo', modo === 'cards');
++  document.getElementById('visao-lista').style.display  = modo === 'lista' ? '' : 'none';
++  document.getElementById('grid-cards').style.display   = modo === 'cards' ? 'grid' : 'none';
++  document.getElementById('seletor-ano').style.display  = modo === 'cards' ? 'flex' : 'none';
++  renderizar();
++}
++
++// ── Seleção (compartilhada entre os dois modos) ─────────────────────────────
++
++function toggleItem(k, marcado) {
++  if (marcado) SELECIONADOS.add(k); else SELECIONADOS.delete(k);
++  if (MODO === 'cards') renderizarCards();   // atualiza o checkbox "mês inteiro"
++  atualizarBarra();
++}
++
++function toggleTodos() {
++  const marcarTudo = document.getElementById('chk-todos').checked;
++  document.querySelectorAll('#tbody input[type=checkbox]').forEach(cb => {
++    cb.checked = marcarTudo;
++    if (marcarTudo) SELECIONADOS.add(cb.dataset.chave); else SELECIONADOS.delete(cb.dataset.chave);
++  });
++  atualizarBarra();
++}
++
++function atualizarBarra() {
++  const barra = document.getElementById('barra-selecao');
++  const n = SELECIONADOS.size;
++  document.getElementById('contagem-selecao').textContent = n === 1 ? '1 item selecionado' : `${n} itens selecionados`;
++  barra.style.display = n ? 'flex' : 'none';
++}
++
++// ── Confirmação antes de quitar em massa ─────────────────────────────────────
++
++function abrirConfirmacaoQuitar() {
++  if (!SELECIONADOS.size) return;
++
++  const selecionados = TODOS.filter(item => SELECIONADOS.has(chave(item)));
++  const total = selecionados.reduce((soma, item) => soma + (item.valor || 0), 0);
++
++  document.getElementById('lista-confirmacao').innerHTML = selecionados.map(item => `
++    <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--cinza2);">
++      <span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">${escapeHtml(item.placa)}</span> · ${escapeHtml(item.cliente_nome)} · ${escapeHtml(item.descricao)}</span>
++      <span>${fmtMoeda(item.valor)}</span>
++    </div>`).join('');
++
++  document.getElementById('contagem-confirmacao').textContent =
++    selecionados.length === 1 ? '1 item selecionado' : `${selecionados.length} itens selecionados`;
++  document.getElementById('total-confirmacao').textContent = fmtMoeda(total);
++
++  document.getElementById('modal-confirmar-quitar').classList.add('open');
++}
++
++function fecharConfirmacaoQuitar() {
++  document.getElementById('modal-confirmar-quitar').classList.remove('open');
++}
++
++async function confirmarQuitar() {
++  const itens = [...SELECIONADOS].map(k => {
++    const [tipo, id] = k.split(':');
++    return { tipo, id: parseInt(id) };
++  });
++
++  const resultado = await apiFetch(`/api/pendencias/quitar-lote`, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json' },
++    body: JSON.stringify({ itens }),
++  });
++
++  fecharConfirmacaoQuitar();
++  if (!resultado) return;
++
++  SELECIONADOS.clear();
++  const chkTodos = document.getElementById('chk-todos');
++  if (chkTodos) chkTodos.checked = false;
++
++  if (resultado.sucesso) toast(`${resultado.sucesso} item(ns) quitado(s)!`);
++  if (resultado.falhas && resultado.falhas.length) {
++    toast(`${resultado.falhas.length} item(ns) não puderam ser quitados (verifique se já não estavam pagos ou permissão).`, 'err');
++  }
++  await carregar();
++}
++
++// ── Marcar/desmarcar contato com o cliente ──────────────────────────────────
++
++function abrirModalContato(k) {
++  ITEM_CONTATO_ATUAL = k;
++  document.getElementById('obs-contato').value = '';
++  document.getElementById('modal-contato').classList.add('open');
++}
++
++function fecharModalContato() {
++  document.getElementById('modal-contato').classList.remove('open');
++  ITEM_CONTATO_ATUAL = null;
++}
++
++async function confirmarContato() {
++  if (!ITEM_CONTATO_ATUAL) return;
++  const [tipo, id] = ITEM_CONTATO_ATUAL.split(':');
++  const observacao = document.getElementById('obs-contato').value.trim();
++
++  const resultado = await apiFetch('/api/pendencias/contato', {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json' },
++    body: JSON.stringify({ tipo, id: parseInt(id), observacao }),
++  });
++
++  fecharModalContato();
++  if (!resultado) return;
++  toast('Contato registrado.');
++  await carregar();
++}
++
++async function desmarcarContato(k) {
++  const [tipo, id] = k.split(':');
++  const resultado = await apiFetch(`/api/pendencias/contato/${tipo}/${id}`, { method: 'DELETE' });
++  if (!resultado) return;
++  toast('Contato desfeito.');
++  await carregar();
++}
++
++document.addEventListener('keydown', (ev) => {
++  if (ev.key === 'Escape') {
++    if (document.getElementById('modal-confirmar-quitar').classList.contains('open')) fecharConfirmacaoQuitar();
++    if (document.getElementById('modal-contato').classList.contains('open')) fecharModalContato();
++  }
++});
++
++carregar();
++</script>
++{% endblock %}

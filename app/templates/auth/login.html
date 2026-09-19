@@ -1,44 +1,185 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="{{ tema_modo }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Login — Despachante</title>
+<title>Entrar — {{ escritorio_nome or 'Despachante' }}</title>
+
+{% if escritorio_logo_url %}
+  <link rel="icon" type="image/png" href="{{ escritorio_logo_url }}">
+  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
+{% endif %}
+
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.10); padding: 40px 36px; width: 100%; max-width: 380px; }
-  h1 { font-size: 20px; font-weight: 700; color: #1a4f8a; margin-bottom: 6px; }
-  p.sub { font-size: 13px; color: #5a6680; margin-bottom: 28px; }
-  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
-  label { font-size: 12px; font-weight: 700; color: #5a6680; text-transform: uppercase; letter-spacing: .4px; }
-  input { border: 1px solid #c8d0dc; border-radius: 6px; padding: 9px 12px; font-size: 14px; outline: none; transition: border-color .15s; }
-  input:focus { border-color: #2563ae; box-shadow: 0 0 0 3px rgba(37,99,174,.12); }
-  .btn { width: 100%; padding: 10px; background: #1a4f8a; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: filter .15s; }
-  .btn:hover { filter: brightness(1.1); }
-  .erro { background: #fee2e2; color: #991b1b; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+  @font-face { font-family:'Inter'; font-style:normal; font-weight:400; font-display:swap;
+    src:url('{{ url_for("static", filename="fonts/inter/inter-latin-400-normal.woff2") }}') format('woff2'); }
+  @font-face { font-family:'Inter'; font-style:normal; font-weight:600; font-display:swap;
+    src:url('{{ url_for("static", filename="fonts/inter/inter-latin-600-normal.woff2") }}') format('woff2'); }
+  @font-face { font-family:'Inter'; font-style:normal; font-weight:700; font-display:swap;
+    src:url('{{ url_for("static", filename="fonts/inter/inter-latin-700-normal.woff2") }}') format('woff2'); }
+
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+
+  :root, html[data-tema="claro"] {
+    --azul:{{ tema_cor.principal }}; --azul2:{{ tema_cor.secundaria }};
+    --cinza1:#F4F2EC; --cinza2:#E6E2D8; --cinza3:#D8D4C8;
+    --texto:#16181C; --sub:#63697A; --vermelho:#A6291F;
+    --card-bg:#ffffff; --body-bg:#FAFAF7;
+    --input-bg:#ffffff; --input-texto:#16181C;
+    --nav-fg:{{ tema_cor.contraste }};
+    --sombra:0 1px 3px rgba(20,18,14,.06);
+  }
+  html[data-tema="escuro"] {
+    --azul:{{ tema_cor.secundaria }}; --azul2:{{ tema_cor.secundaria }};
+    --cinza1:#2B2620; --cinza2:#3E3830; --cinza3:#544D40;
+    --texto:#ECEAE3; --sub:#A79F8E; --vermelho:#e8685f;
+    --card-bg:#211E19; --body-bg:#131210;
+    --input-bg:#2B2620; --input-texto:#ECEAE3;
+    --nav-fg:{{ tema_cor.contraste_sec }};
+    --sombra:0 1px 4px rgba(0,0,0,.5);
+  }
+
+  body {
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    background:
+      radial-gradient(circle at 15% -10%, color-mix(in srgb, var(--azul) 22%, transparent), transparent 55%),
+      radial-gradient(circle at 100% 110%, color-mix(in srgb, var(--azul2) 16%, transparent), transparent 55%),
+      var(--body-bg);
+    color:var(--texto);
+    min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .card {
+    background:var(--card-bg);
+    border:1px solid var(--cinza2);
+    border-radius:16px;
+    box-shadow:0 12px 40px rgba(20,18,14,.14), var(--sombra);
+    padding:40px 36px;
+    width:100%; max-width:380px;
+  }
+
+  .marca { display:flex; flex-direction:column; align-items:center; text-align:center; margin-bottom:26px; }
+  .marca .logo-icone {
+    width:52px; height:52px; border-radius:14px; margin-bottom:14px;
+    display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg, var(--azul), var(--azul2));
+    box-shadow:0 6px 18px color-mix(in srgb, var(--azul) 45%, transparent);
+    overflow:hidden;
+  }
+  .marca .logo-icone img { width:100%; height:100%; object-fit:cover; }
+  .marca .logo-icone .icon { width:26px; height:26px; color:var(--nav-fg); }
+  .marca h1 { font-size:19px; font-weight:700; color:var(--texto); margin-bottom:3px; }
+  .marca p { font-size:13px; color:var(--sub); }
+
+  .field { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+  label { font-size:11.5px; font-weight:700; color:var(--sub); text-transform:uppercase; letter-spacing:.5px; }
+  .input-wrap { position:relative; }
+  input {
+    width:100%; background-color:var(--input-bg); color:var(--input-texto);
+    border:1px solid var(--cinza3); border-radius:8px; padding:10px 12px;
+    font-size:14px; font-family:inherit; outline:none; transition:border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color:var(--azul); box-shadow:0 0 0 3px color-mix(in srgb, var(--azul) 18%, transparent); }
+  input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+    -webkit-box-shadow:0 0 0px 1000px var(--input-bg) inset !important;
+    -webkit-text-fill-color:var(--input-texto) !important;
+    transition:background-color 9999s ease-in-out 0s;
+  }
+  .toggle-senha {
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    background:none; border:none; color:var(--sub); font-size:11.5px; font-weight:600;
+    cursor:pointer; padding:6px 8px; border-radius:6px;
+  }
+  .toggle-senha:hover { background:var(--cinza1); color:var(--texto); }
+
+  .btn {
+    width:100%; padding:11px; margin-top:6px;
+    background:linear-gradient(135deg, var(--azul), var(--azul2));
+    color:var(--nav-fg); border:none; border-radius:8px;
+    font-size:14.5px; font-weight:600; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    transition:filter .15s, transform .1s;
+  }
+  .btn:hover { filter:brightness(1.08); }
+  .btn:active { transform:scale(.98); }
+  .btn:disabled { opacity:.7; cursor:default; }
+
+  .spinner {
+    width:15px; height:15px; border-radius:50%;
+    border:2px solid color-mix(in srgb, var(--nav-fg) 35%, transparent);
+    border-top-color:var(--nav-fg);
+    animation:girar .6s linear infinite;
+    display:none;
+  }
+  .btn.carregando .spinner { display:inline-block; }
+  .btn.carregando .btn-texto { display:none; }
+  @keyframes girar { to { transform:rotate(360deg); } }
+
+  .erro {
+    background:color-mix(in srgb, var(--vermelho) 12%, transparent);
+    border:1px solid color-mix(in srgb, var(--vermelho) 30%, transparent);
+    color:var(--vermelho);
+    border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:18px;
+    display:flex; align-items:center; gap:8px;
+  }
+
+  .rodape { text-align:center; font-size:11.5px; color:var(--sub); margin-top:22px; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>🚗 Despachante</h1>
-  <p class="sub">Faça login para continuar</p>
+  <div class="marca">
+    <div class="logo-icone">
+      {% if escritorio_logo_url %}
+        <img src="{{ escritorio_logo_url }}" alt="Logo">
+      {% else %}
+        {{ icon('car', 'icon') }}
+      {% endif %}
+    </div>
+    <h1>{{ escritorio_nome or 'Despachante' }}</h1>
+    <p>Entrar no sistema</p>
+  </div>
 
   {% if erro %}
-    <div class="erro">{{ erro }}</div>
+    <div class="erro">{{ icon('warning', 'icon') }} {{ erro }}</div>
   {% endif %}
 
-  <form method="POST">
+  <form method="POST" id="form-login">
     <div class="field">
-      <label>Usuário</label>
-      <input type="text" name="nome_usuario" autofocus autocomplete="username" required>
+      <label for="nome_usuario">Usuário</label>
+      <input type="text" id="nome_usuario" name="nome_usuario" autofocus autocomplete="username" required>
     </div>
     <div class="field">
-      <label>Senha</label>
-      <input type="password" name="senha" autocomplete="current-password" required>
+      <label for="senha">Senha</label>
+      <div class="input-wrap">
+        <input type="password" id="senha" name="senha" autocomplete="current-password" required style="padding-right:64px;">
+        <button type="button" class="toggle-senha" onclick="alternarSenha()">Mostrar</button>
+      </div>
     </div>
-    <button type="submit" class="btn">Entrar</button>
+    <button type="submit" class="btn" id="btn-entrar">
+      <span class="spinner"></span>
+      <span class="btn-texto">Entrar</span>
+    </button>
   </form>
+
+  <p class="rodape">Acesso restrito à equipe do escritório</p>
 </div>
+
+<script>
+function alternarSenha() {
+  const campo = document.getElementById('senha');
+  const btn = document.querySelector('.toggle-senha');
+  const visivel = campo.type === 'text';
+  campo.type = visivel ? 'password' : 'text';
+  btn.textContent = visivel ? 'Mostrar' : 'Ocultar';
+}
+document.getElementById('form-login').addEventListener('submit', function () {
+  document.getElementById('btn-entrar').classList.add('carregando');
+  document.getElementById('btn-entrar').disabled = true;
+});
+</script>
 </body>
 </html>

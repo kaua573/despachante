@@ -11,11 +11,12 @@ from app.models.usuario import Usuario
 from app.models.permissao_usuario import PermissaoUsuario
 from app.models.log_acao import LogAcao
 from app.models.regra_vencimento import RegraVencimento
+from app.models.contato_pendencia import ContatoPendencia
 
 __all__ = [
     "Cliente", "Veiculo", "Ipva", "IpvaParcela",
     "Licenciamento", "Multa", "Documento",
     "Configuracao", "TemplateRelatorio",
     "Usuario", "PermissaoUsuario", "LogAcao",
-    "RegraVencimento",
+    "RegraVencimento", "ContatoPendencia",
 ]

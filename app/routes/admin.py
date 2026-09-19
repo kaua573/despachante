@@ -1,5 +1,6 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort, Response
 from flask_login import login_required, current_user
+from datetime import datetime
 
 from app import db
 from app.services.auth_service import AuthService
@@ -145,3 +146,59 @@ def log_acoes():
     return render_template("admin/log.html", **resultado, usuarios=usuarios, entidades=entidades,
                            filtros={"usuario_id": usuario_id, "acao": acao, "entidade": entidade,
                                     "data_inicio": data_inicio, "data_fim": data_fim})
+
+
+@bp.route("/admin/log/verificar-integridade")
+@login_required
+def log_verificar_integridade():
+    """Confere a corrente de hashes do log de ações — ver
+    LogService.verificar_integridade() para a explicação completa."""
+    _somente_admin()
+    resultado = LogService(db.session).verificar_integridade()
+    LogService(db.session).registrar("verificar_integridade_log", detalhe={"integro": resultado["integro"]})
+    return jsonify(resultado)
+
+
+@bp.route("/admin/log/exportar")
+@login_required
+def log_exportar():
+    """Exporta pra CSV os mesmos registros filtrados na tela — pra auditoria
+    externa ou pra guardar fora do sistema."""
+    _somente_admin()
+    import csv
+    import io
+
+    usuario_id  = request.args.get("usuario_id") or None
+    acao        = request.args.get("acao", "").strip() or None
+    entidade    = request.args.get("entidade", "").strip() or None
+    data_inicio = request.args.get("data_inicio", "").strip() or None
+    data_fim    = request.args.get("data_fim", "").strip() or None
+
+    resultado = LogService(db.session).listar(
+        usuario_id=int(usuario_id) if usuario_id else None,
+        acao=acao, entidade=entidade, data_inicio=data_inicio, data_fim=data_fim,
+        pagina=1, por_pagina=100000,
+    )
+
+    buffer = io.StringIO()
+    escritor = csv.writer(buffer, delimiter=";")
+    escritor.writerow(["Data/Hora", "Usuário", "Ação", "Entidade", "ID entidade", "Detalhe", "IP"])
+    for r in resultado["registros"]:
+        escritor.writerow([
+            r.criado_em.strftime("%d/%m/%Y %H:%M:%S"),
+            r.usuario.nome_completo if r.usuario else (r.usuario_nome or "—"),
+            r.acao,
+            r.entidade or "",
+            r.entidade_id or "",
+            r.detalhe or "",
+            r.ip or "",
+        ])
+
+    LogService(db.session).registrar("exportar_log", detalhe={"quantidade": len(resultado["registros"])})
+
+    nome_arquivo = f"log_acoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        "\ufeff" + buffer.getvalue(),  # BOM — Excel abre acentuação certa
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"},
+    )

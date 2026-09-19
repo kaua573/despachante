@@ -12,14 +12,18 @@ IPVA.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.veiculo import Veiculo
+from app.models.cliente import Cliente
+from app.models.ipva import Ipva
+from app.models.ipva_parcela import IpvaParcela
 from app.models.licenciamento import Licenciamento
 from app.models.multa import Multa
+from app.models.contato_pendencia import ContatoPendencia
 from app.services.ipva_service import IpvaService
 
 # Cada tipo de item mapeia para a permissão necessária para quitá-lo.
@@ -30,13 +34,15 @@ PERMISSAO_POR_TIPO = {
     "multa":         "gerenciar_multas",
 }
 
+TIPOS_VALIDOS = set(PERMISSAO_POR_TIPO.keys())
+
 
 class PendenciaService:
     def __init__(self, session: Session) -> None:
         self._session = session
         self._ipva_svc = IpvaService(session)
 
-    # ── Listagem consolidada ────────────────────────────────────────────────
+    # ── Listagem consolidada (um cliente) ───────────────────────────────────
 
     def listar(self, cliente_id: int) -> list[dict]:
         veiculos = (
@@ -51,6 +57,118 @@ class PendenciaService:
             itens.extend(self._itens_licenciamento(v))
             itens.extend(self._itens_multa(v))
         return itens
+
+    # ── Listagem consolidada (TODOS os clientes — Central de pendências) ────
+
+    def listar_todas(self, apenas_ativos: bool = True) -> list[dict]:
+        """
+        Mesma ideia de `listar()`, mas cruzando a carteira inteira — usado
+        pela Central de pendências (/pendencias). Usa eager loading porque
+        aqui, diferente do `listar()` de um cliente só, o volume de veículos
+        pode ser grande e uma consulta por relação evitaria N+1 em cada um.
+
+        Por padrão só considera veículos com situacao='ativo', mesma regra
+        já usada no dashboard e na previsão de vencimentos (um veículo
+        vendido/desativado não deve gerar pendência para ninguém contatar).
+        """
+        q = (
+            self._session.query(Veiculo)
+            .options(
+                joinedload(Veiculo.cliente),
+                joinedload(Veiculo.ipva_list).joinedload(Ipva.parcelas),
+                joinedload(Veiculo.licenciamentos),
+                joinedload(Veiculo.multas),
+            )
+            .join(Cliente, Veiculo.cliente_id == Cliente.id)
+        )
+        if apenas_ativos:
+            q = q.filter(Veiculo.situacao == "ativo")
+        veiculos = q.order_by(Cliente.nome, Veiculo.placa).all()
+
+        contatos = self._mapa_contatos()
+
+        itens: list[dict] = []
+        for v in veiculos:
+            itens_veiculo = self._itens_ipva(v) + self._itens_licenciamento(v) + self._itens_multa(v)
+            for item in itens_veiculo:
+                item["cliente_id"] = v.cliente_id
+                item["cliente_nome"] = v.cliente.nome if v.cliente else ""
+                item["cliente_telefone"] = (v.cliente.telefone or "") if v.cliente else ""
+                item["contato"] = contatos.get((item["tipo"], item["id"]))
+            itens.extend(itens_veiculo)
+        return itens
+
+    def _mapa_contatos(self) -> dict[tuple[str, int], dict]:
+        """(tipo, pendencia_id) -> dict do ContatoPendencia mais recente."""
+        registros = self._session.query(ContatoPendencia).all()
+        return {(c.tipo, c.pendencia_id): c.to_dict() for c in registros}
+
+    # ── Marcar/desmarcar contato feito com o cliente ────────────────────────
+    # Nunca confia em cliente_id/veiculo_id vindos do front — sempre resolve
+    # o item de origem (Ipva/IpvaParcela/Licenciamento/Multa) no banco antes
+    # de gravar, pra não deixar o registro de contato associado a um
+    # veículo/cliente errado.
+
+    def _resolver_origem(self, tipo: str, pendencia_id: int) -> Optional[dict]:
+        if tipo not in TIPOS_VALIDOS:
+            return None
+
+        modelo = {
+            "ipva_avista":   Ipva,
+            "ipva_parcela":  IpvaParcela,
+            "licenciamento": Licenciamento,
+            "multa":         Multa,
+        }[tipo]
+        obj = self._session.get(modelo, pendencia_id)
+        if not obj:
+            return None
+
+        if tipo == "ipva_parcela":
+            veiculo_id = obj.ipva.veiculo_id
+        else:
+            veiculo_id = obj.veiculo_id
+        veiculo = self._session.get(Veiculo, veiculo_id)
+        if not veiculo:
+            return None
+        return {"veiculo_id": veiculo_id, "cliente_id": veiculo.cliente_id}
+
+    def marcar_contato(
+        self, tipo: str, pendencia_id: int, usuario_id: int, observacao: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        origem = self._resolver_origem(tipo, pendencia_id)
+        if not origem:
+            return False, "Pendência não encontrada."
+
+        obs = (observacao or "").strip()[:280] or None
+        existente = (
+            self._session.query(ContatoPendencia)
+            .filter_by(tipo=tipo, pendencia_id=pendencia_id)
+            .first()
+        )
+        if existente:
+            existente.marcado_por_id = usuario_id
+            existente.marcado_em = datetime.now()
+            existente.observacao = obs
+        else:
+            self._session.add(ContatoPendencia(
+                tipo=tipo, pendencia_id=pendencia_id,
+                cliente_id=origem["cliente_id"], veiculo_id=origem["veiculo_id"],
+                marcado_por_id=usuario_id, observacao=obs,
+            ))
+        self._session.commit()
+        return True, ""
+
+    def desmarcar_contato(self, tipo: str, pendencia_id: int) -> bool:
+        existente = (
+            self._session.query(ContatoPendencia)
+            .filter_by(tipo=tipo, pendencia_id=pendencia_id)
+            .first()
+        )
+        if not existente:
+            return False
+        self._session.delete(existente)
+        self._session.commit()
+        return True
 
     def _itens_ipva(self, v: Veiculo) -> list[dict]:
         itens = []
