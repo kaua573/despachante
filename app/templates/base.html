@@ -94,10 +94,15 @@
   }
   .nav-usuario-toggle:hover { background:var(--nav-fg-fraco); }
 
+  /* Botão hambúrguer — oculto no desktop, aparece via media query abaixo */
+  .nav-toggle { display:none; background:transparent; border:none; cursor:pointer; color:var(--nav-fg); padding:6px; border-radius:6px; align-items:center; justify-content:center; flex-shrink:0; }
+  .nav-toggle:hover { background:var(--nav-fg-fraco); }
+
   .nav-notificacoes { position:relative; margin-left:6px; }
   .btn-sino { background:transparent; border:none; cursor:pointer; padding:7px; border-radius:8px; color:var(--nav-fg-medio); display:flex; align-items:center; position:relative; transition:.15s; }
   .btn-sino:hover { background:var(--nav-fg-fraco); color:var(--nav-fg); }
 
+  .nav-busca { flex:1; display:flex; justify-content:center; max-width:380px; position:relative; }
   .nav-busca .input-busca-global {
     width:100%; background:rgba(0,0,0,.18); color:var(--nav-fg);
     border:1px solid rgba(255,255,255,.16); border-radius:8px;
@@ -305,6 +310,87 @@
   .campo-drag:hover { border-color:var(--azul2); background:var(--card-bg); }
   .campo-drag.dragging { opacity:.4; }
   .campo-drag.drag-over { border-color:var(--azul2); background:var(--cinza2); }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     RESPONSIVO / MOBILE
+     Regras genéricas, válidas em todas as páginas (elas estendem este
+     base.html). Nada aqui altera o layout em telas largas — tudo vive
+     dentro das media queries abaixo. Cada página pode complementar com
+     regras próprias no seu próprio <style>, sempre dentro de media
+     queries equivalentes, para não regredir o desktop.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* Tablet/celular: menu principal vira hambúrguer */
+  @media (max-width: 860px) {
+    nav { padding:0 12px; gap:8px; flex-wrap:wrap; }
+    /* nav tem height:56px fixo no desktop (regra acima) — com o menu
+       aberto ela precisa crescer para caber os links empilhados, senão
+       o conteúdo da página fica por cima do menu (sobreposto e
+       inclicável) em vez de ser empurrado para baixo. */
+    nav.menu-aberto { height:auto; align-items:flex-start; padding-top:8px; padding-bottom:2px; }
+    .nav-toggle { display:flex; }
+
+    /* Links, busca e usuário saem do fluxo em linha e viram um painel
+       que empurra o conteúdo da página para baixo (nav cresce de altura;
+       nada fica sobreposto nem cortado). Os seletores repetem o prefixo
+       "nav" de propósito: as regras originais (desktop) usam esse mesmo
+       prefixo e por isso têm a mesma especificidade — sem ele, o CSS de
+       desktop venceria mesmo aqui dentro da media query. */
+    nav .nav-links, nav .nav-busca {
+      display:none; flex-basis:100%; max-width:none;
+      order:5; margin:0; padding:8px 0 2px;
+    }
+    nav .nav-links { flex-direction:column; gap:2px; }
+    nav .nav-links a { padding:10px 12px; }
+    nav .nav-busca { order:6; padding:4px 0 10px; justify-content:stretch; }
+    nav .nav-busca > div { max-width:none !important; }
+    nav.menu-aberto .nav-links,
+    nav.menu-aberto .nav-busca { display:flex; }
+
+    /* Nome do usuário some, sobra só o ícone — economiza espaço */
+    .nav-usuario-nome { display:none; }
+    .nav-usuario { margin-left:auto; }
+
+    /* Breadcrumb encolhe com reticências em vez de empurrar a nav para o lado */
+    nav .breadcrumb { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; order:4; }
+
+    .container { padding:18px 14px; }
+
+    /* Abas (Todos os veículos / Vencimentos por placa, Lista / Cards etc.)
+       — em vez de estourar a largura da página, rolam por conta própria,
+       igual às tabelas. */
+    .tab-switch { max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .tab-switch a, .tab-switch button { flex-shrink:0; }
+  }
+
+  @media (max-width: 480px) {
+    /* Nome do escritório no topo também some em telas bem estreitas —
+       fica só o ícone/logo, que já é reconhecível sozinho. */
+    nav .logo span { display:none; }
+  }
+
+  /* Formulários: colunas viram uma coluna só abaixo de 640px */
+  @media (max-width: 640px) {
+    .row2, .row3 { grid-template-columns: 1fr; }
+
+    /* Alvo de toque maior e fonte >=16px nos campos (evita o zoom
+       automático do Safari/iOS ao focar um input). */
+    .btn { padding:10px 16px; font-size:14.5px; }
+    .btn-sm { padding:7px 12px; }
+    .btn-icon { padding:9px 10px; }
+    .field input, .field select, .field textarea,
+    .search-box input, .select-filtro { font-size:16px; }
+
+    /* Rodapé de modal: botões empilhados e de largura total — mais fácil
+       de acertar com o dedo do que botões pequenos lado a lado. */
+    .modal-footer { flex-direction:column-reverse; }
+    .modal-footer .btn { width:100%; justify-content:center; }
+
+    /* Linhas de detalhe (ex.: painel do veículo) — rótulo em cima do
+       valor em vez de lado a lado, sem espremer o texto. */
+    .detalhe-linha { flex-direction:column; align-items:flex-start; gap:2px; }
+    .detalhe-valor { text-align:left; }
+  }
 </style>
 </head>
 <body>
@@ -321,6 +407,11 @@
       <span>Despachante</span>
     {% endif %}
   </a>
+
+  <!-- Botão hambúrguer — só aparece em telas estreitas (ver media query no fim do <style>) -->
+  <button type="button" class="nav-toggle" onclick="toggleMenuMobile(event)" title="Menu" aria-label="Abrir menu">
+    {{ icon('menu', 'icon icon-sm') }}
+  </button>
 
   <div class="nav-links">
     <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
@@ -341,7 +432,7 @@
 
   <!-- Usuário logado -->
   {% if current_user.is_authenticated %}
-  <div class="nav-busca" style="flex:1;display:flex;justify-content:center;max-width:380px;position:relative;">
+  <div class="nav-busca">
     <div style="position:relative;width:100%;max-width:320px;">
       <input type="text" id="input-busca-global" class="input-busca-global" placeholder="Buscar cliente ou placa...  ( / )"
              autocomplete="off"
@@ -365,7 +456,7 @@
   </div>
   <div class="nav-usuario" style="position:relative;">
     <button type="button" class="nav-usuario-toggle" onclick="toggleMenuAcoes(event, 'dropdown-usuario')">
-      <span>{{ current_user.nome_completo }}</span>
+      <span class="nav-usuario-nome">{{ current_user.nome_completo }}</span>
       {% if current_user.perfil == 'administrador' %}
         <span class="badge-adm">Adm</span>
       {% endif %}
@@ -595,6 +686,18 @@ function toggleNotificacoes(ev) {
   document.getElementById('painel-notificacoes').classList.toggle('aberto');
 }
 
+// ── Menu hambúrguer (nav mobile) ─────────────────────────────────────────
+function toggleMenuMobile(ev) {
+  ev.stopPropagation();
+  document.querySelector('nav').classList.toggle('menu-aberto');
+}
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    const navEl = document.querySelector('nav');
+    if (navEl) navEl.classList.remove('menu-aberto');
+  }
+});
+
 // ── Recolher/expandir genérico (painéis de filtro, seções longas) ───────────
 function toggleCollapse(id) {
   document.getElementById(id).classList.toggle('aberto');
@@ -626,6 +729,10 @@ document.addEventListener('click', (ev) => {
       dropdown.classList.remove('aberto');
     }
   });
+  const navEl = document.querySelector('nav');
+  if (navEl && navEl.classList.contains('menu-aberto') && !navEl.contains(ev.target)) {
+    navEl.classList.remove('menu-aberto');
+  }
 });
 
 // ── Busca global (cliente por nome/CPF/CNPJ, veículo por placa) ─────────────

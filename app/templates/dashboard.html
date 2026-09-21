@@ -93,6 +93,21 @@
   .venc-grid .tabela-scroll { max-height:calc(100vh - 420px); }
   .card-full .tabela-scroll { max-height:calc(100vh - 650px); }
   body:has(.venc-grid) { overflow:hidden; height:100vh; }
+
+  /* Mobile: as duas tabelas (IPVA / Licenciamento) empilham em vez de
+     ficarem lado a lado — do jeito que estava, cada uma exigia min-width
+     de 760px e a página inteira precisava de ~1550px, forçando rolagem
+     horizontal do site inteiro. Também desliga o truque de "página presa
+     na altura da tela" do desktop, porque empilhado é mais alto que 100vh. */
+  @media (max-width: 900px) {
+    .venc-grid { grid-template-columns:1fr; width:100%; margin-left:0; padding:0; gap:16px; }
+    .venc-grid .card { margin-bottom:0; }
+    .venc-grid table { min-width:0; }
+    .venc-grid .tabela-scroll { max-height:340px; }
+    .card-full { width:100%; margin-left:0; padding:0; }
+    .card-full .tabela-scroll { max-height:340px; }
+    body:has(.venc-grid) { overflow:visible; height:auto; }
+  }
 </style>
 
 <div class="venc-grid">

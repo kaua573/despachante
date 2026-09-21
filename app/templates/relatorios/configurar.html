@@ -3,7 +3,14 @@
 {% block breadcrumb %}<span>Relatórios</span>{% endblock %}
 
 {% block content %}
-<div style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start;">
+<style>
+  /* Abaixo de 900px a coluna de configuração (340px fixos) não cabe mais
+     ao lado da pré-visualização — empilha em vez de espremer os dois. */
+  @media (max-width: 900px) {
+    .relatorio-config-grid { grid-template-columns: 1fr !important; }
+  }
+</style>
+<div class="relatorio-config-grid" style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start;">
 
   <!-- Painel de configuração -->
   <div style="display:flex;flex-direction:column;gap:16px;">
