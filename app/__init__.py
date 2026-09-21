@@ -52,6 +52,7 @@ def create_app(config_name: str = "default") -> Flask:
     _registrar_helpers_jinja(app)
     _registrar_blueprints(app)
     _registrar_handlers_erro(app)
+    _registrar_favicon(app)
     _iniciar_backup_automatico(app)
 
     return app
@@ -113,7 +114,14 @@ def _registrar_helpers_jinja(app: Flask) -> None:
 
         from app.services.configuracao_service import resolver_cor
         cor = resolver_cor(cor_chave)
-        logo_url = f"/static/uploads/logo/{esc_logo}" if esc_logo else ""
+        logo_url = ""
+        if esc_logo:
+            logo_url = f"/static/uploads/logo/{esc_logo}"
+            try:
+                caminho = os.path.join(app.config["LOGO_DIR"], esc_logo)
+                logo_url += f"?v={int(os.path.getmtime(caminho))}"
+            except OSError:
+                pass
         return {
             "tema_modo": modo,
             "tema_cor_chave": cor_chave,
@@ -199,6 +207,20 @@ def _registrar_blueprints(app: Flask) -> None:
     app.register_blueprint(relatorios_bp)
     app.register_blueprint(ipva_bp)
     app.register_blueprint(pendencias_bp)
+
+
+def _registrar_favicon(app: Flask) -> None:
+    @app.route("/favicon.ico")
+    def favicon():
+        from flask import redirect, Response
+        from app.services.configuracao_service import ConfiguracaoService
+        try:
+            logo = ConfiguracaoService(db.session).get("escritorio_logo", "")
+        except Exception:
+            logo = ""
+        if not logo:
+            return Response(status=204)
+        return redirect(f"/static/uploads/logo/{logo}", code=302)
 
 
 def _registrar_handlers_erro(app: Flask) -> None:

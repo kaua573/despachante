@@ -1,0 +1,105 @@
+diff --git a/app/__init__.py b/app/__init__.py
+index 640adff..fc7aec5 100644
+--- a/app/__init__.py
++++ b/app/__init__.py
+@@ -52,6 +52,7 @@ def create_app(config_name: str = "default") -> Flask:
+     _registrar_helpers_jinja(app)
+     _registrar_blueprints(app)
+     _registrar_handlers_erro(app)
++    _registrar_favicon(app)
+     _iniciar_backup_automatico(app)
+ 
+     return app
+@@ -113,7 +114,14 @@ def _registrar_helpers_jinja(app: Flask) -> None:
+ 
+         from app.services.configuracao_service import resolver_cor
+         cor = resolver_cor(cor_chave)
+-        logo_url = f"/static/uploads/logo/{esc_logo}" if esc_logo else ""
++        logo_url = ""
++        if esc_logo:
++            logo_url = f"/static/uploads/logo/{esc_logo}"
++            try:
++                caminho = os.path.join(app.config["LOGO_DIR"], esc_logo)
++                logo_url += f"?v={int(os.path.getmtime(caminho))}"
++            except OSError:
++                pass
+         return {
+             "tema_modo": modo,
+             "tema_cor_chave": cor_chave,
+@@ -201,6 +209,20 @@ def _registrar_blueprints(app: Flask) -> None:
+     app.register_blueprint(pendencias_bp)
+ 
+ 
++def _registrar_favicon(app: Flask) -> None:
++    @app.route("/favicon.ico")
++    def favicon():
++        from flask import redirect, Response
++        from app.services.configuracao_service import ConfiguracaoService
++        try:
++            logo = ConfiguracaoService(db.session).get("escritorio_logo", "")
++        except Exception:
++            logo = ""
++        if not logo:
++            return Response(status=204)
++        return redirect(f"/static/uploads/logo/{logo}", code=302)
++
++
+ def _registrar_handlers_erro(app: Flask) -> None:
+     @app.errorhandler(403)
+     def acesso_negado(e):
+diff --git a/app/templates/_favicon.html b/app/templates/_favicon.html
+new file mode 100644
+index 0000000..35efd3a
+--- /dev/null
++++ b/app/templates/_favicon.html
+@@ -0,0 +1,5 @@
++{% if escritorio_logo_url %}
++  <link rel="icon" href="{{ escritorio_logo_url }}">
++  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
++  <link rel="apple-touch-icon" href="{{ escritorio_logo_url }}">
++{% endif %}
+diff --git a/app/templates/auth/login.html b/app/templates/auth/login.html
+index e563289..c97ab17 100644
+--- a/app/templates/auth/login.html
++++ b/app/templates/auth/login.html
+@@ -5,10 +5,7 @@
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Entrar — {{ escritorio_nome or 'Despachante' }}</title>
+ 
+-{% if escritorio_logo_url %}
+-  <link rel="icon" type="image/png" href="{{ escritorio_logo_url }}">
+-  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
+-{% endif %}
++{% include "_favicon.html" %}
+ 
+ <style>
+   @font-face { font-family:'Inter'; font-style:normal; font-weight:400; font-display:swap;
+diff --git a/app/templates/auth/trocar_senha.html b/app/templates/auth/trocar_senha.html
+index 910dfd7..5dbadec 100644
+--- a/app/templates/auth/trocar_senha.html
++++ b/app/templates/auth/trocar_senha.html
+@@ -3,6 +3,7 @@
+ <head>
+ <meta charset="UTF-8">
+ <title>Trocar Senha — Despachante</title>
++{% include "_favicon.html" %}
+ <style>
+   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+   body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+diff --git a/app/templates/base.html b/app/templates/base.html
+index 8fbb00c..99b9fa9 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -5,11 +5,7 @@
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Despachante — {% block title %}{% endblock %}</title>
+ 
+-{% if escritorio_logo_url %}
+-  <link rel="icon" type="image/png" href="{{ escritorio_logo_url }}">
+-  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
+-  <link rel="apple-touch-icon" href="{{ escritorio_logo_url }}">
+-{% endif %}
++{% include "_favicon.html" %}
+ 
+ <style>
+   @font-face { font-family:'Inter'; font-style:normal; font-weight:400; font-display:swap;

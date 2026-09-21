@@ -5,11 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Despachante — {% block title %}{% endblock %}</title>
 
-{% if escritorio_logo_url %}
-  <link rel="icon" type="image/png" href="{{ escritorio_logo_url }}">
-  <link rel="shortcut icon" href="{{ escritorio_logo_url }}">
-  <link rel="apple-touch-icon" href="{{ escritorio_logo_url }}">
-{% endif %}
+{% include "_favicon.html" %}
 
 <style>
   @font-face { font-family:'Inter'; font-style:normal; font-weight:400; font-display:swap;
