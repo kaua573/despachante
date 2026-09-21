@@ -47,7 +47,7 @@ COLUNAS_VEICULOS_CLIENTE = [
     "Marca/Modelo*", "Situação", "Espécie", "Observação",
 ]
 
-SITUACOES_VALIDAS = {"ativo", "desativado", "vendido"}
+SITUACOES_VALIDAS = {"ativo", "desativado", "vendido", "pendente"}
 ESPECIES_VALIDAS = {"passeio", "carga", "reboque"}
 
 COR_CABECALHO = "1A4F8A"

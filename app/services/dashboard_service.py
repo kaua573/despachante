@@ -23,12 +23,12 @@ class DashboardService:
         limite = (date.today() + timedelta(days=self.JANELA_DIAS)).isoformat()
 
         total_clientes = self._session.query(Cliente).count()
-        total_veiculos = self._session.query(Veiculo).filter_by(situacao="ativo").count()
+        total_veiculos = self._session.query(Veiculo).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS)).count()
         ipva_vencidos = (
             self._session.query(Ipva)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
             .filter(
-                Veiculo.situacao == "ativo",
+                Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
                 Ipva.tipo_pagamento == "avista",
                 Ipva.pago == False, Ipva.vencimento != None, Ipva.vencimento < hoje,
             )
@@ -36,14 +36,14 @@ class DashboardService:
             + self._session.query(IpvaParcela)
             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao == "ativo", IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
             .count()
         )
         lic_vencidos = (
             self._session.query(Licenciamento)
             .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
             .filter(
-                Veiculo.situacao == "ativo",
+                Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
                 Licenciamento.pago == False, Licenciamento.vencimento != None, Licenciamento.vencimento < hoje,
             )
             .count()
@@ -51,7 +51,7 @@ class DashboardService:
         multas_pendentes = (
             self._session.query(Multa)
             .join(Veiculo, Multa.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
             .count()
         )
 
@@ -90,21 +90,21 @@ class DashboardService:
         contagem_ipva = (
             self._session.query(Veiculo.cliente_id.label("cid"), func.count(Ipva.id).label("qtd"))
             .join(Ipva, Ipva.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao == "ativo", Ipva.tipo_pagamento == "avista", Ipva.pago == False)
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Ipva.tipo_pagamento == "avista", Ipva.pago == False)
             .group_by(Veiculo.cliente_id)
             .subquery()
         )
         contagem_lic = (
             self._session.query(Veiculo.cliente_id.label("cid"), func.count(Licenciamento.id).label("qtd"))
             .join(Licenciamento, Licenciamento.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao == "ativo", Licenciamento.pago == False)
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Licenciamento.pago == False)
             .group_by(Veiculo.cliente_id)
             .subquery()
         )
         contagem_multa = (
             self._session.query(Veiculo.cliente_id.label("cid"), func.count(Multa.id).label("qtd"))
             .join(Multa, Multa.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
             .group_by(Veiculo.cliente_id)
             .subquery()
         )
@@ -140,7 +140,7 @@ class DashboardService:
             .join(Veiculo, modelo.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
             .filter(
-                Veiculo.situacao == "ativo",
+                Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
                 modelo.pago == False,
                 modelo.vencimento != None,
                 modelo.vencimento <= limite,
@@ -169,7 +169,7 @@ class DashboardService:
             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
-            .filter(Veiculo.situacao == "ativo", IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
             .order_by(IpvaParcela.vencimento.asc())
             .all()
         )

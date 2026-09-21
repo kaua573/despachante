@@ -50,7 +50,10 @@ class VeiculoGeralService:
         if especie:
             q = q.filter(Veiculo.especie == especie)
         if situacao:
-            q = q.filter(Veiculo.situacao == situacao)
+            if isinstance(situacao, (list, tuple, set)):
+                q = q.filter(Veiculo.situacao.in_(situacao))
+            else:
+                q = q.filter(Veiculo.situacao == situacao)
 
         if sem_licenciamento_ano:
             sub = (
@@ -73,10 +76,10 @@ class VeiculoGeralService:
         cliente_id: Optional[int] = None,
         especie: Optional[str] = None,
     ) -> list[dict]:
-        """Atalho: veículos ativos sem licenciamento lançado para `ano` (padrão: ano corrente)."""
+        """Atalho: veículos ativos (Veiculo.SITUACOES_ATIVAS) sem licenciamento lançado para `ano` (padrão: ano corrente)."""
         ano = ano or date.today().year
         return self.listar(
-            cliente_id=cliente_id, especie=especie, situacao="ativo",
+            cliente_id=cliente_id, especie=especie, situacao=Veiculo.SITUACOES_ATIVAS,
             sem_licenciamento_ano=ano,
         )
 
@@ -85,7 +88,7 @@ class VeiculoGeralService:
     def resumo_por_especie(self, cliente_id: Optional[int] = None) -> list[dict]:
         """Contagem de veículos ativos por espécie, geral ou de um cliente."""
         from sqlalchemy import func
-        q = self._session.query(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao == "ativo")
+        q = self._session.query(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
         if cliente_id:
             q = q.filter(Veiculo.cliente_id == cliente_id)
         contagens = dict(q.group_by(Veiculo.especie).all())
@@ -95,4 +98,4 @@ class VeiculoGeralService:
         ]
 
     def listar_por_especie(self, especie: str, cliente_id: Optional[int] = None) -> list[dict]:
-        return self.listar(cliente_id=cliente_id, especie=especie, situacao="ativo")
+        return self.listar(cliente_id=cliente_id, especie=especie, situacao=Veiculo.SITUACOES_ATIVAS)

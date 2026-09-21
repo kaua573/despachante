@@ -67,9 +67,11 @@ class PendenciaService:
         aqui, diferente do `listar()` de um cliente só, o volume de veículos
         pode ser grande e uma consulta por relação evitaria N+1 em cada um.
 
-        Por padrão só considera veículos com situacao='ativo', mesma regra
-        já usada no dashboard e na previsão de vencimentos (um veículo
-        vendido/desativado não deve gerar pendência para ninguém contatar).
+        Por padrão só considera veículos com situação "ativa" (Veiculo.
+        SITUACOES_ATIVAS — inclui "pendente"; exclui "desativado"/"vendido"),
+        mesma regra já usada no dashboard e na previsão de vencimentos (um
+        veículo vendido/desativado não deve gerar pendência para ninguém
+        contatar).
         """
         q = (
             self._session.query(Veiculo)
@@ -82,7 +84,7 @@ class PendenciaService:
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
         )
         if apenas_ativos:
-            q = q.filter(Veiculo.situacao == "ativo")
+            q = q.filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
         veiculos = q.order_by(Cliente.nome, Veiculo.placa).all()
 
         contatos = self._mapa_contatos()

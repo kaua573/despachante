@@ -45,7 +45,9 @@
           <select id="f-situacao">
             <option value="">Todas</option>
             <option value="ativo">Ativo</option>
+            <option value="pendente">Pendente</option>
             <option value="desativado">Desativado</option>
+            <option value="vendido">Vendido</option>
           </select>
         </div>
         <div class="field" style="min-width:190px;">
@@ -77,6 +79,12 @@
 {% block scripts %}
 <script>
 const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
+const SITUACAO_BADGE = {
+  ativo:      '<span class="badge badge-ativo">Ativo</span>',
+  pendente:   '<span class="badge badge-pendente">Pendente</span>',
+  desativado: '<span class="badge badge-inativo">Desativado</span>',
+  vendido:    '<span class="badge badge-vencido">Vendido</span>',
+};
 
 async function carregarClientesOpcoes() {
   const lista = await apiFetch('/api/veiculos/clientes-opcoes');
@@ -139,7 +147,7 @@ async function carregarVeiculos() {
       <td><a href="/clientes/${v.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;">${escapeHtml(v.cliente_nome)}</a></td>
       <td>${ESPECIE_LABEL[v.especie] || v.especie || '—'}</td>
       <td>${escapeHtml(v.marca_modelo) || '—'}</td>
-      <td>${v.situacao === 'ativo' ? '<span class="badge badge-ativo">Ativo</span>' : '<span class="badge badge-inativo">Desativado</span>'}</td>
+      <td>${SITUACAO_BADGE[v.situacao] || escapeHtml(v.situacao) || '—'}</td>
       <td><a href="/veiculos/${v.id}/painel" class="btn btn-ghost btn-sm">Abrir</a></td>
     </tr>`).join('');
 }

@@ -5,6 +5,13 @@ from app import db
 class Veiculo(db.Model):
     __tablename__ = "veiculos"
 
+    # Situações possíveis de um veículo, e quais delas contam como "em uso"
+    # para fins de gerar pendência/notificação (Painel, Central de
+    # Pendências, Previsão de Vencimentos, Panorama). "pendente" (doc./
+    # regularização em andamento, ex.: transferência) conta como ativo por
+    # decisão do escritório — só "desativado" e "vendido" ficam de fora.
+    SITUACOES_ATIVAS = ("ativo", "pendente")
+
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
     placa = db.Column(db.String(10), nullable=False, index=True)

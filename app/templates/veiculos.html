@@ -26,6 +26,7 @@
       <select id="filtro-situacao" onchange="carregar()" class="select-filtro">
         <option value="">Todas as situações</option>
         <option value="ativo">Ativo</option>
+        <option value="pendente">Pendente</option>
         <option value="desativado">Desativado</option>
         <option value="vendido">Vendido</option>
       </select>
@@ -88,6 +89,7 @@
         <div class="field"><label>Situação *</label>
           <select id="f-situacao">
             <option value="ativo">Ativo</option>
+            <option value="pendente">Pendente</option>
             <option value="desativado">Desativado</option>
             <option value="vendido">Vendido</option>
           </select>
@@ -111,6 +113,7 @@ let modoInputManual = false;
 const ESPECIE = { passeio:'Passeio', carga:'Carga', reboque:'Reboque' };
 const SITUACAO_BADGE = {
   ativo:      '<span class="badge badge-ativo">Ativo</span>',
+  pendente:   '<span class="badge badge-pendente">Pendente</span>',
   desativado: '<span class="badge badge-inativo">Desativado</span>',
   vendido:    '<span class="badge badge-vencido">Vendido</span>',
 };

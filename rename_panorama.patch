@@ -1,0 +1,31 @@
+diff --git a/app/templates/base.html b/app/templates/base.html
+index b940b01..8fbb00c 100644
+--- a/app/templates/base.html
++++ b/app/templates/base.html
+@@ -328,7 +328,7 @@
+ 
+   <div class="nav-links">
+     <a href="/" class="{{ 'ativa' if request.path == '/' else '' }}">{{ icon('dashboard') }} Início</a>
+-    <a href="/dashboard/geral" class="{{ 'ativa' if request.path == '/dashboard/geral' else '' }}">{{ icon('view') }} Visão geral</a>
++    <a href="/dashboard/geral" class="{{ 'ativa' if request.path == '/dashboard/geral' else '' }}">{{ icon('view') }} Panorama</a>
+     {% if current_user.is_authenticated and current_user.tem_permissao('visualizar_veiculos') %}
+       <a href="/veiculos" class="{{ 'ativa' if request.path in ('/veiculos', '/veiculos/vencimentos-placa') else '' }}">{{ icon('car') }} Veículos</a>
+     {% endif %}
+diff --git a/app/templates/dashboard_geral.html b/app/templates/dashboard_geral.html
+index 8292642..ab569ce 100644
+--- a/app/templates/dashboard_geral.html
++++ b/app/templates/dashboard_geral.html
+@@ -1,10 +1,10 @@
+ {% extends "base.html" %}
+-{% block title %}Visão Geral{% endblock %}
+-{% block breadcrumb %}<a href="/">Início</a><span class="sep">›</span><span>Visão Geral</span>{% endblock %}
++{% block title %}Panorama{% endblock %}
++{% block breadcrumb %}<a href="/">Início</a><span class="sep">›</span><span>Panorama</span>{% endblock %}
+ 
+ {% block content %}
+ <div class="page-header">
+-  <h1>{{ icon('car') }} Visão Geral</h1>
++  <h1>{{ icon('car') }} Panorama</h1>
+   <p>Panorama do sistema: veículos por espécie, licenciamentos pendentes e clientes com mais pendências.</p>
+ </div>
+ 

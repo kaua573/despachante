@@ -155,7 +155,7 @@ class VencimentoRegraService:
         q = (
             self._session.query(Veiculo, Cliente)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
-            .filter(Veiculo.situacao == "ativo")
+            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
         )
         if cliente_id:
             q = q.filter(Veiculo.cliente_id == cliente_id)

@@ -1,0 +1,293 @@
+diff --git a/app/models/veiculo.py b/app/models/veiculo.py
+index 3af7bb5..01bb3b4 100644
+--- a/app/models/veiculo.py
++++ b/app/models/veiculo.py
+@@ -5,6 +5,13 @@ from app import db
+ class Veiculo(db.Model):
+     __tablename__ = "veiculos"
+ 
++    # Situações possíveis de um veículo, e quais delas contam como "em uso"
++    # para fins de gerar pendência/notificação (Painel, Central de
++    # Pendências, Previsão de Vencimentos, Panorama). "pendente" (doc./
++    # regularização em andamento, ex.: transferência) conta como ativo por
++    # decisão do escritório — só "desativado" e "vendido" ficam de fora.
++    SITUACOES_ATIVAS = ("ativo", "pendente")
++
+     id = db.Column(db.Integer, primary_key=True)
+     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
+     placa = db.Column(db.String(10), nullable=False, index=True)
+diff --git a/app/services/dashboard_service.py b/app/services/dashboard_service.py
+index 44c112d..fad885a 100644
+--- a/app/services/dashboard_service.py
++++ b/app/services/dashboard_service.py
+@@ -23,12 +23,12 @@ class DashboardService:
+         limite = (date.today() + timedelta(days=self.JANELA_DIAS)).isoformat()
+ 
+         total_clientes = self._session.query(Cliente).count()
+-        total_veiculos = self._session.query(Veiculo).filter_by(situacao="ativo").count()
++        total_veiculos = self._session.query(Veiculo).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS)).count()
+         ipva_vencidos = (
+             self._session.query(Ipva)
+             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+             .filter(
+-                Veiculo.situacao == "ativo",
++                Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
+                 Ipva.tipo_pagamento == "avista",
+                 Ipva.pago == False, Ipva.vencimento != None, Ipva.vencimento < hoje,
+             )
+@@ -36,14 +36,14 @@ class DashboardService:
+             + self._session.query(IpvaParcela)
+             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
+             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+-            .filter(Veiculo.situacao == "ativo", IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
+             .count()
+         )
+         lic_vencidos = (
+             self._session.query(Licenciamento)
+             .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
+             .filter(
+-                Veiculo.situacao == "ativo",
++                Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
+                 Licenciamento.pago == False, Licenciamento.vencimento != None, Licenciamento.vencimento < hoje,
+             )
+             .count()
+@@ -51,7 +51,7 @@ class DashboardService:
+         multas_pendentes = (
+             self._session.query(Multa)
+             .join(Veiculo, Multa.veiculo_id == Veiculo.id)
+-            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
+             .count()
+         )
+ 
+@@ -90,21 +90,21 @@ class DashboardService:
+         contagem_ipva = (
+             self._session.query(Veiculo.cliente_id.label("cid"), func.count(Ipva.id).label("qtd"))
+             .join(Ipva, Ipva.veiculo_id == Veiculo.id)
+-            .filter(Veiculo.situacao == "ativo", Ipva.tipo_pagamento == "avista", Ipva.pago == False)
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Ipva.tipo_pagamento == "avista", Ipva.pago == False)
+             .group_by(Veiculo.cliente_id)
+             .subquery()
+         )
+         contagem_lic = (
+             self._session.query(Veiculo.cliente_id.label("cid"), func.count(Licenciamento.id).label("qtd"))
+             .join(Licenciamento, Licenciamento.veiculo_id == Veiculo.id)
+-            .filter(Veiculo.situacao == "ativo", Licenciamento.pago == False)
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Licenciamento.pago == False)
+             .group_by(Veiculo.cliente_id)
+             .subquery()
+         )
+         contagem_multa = (
+             self._session.query(Veiculo.cliente_id.label("cid"), func.count(Multa.id).label("qtd"))
+             .join(Multa, Multa.veiculo_id == Veiculo.id)
+-            .filter(Veiculo.situacao == "ativo", Multa.pago == False)
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
+             .group_by(Veiculo.cliente_id)
+             .subquery()
+         )
+@@ -140,7 +140,7 @@ class DashboardService:
+             .join(Veiculo, modelo.veiculo_id == Veiculo.id)
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+             .filter(
+-                Veiculo.situacao == "ativo",
++                Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
+                 modelo.pago == False,
+                 modelo.vencimento != None,
+                 modelo.vencimento <= limite,
+@@ -169,7 +169,7 @@ class DashboardService:
+             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
+             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+-            .filter(Veiculo.situacao == "ativo", IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
+             .order_by(IpvaParcela.vencimento.asc())
+             .all()
+         )
+diff --git a/app/services/importacao_service.py b/app/services/importacao_service.py
+index 21140c1..06b0c62 100644
+--- a/app/services/importacao_service.py
++++ b/app/services/importacao_service.py
+@@ -47,7 +47,7 @@ COLUNAS_VEICULOS_CLIENTE = [
+     "Marca/Modelo*", "Situação", "Espécie", "Observação",
+ ]
+ 
+-SITUACOES_VALIDAS = {"ativo", "desativado", "vendido"}
++SITUACOES_VALIDAS = {"ativo", "desativado", "vendido", "pendente"}
+ ESPECIES_VALIDAS = {"passeio", "carga", "reboque"}
+ 
+ COR_CABECALHO = "1A4F8A"
+diff --git a/app/services/pdf_cliente_service.py b/app/services/pdf_cliente_service.py
+index aad5ff2..7430349 100644
+--- a/app/services/pdf_cliente_service.py
++++ b/app/services/pdf_cliente_service.py
+@@ -147,7 +147,7 @@ class PdfClienteService:
+                 return ("PENDENTE", AMAR)
+             return ("VENCIDO", VERM) if venc < date.today().isoformat() else ("PENDENTE", AMAR)
+ 
+-        SITUACAO_LABEL = {"ativo": "Ativo", "desativado": "Desativado", "vendido": "Vendido"}
++        SITUACAO_LABEL = {"ativo": "Ativo", "desativado": "Desativado", "vendido": "Vendido", "pendente": "Pendente"}
+         ESPECIE_LABEL  = {"passeio": "Passeio", "carga": "Carga", "reboque": "Reboque"}
+ 
+         def bloco_dados():
+diff --git a/app/services/pendencia_service.py b/app/services/pendencia_service.py
+index eceade3..7700f1b 100644
+--- a/app/services/pendencia_service.py
++++ b/app/services/pendencia_service.py
+@@ -67,9 +67,11 @@ class PendenciaService:
+         aqui, diferente do `listar()` de um cliente só, o volume de veículos
+         pode ser grande e uma consulta por relação evitaria N+1 em cada um.
+ 
+-        Por padrão só considera veículos com situacao='ativo', mesma regra
+-        já usada no dashboard e na previsão de vencimentos (um veículo
+-        vendido/desativado não deve gerar pendência para ninguém contatar).
++        Por padrão só considera veículos com situação "ativa" (Veiculo.
++        SITUACOES_ATIVAS — inclui "pendente"; exclui "desativado"/"vendido"),
++        mesma regra já usada no dashboard e na previsão de vencimentos (um
++        veículo vendido/desativado não deve gerar pendência para ninguém
++        contatar).
+         """
+         q = (
+             self._session.query(Veiculo)
+@@ -82,7 +84,7 @@ class PendenciaService:
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+         )
+         if apenas_ativos:
+-            q = q.filter(Veiculo.situacao == "ativo")
++            q = q.filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
+         veiculos = q.order_by(Cliente.nome, Veiculo.placa).all()
+ 
+         contatos = self._mapa_contatos()
+diff --git a/app/services/veiculo_geral_service.py b/app/services/veiculo_geral_service.py
+index c10ba3a..bce4cde 100644
+--- a/app/services/veiculo_geral_service.py
++++ b/app/services/veiculo_geral_service.py
+@@ -50,7 +50,10 @@ class VeiculoGeralService:
+         if especie:
+             q = q.filter(Veiculo.especie == especie)
+         if situacao:
+-            q = q.filter(Veiculo.situacao == situacao)
++            if isinstance(situacao, (list, tuple, set)):
++                q = q.filter(Veiculo.situacao.in_(situacao))
++            else:
++                q = q.filter(Veiculo.situacao == situacao)
+ 
+         if sem_licenciamento_ano:
+             sub = (
+@@ -73,10 +76,10 @@ class VeiculoGeralService:
+         cliente_id: Optional[int] = None,
+         especie: Optional[str] = None,
+     ) -> list[dict]:
+-        """Atalho: veículos ativos sem licenciamento lançado para `ano` (padrão: ano corrente)."""
++        """Atalho: veículos ativos (Veiculo.SITUACOES_ATIVAS) sem licenciamento lançado para `ano` (padrão: ano corrente)."""
+         ano = ano or date.today().year
+         return self.listar(
+-            cliente_id=cliente_id, especie=especie, situacao="ativo",
++            cliente_id=cliente_id, especie=especie, situacao=Veiculo.SITUACOES_ATIVAS,
+             sem_licenciamento_ano=ano,
+         )
+ 
+@@ -85,7 +88,7 @@ class VeiculoGeralService:
+     def resumo_por_especie(self, cliente_id: Optional[int] = None) -> list[dict]:
+         """Contagem de veículos ativos por espécie, geral ou de um cliente."""
+         from sqlalchemy import func
+-        q = self._session.query(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao == "ativo")
++        q = self._session.query(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
+         if cliente_id:
+             q = q.filter(Veiculo.cliente_id == cliente_id)
+         contagens = dict(q.group_by(Veiculo.especie).all())
+@@ -95,4 +98,4 @@ class VeiculoGeralService:
+         ]
+ 
+     def listar_por_especie(self, especie: str, cliente_id: Optional[int] = None) -> list[dict]:
+-        return self.listar(cliente_id=cliente_id, especie=especie, situacao="ativo")
++        return self.listar(cliente_id=cliente_id, especie=especie, situacao=Veiculo.SITUACOES_ATIVAS)
+diff --git a/app/services/vencimento_regra_service.py b/app/services/vencimento_regra_service.py
+index 3e889c9..545c8db 100644
+--- a/app/services/vencimento_regra_service.py
++++ b/app/services/vencimento_regra_service.py
+@@ -155,7 +155,7 @@ class VencimentoRegraService:
+         q = (
+             self._session.query(Veiculo, Cliente)
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+-            .filter(Veiculo.situacao == "ativo")
++            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
+         )
+         if cliente_id:
+             q = q.filter(Veiculo.cliente_id == cliente_id)
+diff --git a/app/templates/painel.html b/app/templates/painel.html
+index a5acbf6..99cea45 100644
+--- a/app/templates/painel.html
++++ b/app/templates/painel.html
+@@ -15,6 +15,7 @@
+       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+         <span class="chip-placa" style="font-size:18px;padding:5px 12px;">{{ veiculo.placa }}</span>
+         {% if veiculo.situacao == 'ativo' %}<span class="badge badge-ativo">Ativo</span>{% endif %}
++        {% if veiculo.situacao == 'pendente' %}<span class="badge badge-pendente">Pendente</span>{% endif %}
+         {% if veiculo.situacao == 'desativado' %}<span class="badge badge-inativo">Desativado</span>{% endif %}
+         {% if veiculo.situacao == 'vendido' %}<span class="badge badge-vencido">Vendido</span>{% endif %}
+       </div>
+diff --git a/app/templates/veiculos.html b/app/templates/veiculos.html
+index ec1162d..b2652eb 100644
+--- a/app/templates/veiculos.html
++++ b/app/templates/veiculos.html
+@@ -26,6 +26,7 @@
+       <select id="filtro-situacao" onchange="carregar()" class="select-filtro">
+         <option value="">Todas as situações</option>
+         <option value="ativo">Ativo</option>
++        <option value="pendente">Pendente</option>
+         <option value="desativado">Desativado</option>
+         <option value="vendido">Vendido</option>
+       </select>
+@@ -88,6 +89,7 @@
+         <div class="field"><label>Situação *</label>
+           <select id="f-situacao">
+             <option value="ativo">Ativo</option>
++            <option value="pendente">Pendente</option>
+             <option value="desativado">Desativado</option>
+             <option value="vendido">Vendido</option>
+           </select>
+@@ -111,6 +113,7 @@ let modoInputManual = false;
+ const ESPECIE = { passeio:'Passeio', carga:'Carga', reboque:'Reboque' };
+ const SITUACAO_BADGE = {
+   ativo:      '<span class="badge badge-ativo">Ativo</span>',
++  pendente:   '<span class="badge badge-pendente">Pendente</span>',
+   desativado: '<span class="badge badge-inativo">Desativado</span>',
+   vendido:    '<span class="badge badge-vencido">Vendido</span>',
+ };
+diff --git a/app/templates/veiculos_geral.html b/app/templates/veiculos_geral.html
+index 3b21ebd..4d477c1 100644
+--- a/app/templates/veiculos_geral.html
++++ b/app/templates/veiculos_geral.html
+@@ -45,7 +45,9 @@
+           <select id="f-situacao">
+             <option value="">Todas</option>
+             <option value="ativo">Ativo</option>
++            <option value="pendente">Pendente</option>
+             <option value="desativado">Desativado</option>
++            <option value="vendido">Vendido</option>
+           </select>
+         </div>
+         <div class="field" style="min-width:190px;">
+@@ -77,6 +79,12 @@
+ {% block scripts %}
+ <script>
+ const ESPECIE_LABEL = {passeio: 'Passeio', carga: 'Carga', reboque: 'Reboque'};
++const SITUACAO_BADGE = {
++  ativo:      '<span class="badge badge-ativo">Ativo</span>',
++  pendente:   '<span class="badge badge-pendente">Pendente</span>',
++  desativado: '<span class="badge badge-inativo">Desativado</span>',
++  vendido:    '<span class="badge badge-vencido">Vendido</span>',
++};
+ 
+ async function carregarClientesOpcoes() {
+   const lista = await apiFetch('/api/veiculos/clientes-opcoes');
+@@ -139,7 +147,7 @@ async function carregarVeiculos() {
+       <td><a href="/clientes/${v.cliente_id}/veiculos" style="color:var(--azul2);text-decoration:none;">${escapeHtml(v.cliente_nome)}</a></td>
+       <td>${ESPECIE_LABEL[v.especie] || v.especie || '—'}</td>
+       <td>${escapeHtml(v.marca_modelo) || '—'}</td>
+-      <td>${v.situacao === 'ativo' ? '<span class="badge badge-ativo">Ativo</span>' : '<span class="badge badge-inativo">Desativado</span>'}</td>
++      <td>${SITUACAO_BADGE[v.situacao] || escapeHtml(v.situacao) || '—'}</td>
+       <td><a href="/veiculos/${v.id}/painel" class="btn btn-ghost btn-sm">Abrir</a></td>
+     </tr>`).join('');
+ }
