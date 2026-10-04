@@ -9,24 +9,25 @@ from app.models.veiculo import Veiculo
 from app.models.ipva import Ipva
 from app.models.licenciamento import Licenciamento
 from app.models.multa import Multa
+from app.services.base import TenantService
 
 
-class VeiculoService:
-    def __init__(self, session: Session) -> None:
-        self._session = session
+class VeiculoService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     # ── Veículos ────────────────────────────────────────────────────────────
 
     def listar_por_cliente(self, cliente_id: int) -> list[Veiculo]:
         return (
-            self._session.query(Veiculo)
+            self.scoped(Veiculo)
             .filter_by(cliente_id=cliente_id)
             .order_by(Veiculo.placa)
             .all()
         )
 
     def obter(self, veiculo_id: int) -> Optional[Veiculo]:
-        return self._session.get(Veiculo, veiculo_id)
+        return self.scoped(Veiculo).filter_by(id=veiculo_id).first()
 
     def placa_em_uso(self, placa: str, ignorar_id: Optional[int] = None) -> bool:
         """
@@ -36,19 +37,17 @@ class VeiculoService:
         """
         if not placa:
             return False
-        q = (
-            self._session.query(Veiculo.id)
-            .filter(Veiculo.placa == placa, Veiculo.situacao != "vendido")
-        )
+        q = self.scoped(Veiculo).filter(Veiculo.placa == placa, Veiculo.situacao != "vendido")
         if ignorar_id:
             q = q.filter(Veiculo.id != ignorar_id)
-        return self._session.query(q.exists()).scalar()
+        return self._s.query(q.exists()).scalar()
 
     def criar(self, dados: dict) -> tuple[Optional[Veiculo], str]:
         placa = dados["placa"].upper()
         if self.placa_em_uso(placa):
             return None, "Já existe um veículo ativo cadastrado com esta placa."
         v = Veiculo(
+            escritorio_id=self.escritorio_id,
             cliente_id=dados["cliente_id"],
             placa=placa,
             renavam=dados.get("renavam", ""),
@@ -58,11 +57,11 @@ class VeiculoService:
             especie=dados.get("especie", "passeio"),
             observacao=dados.get("observacao", ""),
         )
-        self._session.add(v)
+        self._s.add(v)
         try:
-            self._session.commit()
+            self._s.commit()
         except IntegrityError:
-            self._session.rollback()
+            self._s.rollback()
             return None, "Já existe um veículo ativo cadastrado com esta placa."
         return v, ""
 
@@ -82,9 +81,9 @@ class VeiculoService:
         v.especie = dados.get("especie", "passeio")
         v.observacao = dados.get("observacao", "")
         try:
-            self._session.commit()
+            self._s.commit()
         except IntegrityError:
-            self._session.rollback()
+            self._s.rollback()
             return False, "Já existe um veículo ativo cadastrado com esta placa."
         return True, ""
 
@@ -92,30 +91,41 @@ class VeiculoService:
         v = self.obter(veiculo_id)
         if not v:
             return False, "Veículo não encontrado."
-        self._session.delete(v)
-        self._session.commit()
+        self._s.delete(v)
+        self._s.commit()
         return True, ""
 
-    # ── IPVA ────────────────────────────────────────────────────────────────
+    # ── IPVA / Licenciamento / Multas ─────────────────────────────────────
+    # Nenhum desses três models tem escritorio_id próprio — pertencem a um
+    # Veiculo, que já é escopado. Todo acesso por id passa por
+    # `_registro_escopado()`, que faz JOIN até Veiculo e confere o
+    # escritorio ali: sem isso, um usuário do escritório B poderia acessar
+    # um IPVA do escritório A só adivinhando o id sequencial (o registro em
+    # si não sabe de quem é, só o veículo dono dele sabe).
+
+    def _query_registro_escopada(self, modelo):
+        return self._s.query(modelo).join(Veiculo, modelo.veiculo_id == Veiculo.id).filter(
+            Veiculo.escritorio_id == self.escritorio_id
+        )
 
     def obter_ipva(self, ipva_id: int) -> Optional[Ipva]:
-        return self._session.get(Ipva, ipva_id)
+        return self._query_registro_escopada(Ipva).filter(Ipva.id == ipva_id).first()
 
     def obter_licenciamento(self, lid: int) -> Optional[Licenciamento]:
-        return self._session.get(Licenciamento, lid)
+        return self._query_registro_escopada(Licenciamento).filter(Licenciamento.id == lid).first()
 
     def obter_multa(self, mid: int) -> Optional[Multa]:
-        return self._session.get(Multa, mid)
+        return self._query_registro_escopada(Multa).filter(Multa.id == mid).first()
 
     def listar_ipva(self, veiculo_id: int) -> list[Ipva]:
         return (
-            self._session.query(Ipva)
-            .filter_by(veiculo_id=veiculo_id)
+            self._query_registro_escopada(Ipva)
+            .filter(Ipva.veiculo_id == veiculo_id)
             .order_by(Ipva.ano_referencia.desc())
             .all()
         )
 
-    def criar_ipva(self, dados: dict) -> Ipva:
+    def criar_ipva(self, dados: dict) -> Optional[Ipva]:
         return self._criar_registro(Ipva, dados)
 
     def atualizar_ipva(self, ipva_id: int, dados: dict) -> tuple[bool, str]:
@@ -128,13 +138,13 @@ class VeiculoService:
 
     def listar_licenciamento(self, veiculo_id: int) -> list[Licenciamento]:
         return (
-            self._session.query(Licenciamento)
-            .filter_by(veiculo_id=veiculo_id)
+            self._query_registro_escopada(Licenciamento)
+            .filter(Licenciamento.veiculo_id == veiculo_id)
             .order_by(Licenciamento.ano_referencia.desc())
             .all()
         )
 
-    def criar_licenciamento(self, dados: dict) -> Licenciamento:
+    def criar_licenciamento(self, dados: dict) -> Optional[Licenciamento]:
         return self._criar_registro(Licenciamento, dados)
 
     def atualizar_licenciamento(self, lid: int, dados: dict) -> tuple[bool, str]:
@@ -147,13 +157,13 @@ class VeiculoService:
 
     def listar_multas(self, veiculo_id: int) -> list[Multa]:
         return (
-            self._session.query(Multa)
-            .filter_by(veiculo_id=veiculo_id)
+            self._query_registro_escopada(Multa)
+            .filter(Multa.veiculo_id == veiculo_id)
             .order_by(Multa.data_infracao.desc())
             .all()
         )
 
-    def criar_multa(self, dados: dict) -> Multa:
+    def criar_multa(self, dados: dict) -> Optional[Multa]:
         return self._criar_registro(Multa, dados)
 
     def atualizar_multa(self, mid: int, dados: dict) -> tuple[bool, str]:
@@ -165,8 +175,14 @@ class VeiculoService:
     # ── Helpers internos (DRY para os três tipos de registro) ───────────────
 
     def _criar_registro(self, modelo, dados: dict):
+        # dados["veiculo_id"] precisa ser de um veículo do escritório atual —
+        # se não for (id de outro escritório, ou inexistente), nem cria.
+        veiculo = self.obter(dados["veiculo_id"])
+        if not veiculo:
+            return None
+
         campos_comuns = {
-            "veiculo_id": dados["veiculo_id"],
+            "veiculo_id": veiculo.id,
             "valor": dados.get("valor") or None,
             "vencimento": dados.get("vencimento") or None,
             "pago": bool(int(dados.get("pago", 0))),
@@ -186,12 +202,12 @@ class VeiculoService:
                 "descricao": dados.get("descricao", ""),
             })
         obj = modelo(**campos_comuns)
-        self._session.add(obj)
-        self._session.commit()
+        self._s.add(obj)
+        self._s.commit()
         return obj
 
     def _atualizar_registro(self, modelo, obj_id: int, dados: dict) -> tuple[bool, str]:
-        obj = self._session.get(modelo, obj_id)
+        obj = self._query_registro_escopada(modelo).filter(modelo.id == obj_id).first()
         if not obj:
             return False, "Registro não encontrado."
 
@@ -215,13 +231,13 @@ class VeiculoService:
             obj.auto_infracao = dados.get("auto_infracao", "")
             obj.data_infracao = dados.get("data_infracao") or None
             obj.descricao = dados.get("descricao", "")
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def _excluir_registro(self, modelo, obj_id: int) -> tuple[bool, str]:
-        obj = self._session.get(modelo, obj_id)
+        obj = self._query_registro_escopada(modelo).filter(modelo.id == obj_id).first()
         if not obj:
             return False, "Registro não encontrado."
-        self._session.delete(obj)
-        self._session.commit()
+        self._s.delete(obj)
+        self._s.commit()
         return True, ""

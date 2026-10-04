@@ -21,10 +21,10 @@ from app.services.validacao_service import formatar_cpf, formatar_cnpj
 
 
 class PdfClienteService:
-    def __init__(self, session: Session, logo_dir: str) -> None:
+    def __init__(self, session: Session, logo_dir: str, escritorio_id: int) -> None:
         self._session = session
         self._logo_dir = logo_dir
-        self._cfg = ConfiguracaoService(session)
+        self._cfg = ConfiguracaoService(session, escritorio_id)
 
     def gerar(self, cliente_id: int, incluir: list[str]) -> tuple[Optional[bytes], str]:
         """

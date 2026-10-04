@@ -17,22 +17,49 @@ from sqlalchemy.orm import Session
 
 from app.models.ipva import Ipva
 from app.models.ipva_parcela import IpvaParcela
+from app.models.veiculo import Veiculo
+from app.services.base import TenantService
 
 
-class IpvaService:
+class IpvaService(TenantService):
     # DETRAN-SP: máximo 5 parcelas
     MAX_PARCELAS = 5
 
-    def __init__(self, session: Session) -> None:
-        self._session = session
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
+
+    # ── Helpers de escopo ────────────────────────────────────────────────────
+    # Ipva e IpvaParcela não têm escritorio_id próprio — pertencem a um
+    # Veiculo (Ipva) ou a um Ipva (IpvaParcela). Todo acesso por id passa
+    # por JOIN até Veiculo pra conferir o escritorio, senão um id
+    # sequencial de outro escritório seria acessível só de adivinhar.
+
+    def _ipva_escopado(self, ipva_id: int) -> Optional[Ipva]:
+        return (
+            self._s.query(Ipva)
+            .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+            .filter(Ipva.id == ipva_id, Veiculo.escritorio_id == self.escritorio_id)
+            .first()
+        )
+
+    def _parcela_escopada(self, parcela_id: int) -> Optional[IpvaParcela]:
+        return (
+            self._s.query(IpvaParcela)
+            .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
+            .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
+            .filter(IpvaParcela.id == parcela_id, Veiculo.escritorio_id == self.escritorio_id)
+            .first()
+        )
 
     # ── Parcelas ──────────────────────────────────────────────────────────────
 
     def listar_parcelas(self, ipva_id: int) -> list[IpvaParcela]:
         """Retorna parcelas com status de vencimento atualizado antes de retornar."""
+        if not self._ipva_escopado(ipva_id):
+            return []
         self._atualizar_status_vencidos(ipva_id)
         return (
-            self._session.query(IpvaParcela)
+            self._s.query(IpvaParcela)
             .filter_by(ipva_id=ipva_id)
             .order_by(IpvaParcela.numero)
             .all()
@@ -56,7 +83,7 @@ class IpvaService:
         if not 1 <= num_parcelas <= self.MAX_PARCELAS:
             return False, f"Número de parcelas deve ser entre 1 e {self.MAX_PARCELAS}."
 
-        ipva = self._session.get(Ipva, ipva_id)
+        ipva = self._ipva_escopado(ipva_id)
         if not ipva:
             return False, "IPVA não encontrado."
 
@@ -69,7 +96,7 @@ class IpvaService:
             return False, "Valor do IPVA deve ser maior que zero para parcelar."
 
         # Remove parcelas existentes para permitir regeneração
-        self._session.query(IpvaParcela).filter_by(ipva_id=ipva_id).delete()
+        self._s.query(IpvaParcela).filter_by(ipva_id=ipva_id).delete()
 
         total = Decimal(str(valor_total))
         valor_parcela = (total / num_parcelas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -79,7 +106,7 @@ class IpvaService:
         for i in range(num_parcelas):
             venc = self._avancar_meses(data_base, i)
             valor = valor_ultima if i == num_parcelas - 1 else valor_parcela
-            self._session.add(IpvaParcela(
+            self._s.add(IpvaParcela(
                 ipva_id=ipva_id,
                 numero=i + 1,
                 valor=valor,
@@ -92,7 +119,7 @@ class IpvaService:
         ipva.pago = False
         ipva.data_pagamento = None
 
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def quitar_parcela(self, parcela_id: int) -> tuple[bool, str]:
@@ -100,7 +127,7 @@ class IpvaService:
         Marca uma parcela como paga e registra a data de quitação.
         Se todas as parcelas ficarem pagas, sincroniza ipva.pago = True.
         """
-        parcela = self._session.get(IpvaParcela, parcela_id)
+        parcela = self._parcela_escopada(parcela_id)
         if not parcela:
             return False, "Parcela não encontrada."
         if parcela.status == "pago":
@@ -108,10 +135,10 @@ class IpvaService:
 
         parcela.status = "pago"
         parcela.pago_em = date.today().isoformat()
-        self._session.flush()
+        self._s.flush()
 
         self._sincronizar_status_ipva(parcela.ipva_id)
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def quitar_avista(self, ipva_id: int) -> tuple[bool, str]:
@@ -120,7 +147,7 @@ class IpvaService:
         Retorna erro 400 se o IPVA estiver configurado como parcelado —
         nesse caso o pagamento deve ser feito parcela a parcela.
         """
-        ipva = self._session.get(Ipva, ipva_id)
+        ipva = self._ipva_escopado(ipva_id)
         if not ipva:
             return False, "IPVA não encontrado."
 
@@ -135,7 +162,7 @@ class IpvaService:
 
         ipva.pago = True
         ipva.data_pagamento = date.today().isoformat()
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def desfazer_parcelamento(self, ipva_id: int) -> tuple[bool, str]:
@@ -143,15 +170,15 @@ class IpvaService:
         Remove todas as parcelas e volta o IPVA para modo à vista.
         Útil quando o usuário quer trocar o modo de pagamento.
         """
-        ipva = self._session.get(Ipva, ipva_id)
+        ipva = self._ipva_escopado(ipva_id)
         if not ipva:
             return False, "IPVA não encontrado."
 
-        self._session.query(IpvaParcela).filter_by(ipva_id=ipva_id).delete()
+        self._s.query(IpvaParcela).filter_by(ipva_id=ipva_id).delete()
         ipva.tipo_pagamento = "avista"
         ipva.pago = False
         ipva.data_pagamento = None
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def status_geral(self, ipva_id: int) -> str:
@@ -159,8 +186,10 @@ class IpvaService:
         Calcula o status derivado das parcelas:
         quitado | parcialmente_pago | vencido | pendente | sem_parcelas
         """
+        if not self._ipva_escopado(ipva_id):
+            return "sem_parcelas"
         parcelas = (
-            self._session.query(IpvaParcela)
+            self._s.query(IpvaParcela)
             .filter_by(ipva_id=ipva_id)
             .all()
         )
@@ -185,7 +214,7 @@ class IpvaService:
         """Marca como 'vencido' parcelas pendentes cujo vencimento já passou."""
         hoje = date.today().isoformat()
         vencidas = (
-            self._session.query(IpvaParcela)
+            self._s.query(IpvaParcela)
             .filter(
                 IpvaParcela.ipva_id == ipva_id,
                 IpvaParcela.status == "pendente",
@@ -196,11 +225,11 @@ class IpvaService:
         for p in vencidas:
             p.status = "vencido"
         if vencidas:
-            self._session.commit()
+            self._s.commit()
 
     def _sincronizar_status_ipva(self, ipva_id: int) -> None:
         """Atualiza ipva.pago com base no status consolidado das parcelas."""
-        ipva = self._session.get(Ipva, ipva_id)
+        ipva = self._ipva_escopado(ipva_id)
         if not ipva:
             return
         status = self.status_geral(ipva_id)

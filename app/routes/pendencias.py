@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, g
 from flask_login import login_required, current_user
 from app import db
 from app.models.cliente import Cliente
@@ -10,11 +10,11 @@ bp = Blueprint("pendencias", __name__)
 
 
 def _svc() -> PendenciaService:
-    return PendenciaService(db.session)
+    return PendenciaService(db.session, g.escritorio_id)
 
 
 def _log() -> LogService:
-    return LogService(db.session)
+    return LogService(db.session, g.escritorio_id)
 
 
 # ── Página ───────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import io
 import json
 
-from flask import Blueprint, render_template, request, jsonify, send_file, current_app
+from flask import Blueprint, render_template, request, jsonify, send_file, current_app, g
 from flask_login import login_required
 
 from app import db
@@ -14,11 +14,11 @@ bp = Blueprint("relatorios", __name__)
 
 
 def _svc() -> RelatorioService:
-    return RelatorioService(db.session)
+    return RelatorioService(db.session, g.escritorio_id)
 
 
 def _log() -> LogService:
-    return LogService(db.session)
+    return LogService(db.session, g.escritorio_id)
 
 
 # ── Páginas ──────────────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ def api_exportar_pdf():
 
     svc     = _svc()
     dados   = svc.buscar_dados(config)
-    cfg_svc = ConfiguracaoService(db.session)
+    cfg_svc = ConfiguracaoService(db.session, g.escritorio_id)
 
     cfg_pdf = {
         "nome_escritorio": cfg_svc.get("escritorio_nome", ""),

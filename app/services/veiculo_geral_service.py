@@ -20,14 +20,15 @@ from sqlalchemy.orm import Session
 from app.models.cliente import Cliente
 from app.models.licenciamento import Licenciamento
 from app.models.veiculo import Veiculo
+from app.services.base import TenantService
 
 ESPECIES_VALIDAS = ("carga", "passeio", "reboque")
 ESPECIE_LABEL = {"passeio": "Passeio", "carga": "Carga", "reboque": "Reboque"}
 
 
-class VeiculoGeralService:
-    def __init__(self, session: Session) -> None:
-        self._session = session
+class VeiculoGeralService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     # ── Listagem geral com filtros ───────────────────────────────────────────
 
@@ -43,7 +44,7 @@ class VeiculoGeralService:
         `sem_licenciamento_ano`: se informado, só retorna veículos que NÃO
         têm nenhum registro de Licenciamento para aquele ano.
         """
-        q = self._session.query(Veiculo, Cliente).join(Cliente, Veiculo.cliente_id == Cliente.id)
+        q = self.scoped(Veiculo).join(Cliente, Veiculo.cliente_id == Cliente.id).with_entities(Veiculo, Cliente)
 
         if cliente_id:
             q = q.filter(Veiculo.cliente_id == cliente_id)
@@ -57,8 +58,9 @@ class VeiculoGeralService:
 
         if sem_licenciamento_ano:
             sub = (
-                self._session.query(Licenciamento.veiculo_id)
-                .filter(Licenciamento.ano_referencia == sem_licenciamento_ano)
+                self._s.query(Licenciamento.veiculo_id)
+                .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
+                .filter(Veiculo.escritorio_id == self.escritorio_id, Licenciamento.ano_referencia == sem_licenciamento_ano)
             )
             q = q.filter(~Veiculo.id.in_(sub))
 
@@ -88,7 +90,7 @@ class VeiculoGeralService:
     def resumo_por_especie(self, cliente_id: Optional[int] = None) -> list[dict]:
         """Contagem de veículos ativos por espécie, geral ou de um cliente."""
         from sqlalchemy import func
-        q = self._session.query(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
+        q = self.scoped(Veiculo).with_entities(Veiculo.especie, func.count(Veiculo.id)).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
         if cliente_id:
             q = q.filter(Veiculo.cliente_id == cliente_id)
         contagens = dict(q.group_by(Veiculo.especie).all())

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, jsonify, send_from_directory, current_app, request
+from flask import Blueprint, render_template, jsonify, send_from_directory, current_app, request, g
 from flask_login import login_required, current_user
 from app import db
 from app.services.dashboard_service import DashboardService
@@ -21,14 +21,14 @@ def dashboard_geral():
 @bp.route("/api/dashboard")
 @login_required
 def api_dashboard():
-    svc = DashboardService(db.session)
+    svc = DashboardService(db.session, g.escritorio_id)
     return jsonify(svc.resumo())
 
 
 @bp.route("/api/dashboard/geral")
 @login_required
 def api_dashboard_geral():
-    svc = DashboardService(db.session)
+    svc = DashboardService(db.session, g.escritorio_id)
     return jsonify(svc.resumo_geral())
 
 

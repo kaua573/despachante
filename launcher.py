@@ -102,14 +102,16 @@ def main() -> None:
     from app import create_app, db, aplicar_migracoes_leves
     from app.services.configuracao_service import ConfiguracaoService
     from app.services.auth_service import AuthService
+    from app.services.base import escritorio_padrao_id
 
     app = create_app(os.environ.get("FLASK_ENV", "default"))
 
     with app.app_context():
         db.create_all()
         aplicar_migracoes_leves(app)
-        ConfiguracaoService(db.session).seed_defaults()
-        AuthService(db.session).seed_admin()
+        eid = escritorio_padrao_id(db.session)
+        ConfiguracaoService(db.session, eid).seed_defaults()
+        AuthService(db.session).seed_admin(eid)
 
     threading.Timer(1.2, _abrir_navegador).start()
     if host == "0.0.0.0":

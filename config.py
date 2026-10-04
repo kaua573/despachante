@@ -77,6 +77,12 @@ def _resolver_secret_key() -> str:
 
 class Config:
     SECRET_KEY = _resolver_secret_key()
+    # Senha de acesso à tela /super-admin (gerenciar escritórios/tenants —
+    # ver app/routes/super_admin.py). Só faz sentido na instalação que o
+    # dono do sistema controla (hoje, o Cloud Run); nunca deve ser definida
+    # em instalações locais (.exe) de um escritório cliente. Sem essa env
+    # var definida, a tela inteira responde 404 — nem revela que existe.
+    SUPER_ADMIN_TOKEN = os.environ.get("SUPER_ADMIN_TOKEN")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "documentos")
     LOGO_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "logo")

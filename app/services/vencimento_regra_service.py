@@ -24,6 +24,7 @@ from app.models.cliente import Cliente
 from app.models.licenciamento import Licenciamento
 from app.models.regra_vencimento import RegraVencimento
 from app.models.veiculo import Veiculo
+from app.services.base import TenantService
 
 FINAIS_VALIDOS = {str(n) for n in range(10)}
 ESPECIES_VALIDAS = ("carga", "passeio", "reboque")
@@ -37,15 +38,15 @@ def final_da_placa(placa: str) -> Optional[str]:
     return None
 
 
-class VencimentoRegraService:
-    def __init__(self, session: Session) -> None:
-        self._session = session
+class VencimentoRegraService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     # ── CRUD das regras ──────────────────────────────────────────────────────
 
     def listar_regras(self) -> list[RegraVencimento]:
         return (
-            self._session.query(RegraVencimento)
+            self.scoped(RegraVencimento)
             .order_by(RegraVencimento.final_placa, RegraVencimento.especie)
             .all()
         )
@@ -76,33 +77,33 @@ class VencimentoRegraService:
 
         regra_id = dados.get("id")
         if regra_id:
-            regra = self._session.get(RegraVencimento, regra_id)
+            regra = self.scoped(RegraVencimento).filter_by(id=regra_id).first()
             if not regra:
                 return None, "Regra não encontrada."
         else:
             regra = (
-                self._session.query(RegraVencimento)
+                self.scoped(RegraVencimento)
                 .filter_by(final_placa=final_placa, especie=especie)
                 .first()
             )
             if not regra:
-                regra = RegraVencimento(final_placa=final_placa, especie=especie)
-                self._session.add(regra)
+                regra = RegraVencimento(escritorio_id=self.escritorio_id, final_placa=final_placa, especie=especie)
+                self._s.add(regra)
 
         regra.final_placa = final_placa
         regra.especie = especie
         regra.mes_vencimento = mes
         regra.dia_vencimento = dia
         regra.ativo = bool(dados.get("ativo", True))
-        self._session.commit()
+        self._s.commit()
         return regra, ""
 
     def excluir_regra(self, regra_id: int) -> tuple[bool, str]:
-        regra = self._session.get(RegraVencimento, regra_id)
+        regra = self.scoped(RegraVencimento).filter_by(id=regra_id).first()
         if not regra:
             return False, "Regra não encontrada."
-        self._session.delete(regra)
-        self._session.commit()
+        self._s.delete(regra)
+        self._s.commit()
         return True, ""
 
     def salvar_regras_lote(
@@ -153,8 +154,9 @@ class VencimentoRegraService:
         regras = {(r.final_placa, r.especie): r for r in self.listar_regras() if r.ativo}
 
         q = (
-            self._session.query(Veiculo, Cliente)
+            self.scoped(Veiculo)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+            .with_entities(Veiculo, Cliente)
             .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS))
         )
         if cliente_id:
@@ -164,7 +166,9 @@ class VencimentoRegraService:
 
         licenciados = {
             vid for (vid,) in
-            self._session.query(Licenciamento.veiculo_id).filter(Licenciamento.ano_referencia == ano)
+            self._s.query(Licenciamento.veiculo_id)
+            .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Licenciamento.ano_referencia == ano)
         }
 
         resultado = []
@@ -202,12 +206,12 @@ class VencimentoRegraService:
         for item in itens:
             vid = item.get("veiculo_id")
             venc = (item.get("vencimento") or "").strip()
-            veiculo = self._session.get(Veiculo, vid) if vid else None
+            veiculo = self.scoped(Veiculo).filter_by(id=vid).first() if vid else None
             if not veiculo:
                 erros.append({"veiculo_id": vid, "erro": "Veículo não encontrado."})
                 continue
             ja_existe = (
-                self._session.query(Licenciamento.id)
+                self._s.query(Licenciamento.id)
                 .filter_by(veiculo_id=vid, ano_referencia=ano)
                 .first()
             )
@@ -226,8 +230,8 @@ class VencimentoRegraService:
                 pago=False,
                 observacao=item.get("observacao", "Lançado em lote via regra de final de placa."),
             )
-            self._session.add(registro)
+            self._s.add(registro)
             criados.append({"veiculo_id": vid, "placa": veiculo.placa, "vencimento": venc})
 
-        self._session.commit()
+        self._s.commit()
         return {"criados": criados, "pulados": pulados, "erros": erros}

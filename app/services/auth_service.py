@@ -15,22 +15,29 @@ from sqlalchemy.orm import Session
 
 from app.models.usuario import Usuario
 from app.models.permissao_usuario import PermissaoUsuario, CODIGOS_PERMISSAO
+from app.services.base import TenantService
 
 MAX_TENTATIVAS = 5
 BLOQUEIO_MINUTOS = 15
 
 
-class AuthService:
-    def __init__(self, session: Session) -> None:
-        self._s = session
+class AuthService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int | None = None) -> None:
+        super().__init__(session, escritorio_id)
 
     def autenticar(self, nome_usuario: str, senha: str) -> tuple[Optional[Usuario], str]:
         """
         Valida credenciais e controla contador de tentativas.
         Retorna (usuario, "") em sucesso ou (None, mensagem_erro).
         Nunca revela se o erro é no usuário ou na senha.
+
+        Requer que o service já tenha sido construído com o escritorio_id
+        resolvido pela URL (`/e/<slug>/login`) — é isso que fecha o gap que
+        ficou documentado desde o passo 2: antes, não havia como saber de
+        qual escritório era o usuário antes de autenticar.
         """
-        usuario = self._s.query(Usuario).filter_by(nome_usuario=nome_usuario).first()
+        self._exigir_escritorio("autenticar")
+        usuario = self.scoped(Usuario).filter_by(nome_usuario=nome_usuario).first()
 
         # Usuário inexistente — simula tempo de verificação para evitar timing attack
         if not usuario or not usuario.ativo:
@@ -73,9 +80,10 @@ class AuthService:
 
     def definir_senha_temporaria(self, usuario_id: int, senha_temp: str) -> tuple[bool, str]:
         """Administrador define senha temporária válida por 24h."""
+        self._exigir_escritorio("definir_senha_temporaria")
         if len(senha_temp) < 6:
             return False, "A senha temporária deve ter ao menos 6 caracteres."
-        usuario = self._s.get(Usuario, usuario_id)
+        usuario = self.scoped(Usuario).filter_by(id=usuario_id).first()
         if not usuario:
             return False, "Usuário não encontrado."
         usuario.senha_hash = generate_password_hash(senha_temp)
@@ -96,11 +104,13 @@ class AuthService:
     # ------------------------------------------------------------------
 
     def criar_usuario(self, dados: dict) -> tuple[Optional[Usuario], str]:
-        if self._s.query(Usuario).filter_by(nome_usuario=dados["nome_usuario"]).first():
+        self._exigir_escritorio("criar_usuario")
+        if self.scoped(Usuario).filter_by(nome_usuario=dados["nome_usuario"]).first():
             return None, "Nome de usuário já está em uso."
         if dados.get("perfil") not in ("administrador", "operador"):
             return None, "Perfil inválido."
         u = Usuario(
+            escritorio_id=self.escritorio_id,
             nome_usuario=dados["nome_usuario"].strip(),
             nome_completo=dados["nome_completo"].strip(),
             senha_hash=generate_password_hash(dados["senha"]),
@@ -114,14 +124,16 @@ class AuthService:
         return u, ""
 
     def atualizar_usuario(self, usuario_id: int, dados: dict) -> tuple[bool, str]:
-        u = self._s.get(Usuario, usuario_id)
+        self._exigir_escritorio("atualizar_usuario")
+        u = self.scoped(Usuario).filter_by(id=usuario_id).first()
         if not u:
             return False, "Usuário não encontrado."
         if dados.get("perfil") not in ("administrador", "operador"):
             return False, "Perfil inválido."
         # Impede renomear para um nome_usuario já existente de outro usuário
+        # do MESMO escritório (outro escritório pode ter o mesmo nome).
         conflito = (
-            self._s.query(Usuario)
+            self.scoped(Usuario)
             .filter(Usuario.nome_usuario == dados["nome_usuario"], Usuario.id != usuario_id)
             .first()
         )
@@ -135,13 +147,14 @@ class AuthService:
         return True, ""
 
     def toggle_ativo(self, usuario_id: int) -> tuple[bool, str]:
-        u = self._s.get(Usuario, usuario_id)
+        self._exigir_escritorio("toggle_ativo")
+        u = self.scoped(Usuario).filter_by(id=usuario_id).first()
         if not u:
             return False, "Usuário não encontrado."
-        # Não permite desativar o único administrador ativo
+        # Não permite desativar o único administrador ativo (do escritório)
         if u.ativo and u.perfil == "administrador":
             outros_admins = (
-                self._s.query(Usuario)
+                self.scoped(Usuario)
                 .filter(Usuario.perfil == "administrador", Usuario.ativo == True, Usuario.id != usuario_id)
                 .count()
             )
@@ -158,10 +171,11 @@ class AuthService:
             if cod in CODIGOS_PERMISSAO:
                 self._s.add(PermissaoUsuario(usuario_id=usuario_id, permissao=cod))
 
-    def seed_admin(self) -> None:
-        """Cria usuário admin padrão se não existir nenhum usuário no banco."""
-        if self._s.query(Usuario).count() == 0:
+    def seed_admin(self, escritorio_id: int) -> None:
+        """Cria usuário admin padrão se o escritório ainda não tem nenhum usuário."""
+        if self._s.query(Usuario).filter_by(escritorio_id=escritorio_id).count() == 0:
             self._s.add(Usuario(
+                escritorio_id=escritorio_id,
                 nome_usuario="admin",
                 nome_completo="Administrador",
                 senha_hash=generate_password_hash("admin123"),

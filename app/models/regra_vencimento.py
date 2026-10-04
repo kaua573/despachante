@@ -14,6 +14,7 @@ class RegraVencimento(db.Model):
     __tablename__ = "regra_vencimento"
 
     id             = db.Column(db.Integer, primary_key=True)
+    escritorio_id  = db.Column(db.Integer, db.ForeignKey("escritorios.id"), nullable=False)
     final_placa    = db.Column(db.String(1), nullable=False)   # '0' a '9'
     especie        = db.Column(db.String(20), nullable=False)  # carga | passeio | reboque
     mes_vencimento = db.Column(db.Integer, nullable=False)     # 1-12
@@ -21,7 +22,7 @@ class RegraVencimento(db.Model):
     ativo          = db.Column(db.Boolean, default=True)
 
     __table_args__ = (
-        db.UniqueConstraint("final_placa", "especie", name="uq_regra_final_especie"),
+        db.UniqueConstraint("escritorio_id", "final_placa", "especie", name="uq_regra_escritorio_final_especie"),
     )
 
     def to_dict(self) -> dict:

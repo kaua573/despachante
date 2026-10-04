@@ -13,6 +13,12 @@ class Veiculo(db.Model):
     SITUACOES_ATIVAS = ("ativo", "pendente")
 
     id = db.Column(db.Integer, primary_key=True)
+    # Redundante em relação a cliente.escritorio_id de propósito: permite
+    # filtrar veículos por escritório direto (WHERE escritorio_id = X), sem
+    # precisar de JOIN em clientes em cada uma das dezenas de queries que
+    # tocam este model. Ver escritorio_service.py para como isso é mantido
+    # sincronizado na criação/edição.
+    escritorio_id = db.Column(db.Integer, db.ForeignKey("escritorios.id"), nullable=False, index=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.id"), nullable=False)
     placa = db.Column(db.String(10), nullable=False, index=True)
     renavam = db.Column(db.String(20))

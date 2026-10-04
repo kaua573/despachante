@@ -7,7 +7,8 @@ class Usuario(UserMixin, db.Model):
     __tablename__ = "usuarios"
 
     id               = db.Column(db.Integer, primary_key=True)
-    nome_usuario     = db.Column(db.String(50), unique=True, nullable=False)
+    escritorio_id    = db.Column(db.Integer, db.ForeignKey("escritorios.id"), nullable=False)
+    nome_usuario     = db.Column(db.String(50), nullable=False)
     nome_completo    = db.Column(db.String(100), nullable=False)
     senha_hash       = db.Column(db.String(255), nullable=False)
     perfil           = db.Column(db.String(20), nullable=False)  # 'administrador' | 'operador'
@@ -19,6 +20,10 @@ class Usuario(UserMixin, db.Model):
     criado_em        = db.Column(db.DateTime, default=datetime.now)
     atualizado_em    = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     ultimo_acesso    = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("escritorio_id", "nome_usuario", name="uq_usuarios_escritorio_nome"),
+    )
 
     permissoes = db.relationship(
         "PermissaoUsuario",

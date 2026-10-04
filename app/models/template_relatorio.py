@@ -6,6 +6,7 @@ class TemplateRelatorio(db.Model):
     __tablename__ = "templates_relatorio"
 
     id = db.Column(db.Integer, primary_key=True)
+    escritorio_id = db.Column(db.Integer, db.ForeignKey("escritorios.id"), nullable=False)
     nome = db.Column(db.String(100), nullable=False)
     config_json = db.Column(db.Text, nullable=False)  # JSON serializado da configuração
     criado_em = db.Column(db.DateTime, default=datetime.now)

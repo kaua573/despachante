@@ -5,7 +5,8 @@ from app import db
 class LogAcao(db.Model):
     __tablename__ = "log_acao"
 
-    id          = db.Column(db.Integer, primary_key=True)
+    id            = db.Column(db.Integer, primary_key=True)
+    escritorio_id = db.Column(db.Integer, db.ForeignKey("escritorios.id"), nullable=False)
     usuario_id  = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     # Nome do usuário "congelado" no momento do registro — garante que o
     # log continue mostrando quem fez o quê mesmo que o usuário seja
@@ -30,5 +31,10 @@ class LogAcao(db.Model):
     # corrente reivindicando o mesmo pai ao mesmo tempo — a segunda gravação
     # esbarra na constraint e tenta de novo com o pai atualizado
     # (LogService.registrar já trata esse retry).
-    hash_anterior = db.Column(db.String(64), nullable=True, unique=True)
-    hash_atual    = db.Column(db.String(64), nullable=True, unique=True)
+    hash_anterior = db.Column(db.String(64), nullable=True)
+    hash_atual    = db.Column(db.String(64), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("escritorio_id", "hash_anterior", name="uq_log_acao_escritorio_hash_anterior"),
+        db.UniqueConstraint("escritorio_id", "hash_atual", name="uq_log_acao_escritorio_hash_atual"),
+    )

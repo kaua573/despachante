@@ -11,15 +11,16 @@ from werkzeug.datastructures import FileStorage
 
 from app.models.cliente import Cliente
 from app.models.documento import Documento
+from app.services.base import TenantService
 
 
-class ClienteService:
-    def __init__(self, session: Session, upload_dir: str) -> None:
-        self._session = session
+class ClienteService(TenantService):
+    def __init__(self, session: Session, upload_dir: str, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
         self._upload_dir = upload_dir
 
     def listar(self, busca: str = "") -> list[Cliente]:
-        q = self._session.query(Cliente)
+        q = self.scoped(Cliente)
         if busca:
             termo = f"%{busca}%"
             q = q.filter(
@@ -31,23 +32,23 @@ class ClienteService:
         return q.order_by(Cliente.nome).all()
 
     def obter(self, cliente_id: int) -> Optional[Cliente]:
-        return self._session.get(Cliente, cliente_id)
+        return self.scoped(Cliente).filter_by(id=cliente_id).first()
 
     def cpf_em_uso(self, cpf: str, ignorar_id: Optional[int] = None) -> bool:
         if not cpf:
             return False
-        q = self._session.query(Cliente.id).filter(Cliente.cpf == cpf)
+        q = self.scoped(Cliente).filter(Cliente.cpf == cpf)
         if ignorar_id:
             q = q.filter(Cliente.id != ignorar_id)
-        return self._session.query(q.exists()).scalar()
+        return self._s.query(q.exists()).scalar()
 
     def cnpj_em_uso(self, cnpj: str, ignorar_id: Optional[int] = None) -> bool:
         if not cnpj:
             return False
-        q = self._session.query(Cliente.id).filter(Cliente.cnpj == cnpj)
+        q = self.scoped(Cliente).filter(Cliente.cnpj == cnpj)
         if ignorar_id:
             q = q.filter(Cliente.id != ignorar_id)
-        return self._session.query(q.exists()).scalar()
+        return self._s.query(q.exists()).scalar()
 
     def criar(self, dados: dict) -> tuple[Optional[Cliente], str]:
         tipo_pessoa = (dados.get("tipo_pessoa") or "PF").upper()
@@ -60,6 +61,7 @@ class ClienteService:
         if tipo_pessoa == "PJ" and self.cnpj_em_uso(cnpj):
             return None, "Já existe um cliente cadastrado com esse CNPJ."
         cliente = Cliente(
+            escritorio_id=self.escritorio_id,
             nome=dados["nome"],
             tipo_pessoa=tipo_pessoa,
             cpf=cpf,
@@ -68,11 +70,11 @@ class ClienteService:
             email=dados.get("email", ""),
             observacao=dados.get("observacao", ""),
         )
-        self._session.add(cliente)
+        self._s.add(cliente)
         try:
-            self._session.commit()
+            self._s.commit()
         except IntegrityError:
-            self._session.rollback()
+            self._s.rollback()
             msg = "Já existe um cliente cadastrado com esse CNPJ." if tipo_pessoa == "PJ" \
                 else "Já existe um cliente cadastrado com esse CPF."
             return None, msg
@@ -97,9 +99,9 @@ class ClienteService:
         cliente.email = dados.get("email", "")
         cliente.observacao = dados.get("observacao", "")
         try:
-            self._session.commit()
+            self._s.commit()
         except IntegrityError:
-            self._session.rollback()
+            self._s.rollback()
             msg = "Já existe um cliente cadastrado com esse CNPJ." if tipo_pessoa == "PJ" \
                 else "Já existe um cliente cadastrado com esse CPF."
             return False, msg
@@ -112,15 +114,18 @@ class ClienteService:
         # Remove arquivos de documentos do disco antes de deletar do banco
         for doc in cliente.documentos:
             self._remover_arquivo_disco(doc.arquivo)
-        self._session.delete(cliente)
-        self._session.commit()
+        self._s.delete(cliente)
+        self._s.commit()
         return True, ""
 
     # ── Documentos ──────────────────────────────────────────────────────────
+    # Documento não tem escritorio_id próprio — pertence a um Cliente, que já
+    # é escopado. `obter()` acima já garante que o cliente_id usado abaixo só
+    # chega aqui depois de confirmado como do escritório atual.
 
     def listar_documentos(self, cliente_id: int) -> list[Documento]:
         return (
-            self._session.query(Documento)
+            self._s.query(Documento)
             .filter_by(cliente_id=cliente_id)
             .order_by(Documento.data_documento.desc())
             .all()
@@ -148,17 +153,17 @@ class ClienteService:
             observacao=dados.get("observacao", ""),
             arquivo=arquivo_nome,
         )
-        self._session.add(doc)
-        self._session.commit()
+        self._s.add(doc)
+        self._s.commit()
         return True, ""
 
     def excluir_documento(self, doc_id: int) -> tuple[bool, str]:
-        doc = self._session.get(Documento, doc_id)
+        doc = self._s.get(Documento, doc_id)
         if not doc:
             return False, "Documento não encontrado."
         self._remover_arquivo_disco(doc.arquivo)
-        self._session.delete(doc)
-        self._session.commit()
+        self._s.delete(doc)
+        self._s.commit()
         return True, ""
 
     # ── Helpers privados ────────────────────────────────────────────────────

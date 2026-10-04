@@ -25,6 +25,7 @@ from app.models.licenciamento import Licenciamento
 from app.models.multa import Multa
 from app.models.contato_pendencia import ContatoPendencia
 from app.services.ipva_service import IpvaService
+from app.services.base import TenantService
 
 # Cada tipo de item mapeia para a permissão necessária para quitá-lo.
 PERMISSAO_POR_TIPO = {
@@ -37,16 +38,26 @@ PERMISSAO_POR_TIPO = {
 TIPOS_VALIDOS = set(PERMISSAO_POR_TIPO.keys())
 
 
-class PendenciaService:
-    def __init__(self, session: Session) -> None:
-        self._session = session
-        self._ipva_svc = IpvaService(session)
+class PendenciaService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
+        self._ipva_svc = IpvaService(session, escritorio_id)
+
+    # Ipva/Licenciamento/Multa/ContatoPendencia não têm escritorio_id
+    # próprio: o escopo vem do Veiculo (ou do Cliente, no caso do contato).
+
+    def _contatos_escopados(self):
+        return (
+            self._s.query(ContatoPendencia)
+            .join(Cliente, ContatoPendencia.cliente_id == Cliente.id)
+            .filter(Cliente.escritorio_id == self.escritorio_id)
+        )
 
     # ── Listagem consolidada (um cliente) ───────────────────────────────────
 
     def listar(self, cliente_id: int) -> list[dict]:
         veiculos = (
-            self._session.query(Veiculo)
+            self.scoped(Veiculo)
             .filter_by(cliente_id=cliente_id)
             .order_by(Veiculo.placa)
             .all()
@@ -74,7 +85,7 @@ class PendenciaService:
         contatar).
         """
         q = (
-            self._session.query(Veiculo)
+            self.scoped(Veiculo)
             .options(
                 joinedload(Veiculo.cliente),
                 joinedload(Veiculo.ipva_list).joinedload(Ipva.parcelas),
@@ -102,7 +113,7 @@ class PendenciaService:
 
     def _mapa_contatos(self) -> dict[tuple[str, int], dict]:
         """(tipo, pendencia_id) -> dict do ContatoPendencia mais recente."""
-        registros = self._session.query(ContatoPendencia).all()
+        registros = self._contatos_escopados().all()
         return {(c.tipo, c.pendencia_id): c.to_dict() for c in registros}
 
     # ── Marcar/desmarcar contato feito com o cliente ────────────────────────
@@ -121,7 +132,7 @@ class PendenciaService:
             "licenciamento": Licenciamento,
             "multa":         Multa,
         }[tipo]
-        obj = self._session.get(modelo, pendencia_id)
+        obj = self._s.get(modelo, pendencia_id)
         if not obj:
             return None
 
@@ -129,7 +140,8 @@ class PendenciaService:
             veiculo_id = obj.ipva.veiculo_id
         else:
             veiculo_id = obj.veiculo_id
-        veiculo = self._session.get(Veiculo, veiculo_id)
+        # Escopado: veículo de outro escritório é tratado como inexistente.
+        veiculo = self.scoped(Veiculo).filter_by(id=veiculo_id).first()
         if not veiculo:
             return None
         return {"veiculo_id": veiculo_id, "cliente_id": veiculo.cliente_id}
@@ -143,8 +155,8 @@ class PendenciaService:
 
         obs = (observacao or "").strip()[:280] or None
         existente = (
-            self._session.query(ContatoPendencia)
-            .filter_by(tipo=tipo, pendencia_id=pendencia_id)
+            self._contatos_escopados()
+            .filter(ContatoPendencia.tipo == tipo, ContatoPendencia.pendencia_id == pendencia_id)
             .first()
         )
         if existente:
@@ -152,24 +164,24 @@ class PendenciaService:
             existente.marcado_em = datetime.now()
             existente.observacao = obs
         else:
-            self._session.add(ContatoPendencia(
+            self._s.add(ContatoPendencia(
                 tipo=tipo, pendencia_id=pendencia_id,
                 cliente_id=origem["cliente_id"], veiculo_id=origem["veiculo_id"],
                 marcado_por_id=usuario_id, observacao=obs,
             ))
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def desmarcar_contato(self, tipo: str, pendencia_id: int) -> bool:
         existente = (
-            self._session.query(ContatoPendencia)
-            .filter_by(tipo=tipo, pendencia_id=pendencia_id)
+            self._contatos_escopados()
+            .filter(ContatoPendencia.tipo == tipo, ContatoPendencia.pendencia_id == pendencia_id)
             .first()
         )
         if not existente:
             return False
-        self._session.delete(existente)
-        self._session.commit()
+        self._s.delete(existente)
+        self._s.commit()
         return True
 
     def _itens_ipva(self, v: Veiculo) -> list[dict]:
@@ -232,25 +244,35 @@ class PendenciaService:
     # IPVA (à vista e parcela) já tem os métodos equivalentes em IpvaService.
 
     def quitar_licenciamento(self, lid: int) -> tuple[bool, str]:
-        obj = self._session.get(Licenciamento, lid)
+        obj = (
+            self._s.query(Licenciamento)
+            .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
+            .filter(Licenciamento.id == lid, Veiculo.escritorio_id == self.escritorio_id)
+            .first()
+        )
         if not obj:
             return False, "Licenciamento não encontrado."
         if obj.pago:
             return False, "Licenciamento já está quitado."
         obj.pago = True
         obj.data_pagamento = date.today().isoformat()
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     def quitar_multa(self, mid: int) -> tuple[bool, str]:
-        obj = self._session.get(Multa, mid)
+        obj = (
+            self._s.query(Multa)
+            .join(Veiculo, Multa.veiculo_id == Veiculo.id)
+            .filter(Multa.id == mid, Veiculo.escritorio_id == self.escritorio_id)
+            .first()
+        )
         if not obj:
             return False, "Multa não encontrada."
         if obj.pago:
             return False, "Multa já está quitada."
         obj.pago = True
         obj.data_pagamento = date.today().isoformat()
-        self._session.commit()
+        self._s.commit()
         return True, ""
 
     # ── Quitação em lote ─────────────────────────────────────────────────────
@@ -279,7 +301,7 @@ class PendenciaService:
                 else:
                     ok, msg = False, "Tipo de item desconhecido."
             except Exception as exc:  # nunca deixa um item derrubar o lote inteiro
-                self._session.rollback()
+                self._s.rollback()
                 ok, msg = False, str(exc)
 
             if ok:

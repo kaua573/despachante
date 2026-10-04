@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.log_acao import LogAcao
+from app.services.base import TenantService
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,9 @@ HASH_GENESIS = "0" * 64
 _TENTATIVAS_HASH = 8
 
 
-class LogService:
-    def __init__(self, session: Session) -> None:
-        self._s = session
+class LogService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     @staticmethod
     def _calcular_hash(
@@ -85,13 +86,21 @@ class LogService:
 
         criado_em = datetime.now()
 
+        self._exigir_escritorio("registrar")
+
         for tentativa in range(_TENTATIVAS_HASH):
-            ultimo = self._s.query(LogAcao).order_by(LogAcao.id.desc()).first()
+            ultimo = (
+                self._s.query(LogAcao)
+                .filter_by(escritorio_id=self.escritorio_id)
+                .order_by(LogAcao.id.desc())
+                .first()
+            )
             hash_anterior = ultimo.hash_atual if (ultimo and ultimo.hash_atual) else HASH_GENESIS
             hash_atual = self._calcular_hash(
                 hash_anterior, usuario_id, acao, entidade, entidade_id, detalhe_str, criado_em,
             )
             self._s.add(LogAcao(
+                escritorio_id=self.escritorio_id,
                 usuario_id=usuario_id,
                 usuario_nome=usuario_nome,
                 acao=acao,
@@ -119,6 +128,7 @@ class LogService:
         # pra nunca perder o registro da ação em si por causa da corrente.
         logger.warning("Não foi possível encadear o hash do log de ações após %s tentativas (acao=%s)", _TENTATIVAS_HASH, acao)
         self._s.add(LogAcao(
+            escritorio_id=self.escritorio_id,
             usuario_id=usuario_id, usuario_nome=usuario_nome, acao=acao, entidade=entidade,
             entidade_id=entidade_id, detalhe=detalhe_str, ip=ip, criado_em=criado_em,
         ))
@@ -136,11 +146,15 @@ class LogService:
         """
         registros = (
             self._s.query(LogAcao)
-            .filter(LogAcao.hash_atual.isnot(None))
+            .filter(LogAcao.escritorio_id == self.escritorio_id, LogAcao.hash_atual.isnot(None))
             .order_by(LogAcao.id.asc())
             .all()
         )
-        total_sem_hash = self._s.query(LogAcao).filter(LogAcao.hash_atual.is_(None)).count()
+        total_sem_hash = (
+            self._s.query(LogAcao)
+            .filter(LogAcao.escritorio_id == self.escritorio_id, LogAcao.hash_atual.is_(None))
+            .count()
+        )
 
         esperado = HASH_GENESIS
         for r in registros:
@@ -224,7 +238,7 @@ class LogService:
         from app.models.usuario import Usuario
         from datetime import datetime
 
-        q = self._s.query(LogAcao)
+        q = self._s.query(LogAcao).filter(LogAcao.escritorio_id == self.escritorio_id)
         if usuario_id:
             q = q.filter(LogAcao.usuario_id == usuario_id)
         if acao:

@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from flask_login import login_required
 from app import db
 from app.services.auth_service import requer_permissao
@@ -9,11 +9,11 @@ bp = Blueprint("ipva", __name__)
 
 
 def _svc() -> IpvaService:
-    return IpvaService(db.session)
+    return IpvaService(db.session, g.escritorio_id)
 
 
 def _log() -> LogService:
-    return LogService(db.session)
+    return LogService(db.session, g.escritorio_id)
 
 
 @bp.route("/api/ipva/<int:ipva_id>/parcelas", methods=["GET"])

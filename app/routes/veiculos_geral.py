@@ -8,7 +8,7 @@ Rotas da visão geral de veículos (itens 1, 2 e 3 do pedido de set/2026):
 """
 from datetime import date
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, g
 from flask_login import login_required
 
 from app import db
@@ -22,15 +22,15 @@ bp = Blueprint("veiculos_geral", __name__)
 
 
 def _svc() -> VeiculoGeralService:
-    return VeiculoGeralService(db.session)
+    return VeiculoGeralService(db.session, g.escritorio_id)
 
 
 def _svc_regras() -> VencimentoRegraService:
-    return VencimentoRegraService(db.session)
+    return VencimentoRegraService(db.session, g.escritorio_id)
 
 
 def _log() -> LogService:
-    return LogService(db.session)
+    return LogService(db.session, g.escritorio_id)
 
 
 # ── Páginas ──────────────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ def api_especies_resumo():
 @requer_permissao("visualizar_veiculos")
 def api_clientes_opcoes():
     """Lista enxuta (id, nome) para popular filtros — não exige visualizar_clientes."""
-    rows = db.session.query(Cliente.id, Cliente.nome).order_by(Cliente.nome).all()
+    rows = db.session.query(Cliente.id, Cliente.nome).filter_by(escritorio_id=g.escritorio_id).order_by(Cliente.nome).all()
     return jsonify([{"id": r[0], "nome": r[1]} for r in rows])
 
 

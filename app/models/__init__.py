@@ -1,3 +1,4 @@
+from app.models.escritorio import Escritorio
 from app.models.cliente import Cliente
 from app.models.veiculo import Veiculo
 from app.models.ipva import Ipva
@@ -14,6 +15,7 @@ from app.models.regra_vencimento import RegraVencimento
 from app.models.contato_pendencia import ContatoPendencia
 
 __all__ = [
+    "Escritorio",
     "Cliente", "Veiculo", "Ipva", "IpvaParcela",
     "Licenciamento", "Multa", "Documento",
     "Configuracao", "TemplateRelatorio",

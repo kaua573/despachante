@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.configuracao import Configuracao
+from app.services.base import TenantService
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -115,31 +116,31 @@ def resolver_cor(cor: Optional[str]) -> dict:
     }
 
 
-class ConfiguracaoService:
-    def __init__(self, session: Session) -> None:
-        self._session = session
+class ConfiguracaoService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     def get(self, chave: str, padrao: Optional[str] = None) -> Optional[str]:
-        row = self._session.get(Configuracao, chave)
+        row = self._s.get(Configuracao, (self.escritorio_id, chave))
         if row is not None:
             return row.valor
         return DEFAULTS.get(chave, padrao)
 
     def set(self, chave: str, valor: str) -> None:
-        row = self._session.get(Configuracao, chave)
+        row = self._s.get(Configuracao, (self.escritorio_id, chave))
         if row is None:
-            row = Configuracao(chave=chave, valor=str(valor))
-            self._session.add(row)
+            row = Configuracao(escritorio_id=self.escritorio_id, chave=chave, valor=str(valor))
+            self._s.add(row)
         else:
             row.valor = str(valor)
-        self._session.commit()
+        self._s.commit()
 
     def seed_defaults(self) -> None:
         """Insere valores padrão para chaves ainda não existentes no banco."""
         for chave, valor in DEFAULTS.items():
-            if self._session.get(Configuracao, chave) is None:
-                self._session.add(Configuracao(chave=chave, valor=valor))
-        self._session.commit()
+            if self._s.get(Configuracao, (self.escritorio_id, chave)) is None:
+                self._s.add(Configuracao(escritorio_id=self.escritorio_id, chave=chave, valor=valor))
+        self._s.commit()
 
     def senha_ok(self, senha: str) -> bool:
         return senha == self.get("senha_exclusao", "0000")

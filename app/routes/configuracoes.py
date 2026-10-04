@@ -1,5 +1,5 @@
 import os
-from flask import Blueprint, render_template, request, jsonify, current_app, abort
+from flask import Blueprint, render_template, request, jsonify, current_app, abort, g
 from flask_login import login_required, current_user
 from app import db
 from app.services.configuracao_service import (
@@ -12,7 +12,7 @@ bp = Blueprint("configuracoes", __name__)
 
 
 def _cfg() -> ConfiguracaoService:
-    return ConfiguracaoService(db.session)
+    return ConfiguracaoService(db.session, g.escritorio_id)
 
 
 def _somente_admin() -> None:

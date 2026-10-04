@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Super admin — Sistema Despachante</title>
+<style>
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;
+    background:#15171c; color:#e7e8ea;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:24px;
+  }
+  .card {
+    background:#1d2026; border:1px solid #2b2f38; border-radius:14px;
+    padding:36px 32px; width:100%; max-width:360px;
+  }
+  h1 { font-size:17px; font-weight:700; margin-bottom:4px; }
+  p.sub { font-size:12.5px; color:#8b8f99; margin-bottom:22px; }
+  label { display:block; font-size:12.5px; color:#b2b6bf; margin-bottom:6px; }
+  input {
+    width:100%; background:#14161b; border:1px solid #2b2f38; border-radius:8px;
+    padding:11px 12px; color:#e7e8ea; font-size:14px; margin-bottom:16px;
+    font-family:monospace;
+  }
+  input:focus { outline:none; border-color:#5b7cfa; }
+  button {
+    width:100%; background:#3f5bd9; color:#fff; border:none; border-radius:8px;
+    padding:11px; font-size:14px; font-weight:600; cursor:pointer;
+  }
+  button:hover { background:#3651c4; }
+  .erro {
+    background:#3a1f22; border:1px solid #5c2b30; color:#f3a9ae;
+    border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:16px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Super admin</h1>
+  <p class="sub">Área de gerenciamento de escritórios — acesso restrito</p>
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+  <form method="POST">
+    <label for="token">Token de acesso</label>
+    <input type="password" id="token" name="token" autocomplete="off" autofocus required>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort, Response
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort, Response, g
 from flask_login import login_required, current_user
 from datetime import datetime
 
@@ -22,7 +22,7 @@ def _somente_admin():
 @login_required
 def usuarios():
     _somente_admin()
-    lista = db.session.query(Usuario).order_by(Usuario.nome_completo).all()
+    lista = db.session.query(Usuario).filter_by(escritorio_id=g.escritorio_id).order_by(Usuario.nome_completo).all()
     return render_template("admin/usuarios.html", usuarios=lista)
 
 
@@ -45,7 +45,7 @@ def novo_usuario():
         else:
             depois = usuario.to_dict()
             depois["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
-            LogService(db.session).registrar_alteracao("criar_usuario", "usuario", usuario.id, None, depois)
+            LogService(db.session, g.escritorio_id).registrar_alteracao("criar_usuario", "usuario", usuario.id, None, depois)
             flash(f"Usuário '{usuario.nome_completo}' criado com sucesso.")
             return redirect(url_for("admin.usuarios"))
 
@@ -56,7 +56,7 @@ def novo_usuario():
 @login_required
 def editar_usuario(uid):
     _somente_admin()
-    usuario = db.session.get(Usuario, uid)
+    usuario = db.session.query(Usuario).filter_by(id=uid, escritorio_id=g.escritorio_id).first()
     if not usuario:
         abort(404)
 
@@ -78,7 +78,7 @@ def editar_usuario(uid):
             db.session.refresh(usuario)
             depois = usuario.to_dict()
             depois["permissoes"] = sorted(p.permissao for p in usuario.permissoes)
-            LogService(db.session).registrar_alteracao("editar_usuario", "usuario", uid, antes, depois)
+            LogService(db.session, g.escritorio_id).registrar_alteracao("editar_usuario", "usuario", uid, antes, depois)
             flash("Usuário atualizado.")
             return redirect(url_for("admin.usuarios"))
 
@@ -100,7 +100,7 @@ def redefinir_senha(uid):
     ok, msg = AuthService(db.session).definir_senha_temporaria(uid, senha_temp)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 400
-    LogService(db.session).registrar("redefinir_senha", "usuario", uid)
+    LogService(db.session, g.escritorio_id).registrar("redefinir_senha", "usuario", uid)
     return jsonify({"ok": True})
 
 
@@ -111,7 +111,7 @@ def toggle_ativo(uid):
     ok, msg = AuthService(db.session).toggle_ativo(uid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 400
-    LogService(db.session).registrar("toggle_ativo_usuario", "usuario", uid)
+    LogService(db.session, g.escritorio_id).registrar("toggle_ativo_usuario", "usuario", uid)
     return jsonify({"ok": True})
 
 
@@ -130,7 +130,7 @@ def log_acoes():
     data_inicio = request.args.get("data_inicio", "").strip() or None
     data_fim    = request.args.get("data_fim", "").strip() or None
 
-    resultado = LogService(db.session).listar(
+    resultado = LogService(db.session, g.escritorio_id).listar(
         usuario_id=int(usuario_id) if usuario_id else None,
         acao=acao,
         entidade=entidade,
@@ -138,7 +138,7 @@ def log_acoes():
         data_fim=data_fim,
         pagina=pagina,
     )
-    usuarios = db.session.query(Usuario).order_by(Usuario.nome_completo).all()
+    usuarios = db.session.query(Usuario).filter_by(escritorio_id=g.escritorio_id).order_by(Usuario.nome_completo).all()
     entidades = [
         r[0] for r in
         db.session.query(LogAcao.entidade).filter(LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
@@ -154,8 +154,8 @@ def log_verificar_integridade():
     """Confere a corrente de hashes do log de ações — ver
     LogService.verificar_integridade() para a explicação completa."""
     _somente_admin()
-    resultado = LogService(db.session).verificar_integridade()
-    LogService(db.session).registrar("verificar_integridade_log", detalhe={"integro": resultado["integro"]})
+    resultado = LogService(db.session, g.escritorio_id).verificar_integridade()
+    LogService(db.session, g.escritorio_id).registrar("verificar_integridade_log", detalhe={"integro": resultado["integro"]})
     return jsonify(resultado)
 
 
@@ -174,7 +174,7 @@ def log_exportar():
     data_inicio = request.args.get("data_inicio", "").strip() or None
     data_fim    = request.args.get("data_fim", "").strip() or None
 
-    resultado = LogService(db.session).listar(
+    resultado = LogService(db.session, g.escritorio_id).listar(
         usuario_id=int(usuario_id) if usuario_id else None,
         acao=acao, entidade=entidade, data_inicio=data_inicio, data_fim=data_fim,
         pagina=1, por_pagina=100000,
@@ -194,7 +194,7 @@ def log_exportar():
             r.ip or "",
         ])
 
-    LogService(db.session).registrar("exportar_log", detalhe={"quantidade": len(resultado["registros"])})
+    LogService(db.session, g.escritorio_id).registrar("exportar_log", detalhe={"quantidade": len(resultado["registros"])})
 
     nome_arquivo = f"log_acoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     return Response(

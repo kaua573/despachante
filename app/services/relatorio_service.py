@@ -22,6 +22,7 @@ from app.models.licenciamento import Licenciamento
 from app.models.multa import Multa
 from app.models.template_relatorio import TemplateRelatorio
 from app.models.veiculo import Veiculo
+from app.services.base import TenantService
 
 
 # ── Definição de campos disponíveis por domínio ───────────────────────────
@@ -106,39 +107,39 @@ def tipos_label(tipos: list[str]) -> str:
     return " + ".join(TIPO_LABEL.get(t, t) for t in tipos) or "Relatório"
 
 
-class RelatorioService:
-    def __init__(self, session: Session) -> None:
-        self._session = session
+class RelatorioService(TenantService):
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     # ── Templates salvos ────────────────────────────────────────────────────
 
     def listar_templates(self) -> list[TemplateRelatorio]:
-        return self._session.query(TemplateRelatorio).order_by(TemplateRelatorio.nome).all()
+        return self.scoped(TemplateRelatorio).order_by(TemplateRelatorio.nome).all()
 
     def obter_template(self, template_id: int) -> Optional[TemplateRelatorio]:
-        return self._session.get(TemplateRelatorio, template_id)
+        return self.scoped(TemplateRelatorio).filter_by(id=template_id).first()
 
     def salvar_template(self, nome: str, config: dict, template_id: Optional[int] = None) -> TemplateRelatorio:
         config_json = json.dumps(config, ensure_ascii=False)
         if template_id:
-            t = self._session.get(TemplateRelatorio, template_id)
+            t = self.obter_template(template_id)
             if t:
                 t.nome = nome
                 t.config_json = config_json
                 t.atualizado_em = datetime.now()
-                self._session.commit()
+                self._s.commit()
                 return t
-        t = TemplateRelatorio(nome=nome, config_json=config_json)
-        self._session.add(t)
-        self._session.commit()
+        t = TemplateRelatorio(escritorio_id=self.escritorio_id, nome=nome, config_json=config_json)
+        self._s.add(t)
+        self._s.commit()
         return t
 
     def excluir_template(self, template_id: int) -> tuple[bool, str]:
-        t = self._session.get(TemplateRelatorio, template_id)
+        t = self.obter_template(template_id)
         if not t:
             return False, "Template não encontrado."
-        self._session.delete(t)
-        self._session.commit()
+        self._s.delete(t)
+        self._s.commit()
         return True, ""
 
     # ── Busca de dados ──────────────────────────────────────────────────────
@@ -192,9 +193,10 @@ class RelatorioService:
 
     def _buscar_ipva(self, filtros: dict, ordenar_por: str, direcao: str) -> list[dict]:
         q = (
-            self._session.query(Ipva, Veiculo, Cliente)
+            self._s.query(Ipva, Veiculo, Cliente)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+            .filter(Veiculo.escritorio_id == self.escritorio_id)
         )
         q = self._aplicar_filtros_comuns(q, Ipva, filtros)
         q = self._aplicar_ordenacao(q, Ipva, Veiculo, Cliente, ordenar_por, direcao)
@@ -202,9 +204,10 @@ class RelatorioService:
 
     def _buscar_licenciamento(self, filtros: dict, ordenar_por: str, direcao: str) -> list[dict]:
         q = (
-            self._session.query(Licenciamento, Veiculo, Cliente)
+            self._s.query(Licenciamento, Veiculo, Cliente)
             .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+            .filter(Veiculo.escritorio_id == self.escritorio_id)
         )
         q = self._aplicar_filtros_comuns(q, Licenciamento, filtros)
         q = self._aplicar_ordenacao(q, Licenciamento, Veiculo, Cliente, ordenar_por, direcao)
@@ -212,9 +215,10 @@ class RelatorioService:
 
     def _buscar_multas(self, filtros: dict, ordenar_por: str, direcao: str) -> list[dict]:
         q = (
-            self._session.query(Multa, Veiculo, Cliente)
+            self._s.query(Multa, Veiculo, Cliente)
             .join(Veiculo, Multa.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+            .filter(Veiculo.escritorio_id == self.escritorio_id)
         )
         q = self._aplicar_filtros_multas(q, filtros)
         q = self._aplicar_ordenacao(q, Multa, Veiculo, Cliente, ordenar_por, direcao)

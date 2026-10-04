@@ -49,6 +49,8 @@ def create_app(config_name: str = "default") -> Flask:
         from app.models.usuario import Usuario
         return db.session.get(Usuario, int(user_id))
 
+    _registrar_escopo_tenant(app)
+
     _registrar_helpers_jinja(app)
     _registrar_blueprints(app)
     _registrar_handlers_erro(app)
@@ -102,9 +104,23 @@ def _registrar_helpers_jinja(app: Flask) -> None:
 
     @app.context_processor
     def inject_tema():
+        from flask import g
         from app.services.configuracao_service import ConfiguracaoService
+        from app.services.base import escritorio_padrao_id
+        from flask_login import current_user
         try:
-            cfg = ConfiguracaoService(db.session)
+            # Ordem de resolução: usuário logado > escritório já resolvido
+            # nesta request pela rota de login por slug (g.escritorio_id
+            # setado em auth.py antes de chamar render_template) > fallback
+            # pro escritório "principal" (páginas sem usuário e sem slug,
+            # como o seletor de escritório em /login).
+            if current_user.is_authenticated:
+                eid = current_user.escritorio_id
+            elif getattr(g, "escritorio_id", None) is not None:
+                eid = g.escritorio_id
+            else:
+                eid = escritorio_padrao_id(db.session)
+            cfg = ConfiguracaoService(db.session, eid)
             modo = cfg.get("tema_modo", "claro")
             cor_chave = cfg.get("tema_cor", "azul")
             esc_nome = cfg.get("escritorio_nome", "")
@@ -182,6 +198,111 @@ def aplicar_migracoes_leves(app: Flask) -> None:
                         "CREATE UNIQUE INDEX IF NOT EXISTS uq_log_acao_hash_atual ON log_acao (hash_atual)"
                     ))
 
+        _aplicar_migracao_multi_tenant(app, inspector)
+
+
+def _aplicar_migracao_multi_tenant(app: Flask, inspector) -> None:
+    """
+    Introduz o suporte a múltiplos escritórios (tenants) em uma instalação
+    que já existia como single-tenant.
+
+    Estratégia: `db.create_all()` (chamado antes desta função) já criou a
+    tabela `escritorios` nova, porque ela não existia. O que falta é: (1)
+    garantir que existe um registro nela representando o escritório atual —
+    quem já usava o sistema antes dessa mudança — e (2) adicionar a coluna
+    `escritorio_id` em cada tabela que passou a exigi-la, preenchendo com o
+    id desse escritório "herdado" nas linhas que já existiam.
+
+    Sem isso, `escritorio_id NOT NULL` nos models quebraria toda leitura
+    das linhas antigas, que não têm valor nenhum nessa coluna.
+
+    Deliberadamente NÃO mexe ainda nas constraints únicas antigas (cpf/cnpj
+    globais, nome_usuario global, hash do log global) — isso exige
+    reconstruir a tabela inteira no SQLite (não dá pra fazer com ALTER
+    TABLE simples) e não é bloqueante enquanto só um escritório estiver
+    ativo. Ver observação de acompanhamento nesta função quando isso for
+    implementado.
+    """
+    from sqlalchemy import text
+
+    if "escritorios" not in inspector.get_table_names():
+        return  # db.create_all() deveria ter criado — nada a fazer aqui
+
+    with db.engine.begin() as conn:
+        existe_algum = conn.execute(text("SELECT COUNT(*) FROM escritorios")).scalar()
+        if existe_algum:
+            escritorio_id = conn.execute(
+                text("SELECT id FROM escritorios ORDER BY id LIMIT 1")
+            ).scalar()
+        else:
+            # Instalação que já tinha dados antes do multi-tenant existir:
+            # cria o escritório "herdado" que vai ser dono de tudo que já
+            # existe. O nome/slug reais podem ser ajustados depois em
+            # Configurações — o que importa aqui é o id existir.
+            if db.engine.dialect.name == "postgresql":
+                escritorio_id = conn.execute(text(
+                    "INSERT INTO escritorios (slug, nome, ativo) "
+                    "VALUES ('principal', 'Escritório principal', true) "
+                    "RETURNING id"
+                )).scalar()
+            else:
+                conn.execute(text(
+                    "INSERT INTO escritorios (slug, nome, ativo) "
+                    "VALUES ('principal', 'Escritório principal', 1)"
+                ))
+                escritorio_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
+
+    tabelas_para_migrar = {
+        "usuarios": "INTEGER",
+        "clientes": "INTEGER",
+        "veiculos": "INTEGER",
+        "regra_vencimento": "INTEGER",
+        "templates_relatorio": "INTEGER",
+        "log_acao": "INTEGER",
+    }
+
+    for tabela, tipo_coluna in tabelas_para_migrar.items():
+        if tabela not in inspector.get_table_names():
+            continue
+        colunas = {c["name"] for c in inspector.get_columns(tabela)}
+        if "escritorio_id" in colunas:
+            continue
+        with db.engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN escritorio_id {tipo_coluna}"))
+            conn.execute(
+                text(f"UPDATE {tabela} SET escritorio_id = :eid WHERE escritorio_id IS NULL"),
+                {"eid": escritorio_id},
+            )
+        app.logger.info(f"[multi-tenant] escritorio_id adicionado e preenchido em '{tabela}'")
+
+    # `configuracoes` é especial: a chave primária deixa de ser só `chave` e
+    # passa a ser composta (escritorio_id, chave). Mudar a PK de uma tabela
+    # existente não dá pra fazer com ALTER TABLE ADD COLUMN simples em
+    # nenhum dos dois bancos — mas como o volume de linhas é pequeno
+    # (algumas dezenas de chaves de config), reconstruir a tabela aqui é
+    # seguro e rápido.
+    if "configuracoes" in inspector.get_table_names():
+        colunas_config = {c["name"] for c in inspector.get_columns("configuracoes")}
+        if "escritorio_id" not in colunas_config:
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    "CREATE TABLE configuracoes_novo ("
+                    "escritorio_id INTEGER NOT NULL, "
+                    "chave VARCHAR(100) NOT NULL, "
+                    "valor TEXT, "
+                    "PRIMARY KEY (escritorio_id, chave))"
+                ))
+                conn.execute(
+                    text(
+                        "INSERT INTO configuracoes_novo (escritorio_id, chave, valor) "
+                        "SELECT :eid, chave, valor FROM configuracoes"
+                    ),
+                    {"eid": escritorio_id},
+                )
+                conn.execute(text("DROP TABLE configuracoes"))
+                conn.execute(text("ALTER TABLE configuracoes_novo RENAME TO configuracoes"))
+            app.logger.info("[multi-tenant] tabela 'configuracoes' migrada para chave composta")
+
 
 def _registrar_blueprints(app: Flask) -> None:
     from app.routes.main import bp as main_bp
@@ -195,9 +316,11 @@ def _registrar_blueprints(app: Flask) -> None:
     from app.routes.pendencias import bp as pendencias_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.admin import bp as admin_bp
+    from app.routes.super_admin import bp as super_admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(super_admin_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(clientes_bp)
     app.register_blueprint(veiculos_bp)
@@ -214,13 +337,34 @@ def _registrar_favicon(app: Flask) -> None:
     def favicon():
         from flask import redirect, Response
         from app.services.configuracao_service import ConfiguracaoService
+        from app.services.base import escritorio_padrao_id
         try:
-            logo = ConfiguracaoService(db.session).get("escritorio_logo", "")
+            logo = ConfiguracaoService(db.session, escritorio_padrao_id(db.session)).get("escritorio_logo", "")
         except Exception:
             logo = ""
         if not logo:
             return Response(status=204)
         return redirect(f"/static/uploads/logo/{logo}", code=302)
+
+
+def _registrar_escopo_tenant(app: Flask) -> None:
+    """
+    Fixa `g.escritorio_id` uma vez por request, a partir do usuário logado.
+    Todo service que lida com dado de escritório usa esse valor — nenhuma
+    rota resolve "de qual escritório é isso" por conta própria, evitando
+    que cada uma decida (ou esqueça de decidir) isso do seu próprio jeito.
+
+    Fica `None` em rotas sem usuário logado (ex.: a própria tela de login) —
+    por ora essas rotas não tocam dado de escritório nenhum, então não tem
+    problema. Se isso mudar, o valor `None` já faz `TenantService.scoped()`
+    estourar erro na hora, em vez de vazar dado silenciosamente.
+    """
+    from flask import g
+    from flask_login import current_user
+
+    @app.before_request
+    def _definir_escritorio_atual():
+        g.escritorio_id = current_user.escritorio_id if current_user.is_authenticated else None
 
 
 def _registrar_handlers_erro(app: Flask) -> None:
@@ -246,7 +390,12 @@ def _iniciar_backup_automatico(app: Flask) -> None:
         while True:
             with app.app_context():
                 try:
-                    minutos = int(ConfiguracaoService(db.session).get("backup_intervalo_min", "30"))
+                    from app.services.base import escritorio_padrao_id
+                    # O backup é do banco inteiro (todos os escritórios), então
+                    # o intervalo configurado não é por tenant de verdade — lê
+                    # do escritório "principal" como configuração efetivamente
+                    # global do sistema.
+                    minutos = int(ConfiguracaoService(db.session, escritorio_padrao_id(db.session)).get("backup_intervalo_min", "30"))
                 except Exception:
                     minutos = 30
 

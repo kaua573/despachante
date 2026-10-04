@@ -10,48 +10,51 @@ from app.models.licenciamento import Licenciamento
 from app.models.multa import Multa
 from app.models.veiculo import Veiculo
 from app.models.cliente import Cliente
+from app.services.base import TenantService
 
 
-class DashboardService:
+class DashboardService(TenantService):
     JANELA_DIAS = 30  # exibe vencimentos nos próximos X dias
 
-    def __init__(self, session: Session) -> None:
-        self._session = session
+    def __init__(self, session: Session, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
 
     def resumo(self) -> dict:
         hoje = date.today().isoformat()
         limite = (date.today() + timedelta(days=self.JANELA_DIAS)).isoformat()
 
-        total_clientes = self._session.query(Cliente).count()
-        total_veiculos = self._session.query(Veiculo).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS)).count()
+        total_clientes = self.scoped(Cliente).count()
+        total_veiculos = self.scoped(Veiculo).filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS)).count()
         ipva_vencidos = (
-            self._session.query(Ipva)
+            self._s.query(Ipva)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
             .filter(
+                Veiculo.escritorio_id == self.escritorio_id,
                 Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
                 Ipva.tipo_pagamento == "avista",
                 Ipva.pago == False, Ipva.vencimento != None, Ipva.vencimento < hoje,
             )
             .count()
-            + self._session.query(IpvaParcela)
+            + self._s.query(IpvaParcela)
             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento < hoje)
             .count()
         )
         lic_vencidos = (
-            self._session.query(Licenciamento)
+            self._s.query(Licenciamento)
             .join(Veiculo, Licenciamento.veiculo_id == Veiculo.id)
             .filter(
+                Veiculo.escritorio_id == self.escritorio_id,
                 Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
                 Licenciamento.pago == False, Licenciamento.vencimento != None, Licenciamento.vencimento < hoje,
             )
             .count()
         )
         multas_pendentes = (
-            self._session.query(Multa)
+            self._s.query(Multa)
             .join(Veiculo, Multa.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
             .count()
         )
 
@@ -80,7 +83,7 @@ class DashboardService:
         from app.services.veiculo_geral_service import VeiculoGeralService
 
         ano = date.today().year
-        geral = VeiculoGeralService(self._session)
+        geral = VeiculoGeralService(self._s, self.escritorio_id)
         por_especie = geral.resumo_por_especie()
         sem_licenciamento = geral.sem_licenciamento_ano(ano)
 
@@ -88,31 +91,31 @@ class DashboardService:
         from sqlalchemy import func
 
         contagem_ipva = (
-            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Ipva.id).label("qtd"))
+            self._s.query(Veiculo.cliente_id.label("cid"), func.count(Ipva.id).label("qtd"))
             .join(Ipva, Ipva.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Ipva.tipo_pagamento == "avista", Ipva.pago == False)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Ipva.tipo_pagamento == "avista", Ipva.pago == False)
             .group_by(Veiculo.cliente_id)
             .subquery()
         )
         contagem_lic = (
-            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Licenciamento.id).label("qtd"))
+            self._s.query(Veiculo.cliente_id.label("cid"), func.count(Licenciamento.id).label("qtd"))
             .join(Licenciamento, Licenciamento.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Licenciamento.pago == False)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Licenciamento.pago == False)
             .group_by(Veiculo.cliente_id)
             .subquery()
         )
         contagem_multa = (
-            self._session.query(Veiculo.cliente_id.label("cid"), func.count(Multa.id).label("qtd"))
+            self._s.query(Veiculo.cliente_id.label("cid"), func.count(Multa.id).label("qtd"))
             .join(Multa, Multa.veiculo_id == Veiculo.id)
-            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), Multa.pago == False)
             .group_by(Veiculo.cliente_id)
             .subquery()
         )
 
-        clientes = self._session.query(Cliente.id, Cliente.nome).all()
-        mapa_ipva = dict(self._session.query(contagem_ipva.c.cid, contagem_ipva.c.qtd).all())
-        mapa_lic = dict(self._session.query(contagem_lic.c.cid, contagem_lic.c.qtd).all())
-        mapa_multa = dict(self._session.query(contagem_multa.c.cid, contagem_multa.c.qtd).all())
+        clientes = self.scoped(Cliente).with_entities(Cliente.id, Cliente.nome).all()
+        mapa_ipva = dict(self._s.query(contagem_ipva.c.cid, contagem_ipva.c.qtd).all())
+        mapa_lic = dict(self._s.query(contagem_lic.c.cid, contagem_lic.c.qtd).all())
+        mapa_multa = dict(self._s.query(contagem_multa.c.cid, contagem_multa.c.qtd).all())
 
         ranking = []
         for cid, nome in clientes:
@@ -136,10 +139,11 @@ class DashboardService:
         vencimento, embora seu histórico continue disponível na tela dele.
         """
         rows = (
-            self._session.query(modelo, Veiculo, Cliente)
+            self._s.query(modelo, Veiculo, Cliente)
             .join(Veiculo, modelo.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
             .filter(
+                Veiculo.escritorio_id == self.escritorio_id,
                 Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS),
                 modelo.pago == False,
                 modelo.vencimento != None,
@@ -165,11 +169,11 @@ class DashboardService:
         Ipva pai fica nulo quando parcelado, então elas precisam de busca própria).
         Mesma regra: só veículo com situacao='ativo' gera notificação."""
         rows = (
-            self._session.query(IpvaParcela, Ipva, Veiculo, Cliente)
+            self._s.query(IpvaParcela, Ipva, Veiculo, Cliente)
             .join(Ipva, IpvaParcela.ipva_id == Ipva.id)
             .join(Veiculo, Ipva.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
-            .filter(Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
+            .filter(Veiculo.escritorio_id == self.escritorio_id, Veiculo.situacao.in_(Veiculo.SITUACOES_ATIVAS), IpvaParcela.status != "pago", IpvaParcela.vencimento <= limite)
             .order_by(IpvaParcela.vencimento.asc())
             .all()
         )

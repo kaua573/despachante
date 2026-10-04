@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, send_file, current_app
+from flask import Blueprint, render_template, request, jsonify, send_file, current_app, g
 from flask_login import login_required
 from app import db
 from app.services.auth_service import requer_permissao
@@ -13,11 +13,11 @@ bp = Blueprint("clientes", __name__)
 
 
 def _svc() -> ClienteService:
-    return ClienteService(db.session, current_app.config["UPLOAD_DIR"])
+    return ClienteService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
 
 
 def _log() -> LogService:
-    return LogService(db.session)
+    return LogService(db.session, g.escritorio_id)
 
 
 # ── Páginas ──────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ def api_deletar_documento(did):
 @requer_permissao("gerar_relatorios")
 def relatorio_cliente_pdf(cid):
     incluir = request.args.getlist("incluir")
-    svc = PdfClienteService(db.session, current_app.config["LOGO_DIR"])
+    svc = PdfClienteService(db.session, current_app.config["LOGO_DIR"], g.escritorio_id)
     pdf_bytes, resultado = svc.gerar(cid, incluir)
     if pdf_bytes is None:
         return resultado, 404
@@ -170,7 +170,7 @@ def relatorio_cliente_pdf(cid):
 def exportar_clientes():
     from app.services.importacao_service import ImportacaoService
     import io
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     conteudo = svc.exportar()
     _log().registrar("exportar_clientes")
     return send_file(
@@ -187,7 +187,7 @@ def exportar_clientes():
 def modelo_importacao_clientes():
     from app.services.importacao_service import ImportacaoService
     import io
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     conteudo = svc.gerar_modelo()
     return send_file(
         io.BytesIO(conteudo),
@@ -210,7 +210,7 @@ def pre_importar_clientes():
     if not arquivo.filename.lower().endswith(".xlsx"):
         return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
 
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     preview = svc.pre_visualizar(arquivo.read())
     return jsonify({"ok": True, **preview})
 
@@ -228,7 +228,7 @@ def importar_clientes():
     if not arquivo.filename.lower().endswith(".xlsx"):
         return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
 
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     resultado = svc.importar(arquivo.read())
     _log().registrar("importar_clientes", detalhe={
         "clientes_criados": resultado["clientes_criados"],

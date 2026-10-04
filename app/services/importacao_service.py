@@ -32,6 +32,7 @@ from app.models.cliente import Cliente
 from app.models.veiculo import Veiculo
 from app.services.cliente_service import ClienteService
 from app.services.veiculo_service import VeiculoService
+from app.services.base import TenantService
 from app.services.validacao_service import (
     validar_campos_cliente, validar_campos_veiculo,
     normalizar_cpf, normalizar_cnpj, normalizar_telefone,
@@ -53,11 +54,11 @@ ESPECIES_VALIDAS = {"passeio", "carga", "reboque"}
 COR_CABECALHO = "1A4F8A"
 
 
-class ImportacaoService:
-    def __init__(self, session: Session, upload_dir: str = "") -> None:
-        self._session = session
-        self._cliente_svc = ClienteService(session, upload_dir)
-        self._veiculo_svc = VeiculoService(session)
+class ImportacaoService(TenantService):
+    def __init__(self, session: Session, upload_dir: str, escritorio_id: int) -> None:
+        super().__init__(session, escritorio_id)
+        self._cliente_svc = ClienteService(session, upload_dir, escritorio_id)
+        self._veiculo_svc = VeiculoService(session, escritorio_id)
 
     # ── Exportação — todos os clientes ──────────────────────────────────────
 
@@ -70,7 +71,7 @@ class ImportacaoService:
         ws_clientes.title = "Clientes"
         self._escrever_cabecalho(ws_clientes, COLUNAS_CLIENTES, fill_header, font_header)
 
-        clientes = self._session.query(Cliente).order_by(Cliente.nome).all()
+        clientes = self.scoped(Cliente).order_by(Cliente.nome).all()
         for row_idx, c in enumerate(clientes, start=2):
             ws_clientes.cell(row=row_idx, column=1, value=c.nome)
             ws_clientes.cell(row=row_idx, column=2, value=c.tipo_pessoa or "PF")
@@ -184,7 +185,7 @@ class ImportacaoService:
 
             documento = dados["cpf"] if dados["tipo_pessoa"] == "PF" else dados["cnpj"]
             campo = Cliente.cpf if dados["tipo_pessoa"] == "PF" else Cliente.cnpj
-            existente = self._session.query(Cliente).filter(campo == documento).first()
+            existente = self.scoped(Cliente).filter(campo == documento).first()
             acao = "atualizar" if existente else "criar"
             documentos_no_arquivo.add(documento)
             rotulo_doc = "CNPJ" if dados["tipo_pessoa"] == "PJ" else "CPF"
@@ -232,7 +233,7 @@ class ImportacaoService:
         self._escrever_cabecalho(ws, COLUNAS_VEICULOS_CLIENTE, fill_header, font_header)
 
         veiculos = (
-            self._session.query(Veiculo)
+            self.scoped(Veiculo)
             .filter_by(cliente_id=cliente_id)
             .order_by(Veiculo.placa)
             .all()
@@ -368,7 +369,7 @@ class ImportacaoService:
         if not documento_normalizado:
             return None
         return (
-            self._session.query(Cliente)
+            self.scoped(Cliente)
             .filter((Cliente.cpf == documento_normalizado) | (Cliente.cnpj == documento_normalizado))
             .first()
         )
@@ -401,7 +402,7 @@ class ImportacaoService:
 
             documento = dados["cpf"] if dados["tipo_pessoa"] == "PF" else dados["cnpj"]
             campo = Cliente.cpf if dados["tipo_pessoa"] == "PF" else Cliente.cnpj
-            existente = self._session.query(Cliente).filter(campo == documento).first()
+            existente = self.scoped(Cliente).filter(campo == documento).first()
             if existente:
                 ok, erro = self._cliente_svc.atualizar(existente.id, dados)
                 if not ok:
@@ -495,7 +496,7 @@ class ImportacaoService:
         existente = None
         if cliente_id:
             existente = (
-                self._session.query(Veiculo)
+                self.scoped(Veiculo)
                 .filter(Veiculo.cliente_id == cliente_id, Veiculo.placa == placa_normalizada)
                 .first()
             )
@@ -520,7 +521,7 @@ class ImportacaoService:
         dados["cliente_id"] = cliente_id
 
         existente = (
-            self._session.query(Veiculo)
+            self.scoped(Veiculo)
             .filter(Veiculo.cliente_id == cliente_id, Veiculo.placa == dados["placa"].upper())
             .first()
         )

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, send_file, current_app
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, send_file, current_app, g
 from flask_login import login_required
 from app import db
 from app.models.cliente import Cliente
@@ -12,11 +12,11 @@ bp = Blueprint("veiculos", __name__)
 
 
 def _svc() -> VeiculoService:
-    return VeiculoService(db.session)
+    return VeiculoService(db.session, g.escritorio_id)
 
 
 def _log() -> LogService:
-    return LogService(db.session)
+    return LogService(db.session, g.escritorio_id)
 
 
 # ── Páginas ──────────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ def api_deletar_licenciamento(lid):
 @requer_permissao("gerenciar_licenciamento")
 def api_quitar_licenciamento(lid):
     from app.services.pendencia_service import PendenciaService
-    ok, msg = PendenciaService(db.session).quitar_licenciamento(lid)
+    ok, msg = PendenciaService(db.session, g.escritorio_id).quitar_licenciamento(lid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 400
     _log().registrar("quitar_licenciamento", "licenciamento", lid)
@@ -267,7 +267,7 @@ def api_deletar_multa(mid):
 @requer_permissao("gerenciar_multas")
 def api_quitar_multa(mid):
     from app.services.pendencia_service import PendenciaService
-    ok, msg = PendenciaService(db.session).quitar_multa(mid)
+    ok, msg = PendenciaService(db.session, g.escritorio_id).quitar_multa(mid)
     if not ok:
         return jsonify({"ok": False, "erro": msg}), 400
     _log().registrar("quitar_multa", "multa", mid)
@@ -282,7 +282,7 @@ def api_quitar_multa(mid):
 def exportar_veiculos_cliente(cid):
     from app.services.importacao_service import ImportacaoService
     import io as io_
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     conteudo = svc.exportar_veiculos_cliente(cid)
     _log().registrar("exportar_veiculos_cliente", "cliente", cid)
     return send_file(
@@ -299,7 +299,7 @@ def exportar_veiculos_cliente(cid):
 def modelo_importacao_veiculos_cliente(cid):
     from app.services.importacao_service import ImportacaoService
     import io as io_
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     conteudo = svc.gerar_modelo_veiculos_cliente()
     return send_file(
         io_.BytesIO(conteudo),
@@ -322,7 +322,7 @@ def pre_importar_veiculos_cliente(cid):
     if not arquivo.filename.lower().endswith(".xlsx"):
         return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
 
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     preview = svc.pre_visualizar_veiculos_cliente(cid, arquivo.read())
     return jsonify({"ok": True, **preview})
 
@@ -340,7 +340,7 @@ def importar_veiculos_cliente(cid):
     if not arquivo.filename.lower().endswith(".xlsx"):
         return jsonify({"ok": False, "erro": "Envie um arquivo .xlsx (use o modelo disponível para download)."}), 400
 
-    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"])
+    svc = ImportacaoService(db.session, current_app.config["UPLOAD_DIR"], g.escritorio_id)
     resultado = svc.importar_veiculos_cliente(cid, arquivo.read())
     _log().registrar("importar_veiculos_cliente", "cliente", cid, {
         "veiculos_criados": resultado["veiculos_criados"],
