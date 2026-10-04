@@ -83,6 +83,12 @@ class Config:
     # em instalações locais (.exe) de um escritório cliente. Sem essa env
     # var definida, a tela inteira responde 404 — nem revela que existe.
     SUPER_ADMIN_TOKEN = os.environ.get("SUPER_ADMIN_TOKEN")
+    # Segundo segredo, exigido SÓ para excluir um escritório em definitivo
+    # (apaga todos os dados dele, sem volta). Diferente do token de acesso à
+    # tela de propósito: quem está com a sessão aberta não consegue apagar
+    # nada sem digitar este também. Sem essa env var, a exclusão fica
+    # desativada (a tela de escritórios continua funcionando normalmente).
+    SUPER_ADMIN_DELETE_TOKEN = os.environ.get("SUPER_ADMIN_DELETE_TOKEN")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "documentos")
     LOGO_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "logo")

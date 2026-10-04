@@ -5,6 +5,7 @@ propósito, já que criar um escritório é uma ação de quem é DONO do sistem
 e config.py:SUPER_ADMIN_TOKEN pro raciocínio completo.
 """
 import functools
+import hmac
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, abort, current_app, flash
 
@@ -18,6 +19,10 @@ _SESSION_KEY = "super_admin_ok"
 
 def _token_configurado() -> str | None:
     return current_app.config.get("SUPER_ADMIN_TOKEN")
+
+
+def _token_exclusao_configurado() -> str | None:
+    return current_app.config.get("SUPER_ADMIN_DELETE_TOKEN")
 
 
 def requer_super_admin(view):
@@ -95,6 +100,7 @@ def escritorios():
         escritorios=svc.listar(),
         erro=erro,
         credenciais_criadas=credenciais_criadas,
+        exclusao_habilitada=bool(_token_exclusao_configurado()),
     )
 
 
@@ -103,5 +109,65 @@ def escritorios():
 def toggle_ativo(escritorio_id):
     ok, msg = EscritorioService(db.session).toggle_ativo(escritorio_id)
     if not ok:
+        flash(msg)
+    return redirect(url_for("super_admin.escritorios"))
+
+
+@bp.route("/escritorios/<int:escritorio_id>/editar", methods=["POST"])
+@requer_super_admin
+def editar(escritorio_id):
+    ok, msg = EscritorioService(db.session).editar(
+        escritorio_id,
+        request.form.get("nome", ""),
+        request.form.get("slug", ""),
+    )
+    flash("Escritório atualizado." if ok else msg)
+    return redirect(url_for("super_admin.escritorios"))
+
+
+@bp.route("/escritorios/<int:escritorio_id>/excluir", methods=["POST"])
+@requer_super_admin
+def excluir(escritorio_id):
+    """
+    Exclusão DEFINITIVA. Exige, além da sessão de super admin: (1) o segundo
+    token (SUPER_ADMIN_DELETE_TOKEN) e (2) digitar o identificador do
+    escritório, pra não apagar a linha errada por engano.
+    """
+    token_ok = _token_exclusao_configurado()
+    if not token_ok:
+        flash("Exclusão desativada: defina SUPER_ADMIN_DELETE_TOKEN no servidor.")
+        return redirect(url_for("super_admin.escritorios"))
+
+    svc = EscritorioService(db.session)
+    escritorio = svc.obter(escritorio_id)
+    if not escritorio:
+        flash("Escritório não encontrado.")
+        return redirect(url_for("super_admin.escritorios"))
+
+    token_informado = request.form.get("token_exclusao", "")
+    if not token_informado or not hmac.compare_digest(
+        token_informado.encode("utf-8"), token_ok.encode("utf-8")
+    ):
+        flash("Token de exclusão inválido. Nada foi apagado.")
+        return redirect(url_for("super_admin.escritorios"))
+
+    if request.form.get("confirmar_slug", "").strip() != escritorio.slug:
+        flash("O identificador digitado não confere. Nada foi apagado.")
+        return redirect(url_for("super_admin.escritorios"))
+
+    nome = escritorio.nome
+    ok, msg, contagens = svc.excluir_definitivamente(
+        escritorio_id,
+        upload_dir=current_app.config["UPLOAD_DIR"],
+        logo_dir=current_app.config["LOGO_DIR"],
+    )
+    if ok:
+        flash(
+            f"Escritório '{nome}' excluído em definitivo "
+            f"({contagens.get('clientes', 0)} clientes, "
+            f"{contagens.get('veiculos', 0)} veículos, "
+            f"{contagens.get('usuarios', 0)} usuários)."
+        )
+    else:
         flash(msg)
     return redirect(url_for("super_admin.escritorios"))

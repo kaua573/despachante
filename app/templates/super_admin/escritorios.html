@@ -66,6 +66,19 @@
   }
   .btn-toggle:hover { border-color:#5b7cfa; color:#e7e8ea; }
   .vazio { color:#8b8f99; font-size:13px; padding:10px 0; }
+  .acoes { display:flex; gap:6px; justify-content:flex-end; }
+  .acoes form { display:inline; }
+  .btn-perigo { border-color:#5c2b30; color:#f3a9ae; }
+  .btn-perigo:hover { border-color:#e5484d; color:#fff; background:#5c2b30; }
+  tr.painel > td { background:#14161b; padding:16px; border-bottom:1px solid #2b2f38; }
+  tr.painel[hidden] { display:none; }
+  .painel h3 { font-size:13px; margin-bottom:12px; }
+  .painel .linha { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .painel .linha > div { flex:1; min-width:170px; }
+  .painel .aviso { font-size:12px; color:#f3d9a9; margin-bottom:12px; line-height:1.5; }
+  .painel.perigo { border-left:3px solid #e5484d; }
+  button.vermelho { background:#c93c41; }
+  button.vermelho:hover { background:#a8302f; }
 </style>
 </head>
 <body>
@@ -115,7 +128,7 @@
     <h2>Todos os escritórios</h2>
     {% if escritorios %}
       <table>
-        <thead><tr><th>Nome</th><th>Identificador</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Nome</th><th>Identificador</th><th>Status</th><th style="text-align:right">Ações</th></tr></thead>
         <tbody>
         {% for e in escritorios %}
           <tr>
@@ -129,13 +142,65 @@
               {% endif %}
             </td>
             <td>
-              <form method="POST" action="{{ url_for('super_admin.toggle_ativo', escritorio_id=e.id) }}">
-                <button type="submit" class="btn-toggle">
-                  {{ 'Desativar' if e.ativo else 'Ativar' }}
-                </button>
+              <div class="acoes">
+                <button type="button" class="btn-toggle" onclick="alternar('editar-{{ e.id }}')">Editar</button>
+                <form method="POST" action="{{ url_for('super_admin.toggle_ativo', escritorio_id=e.id) }}">
+                  <button type="submit" class="btn-toggle">{{ 'Desativar' if e.ativo else 'Ativar' }}</button>
+                </form>
+                {% if exclusao_habilitada %}
+                <button type="button" class="btn-toggle btn-perigo" onclick="alternar('excluir-{{ e.id }}')">Excluir</button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          <tr class="painel" id="editar-{{ e.id }}" hidden>
+            <td colspan="4">
+              <h3>Editar "{{ e.nome }}"</h3>
+              <form method="POST" action="{{ url_for('super_admin.editar', escritorio_id=e.id) }}">
+                <div class="linha">
+                  <div>
+                    <label>Nome</label>
+                    <input type="text" name="nome" value="{{ e.nome }}" maxlength="200" required>
+                  </div>
+                  <div>
+                    <label>Identificador de URL</label>
+                    <input type="text" name="slug" value="{{ e.slug }}" maxlength="50" required>
+                  </div>
+                  <button type="submit">Salvar</button>
+                </div>
+                <p class="aviso" style="margin:12px 0 0;">
+                  Mudar o identificador muda o link de login (<span class="mono">/e/{{ e.slug }}/login</span>):
+                  quem tiver o link antigo salvo vai precisar do novo. Quem já está logado não é afetado.
+                </p>
               </form>
             </td>
           </tr>
+          {% if exclusao_habilitada %}
+          <tr class="painel perigo" id="excluir-{{ e.id }}" hidden>
+            <td colspan="4">
+              <h3>Excluir "{{ e.nome }}" em definitivo</h3>
+              <p class="aviso">
+                Apaga TODOS os dados deste escritório: usuários, clientes, veículos, IPVA,
+                licenciamentos, multas, documentos, configurações e o log de auditoria.
+                <b>Não há como desfazer.</b> Faça um backup do banco antes.
+              </p>
+              <form method="POST" action="{{ url_for('super_admin.excluir', escritorio_id=e.id) }}"
+                    data-nome="{{ e.nome }}" onsubmit="return confirmarExclusao(this);">
+                <div class="linha">
+                  <div>
+                    <label>Digite o identificador <span class="mono">{{ e.slug }}</span> para confirmar</label>
+                    <input type="text" name="confirmar_slug" autocomplete="off" required>
+                  </div>
+                  <div>
+                    <label>Token de exclusão</label>
+                    <input type="password" name="token_exclusao" autocomplete="off" required>
+                  </div>
+                  <button type="submit" class="vermelho">Excluir definitivamente</button>
+                </div>
+              </form>
+            </td>
+          </tr>
+          {% endif %}
         {% endfor %}
         </tbody>
       </table>
@@ -144,5 +209,14 @@
     {% endif %}
   </div>
 </div>
+<script>
+  function confirmarExclusao(form) {
+    return confirm('Excluir "' + form.dataset.nome + '" e TODOS os dados dele? Isso não pode ser desfeito.');
+  }
+  function alternar(id) {
+    var el = document.getElementById(id);
+    el.hidden = !el.hidden;
+  }
+</script>
 </body>
 </html>

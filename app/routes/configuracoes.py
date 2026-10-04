@@ -5,6 +5,7 @@ from app import db
 from app.services.configuracao_service import (
     ConfiguracaoService, PALETA_CORES,
     hex_valido, resolver_cor,
+    nome_arquivo_logo, remover_logo_se_orfa,
 )
 from app.services.backup_service import BackupService
 
@@ -174,11 +175,16 @@ def api_set_escritorio():
             if ext not in current_app.config["EXTENSOES_LOGO"]:
                 return jsonify({"ok": False, "erro": "Formato de logo não suportado."}), 400
             logo_ant = cfg.get("escritorio_logo", "")
-            if logo_ant:
-                _remover_logo_disco(logo_ant, current_app.config["LOGO_DIR"])
-            arquivo_nome = f"logo{ext}"
+            arquivo_nome = nome_arquivo_logo(g.escritorio_id, ext)
+            # Grava o novo ANTES de mexer no antigo: se o save falhar, o
+            # escritório continua com a logo que já tinha.
             arquivo.save(os.path.join(current_app.config["LOGO_DIR"], arquivo_nome))
             cfg.set("escritorio_logo", arquivo_nome)
+            # A anterior só sai do disco se ninguém mais a usa (logo.png
+            # legada, compartilhada) e se não é o mesmo arquivo que acabou
+            # de ser sobrescrito.
+            if logo_ant and logo_ant != arquivo_nome:
+                remover_logo_se_orfa(db.session, current_app.config["LOGO_DIR"], logo_ant)
 
     logo_atual = cfg.get("escritorio_logo", "")
     return jsonify({
@@ -194,17 +200,6 @@ def api_remover_logo():
     cfg = _cfg()
     logo = cfg.get("escritorio_logo", "")
     if logo:
-        _remover_logo_disco(logo, current_app.config["LOGO_DIR"])
         cfg.set("escritorio_logo", "")
+        remover_logo_se_orfa(db.session, current_app.config["LOGO_DIR"], logo)
     return jsonify({"ok": True})
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-def _remover_logo_disco(nome_arquivo: str, logo_dir: str) -> None:
-    caminho = os.path.join(logo_dir, nome_arquivo)
-    try:
-        if os.path.exists(caminho):
-            os.remove(caminho)
-    except OSError:
-        pass

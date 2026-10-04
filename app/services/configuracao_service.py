@@ -3,6 +3,8 @@ Serviço de configurações do sistema.
 Centraliza leitura/escrita de configurações, paleta de cores e fontes PDF.
 """
 from __future__ import annotations
+import logging
+import os
 import re
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -114,6 +116,51 @@ def resolver_cor(cor: Optional[str]) -> dict:
         "contraste_sec_medio":   c_secundaria["medio"],
         "contraste_sec_fraco":   c_secundaria["fraco"],
     }
+
+
+def nome_arquivo_logo(escritorio_id: int, extensao: str) -> str:
+    """
+    Nome do arquivo de logo de um escritório: `logo-<id>.<ext>`.
+
+    Antes era sempre `logo.<ext>`, igual para todos os escritórios — o upload
+    de um sobrescrevia a logo do outro. O id no nome garante um arquivo por
+    escritório. `extensao` deve vir já validada contra EXTENSOES_LOGO.
+    """
+    return f"logo-{int(escritorio_id)}{extensao.lower()}"
+
+
+def logo_em_uso(session: Session, nome_arquivo: str) -> bool:
+    """True se algum escritório ainda aponta para este arquivo de logo."""
+    return (
+        session.query(Configuracao)
+        .filter(Configuracao.chave == "escritorio_logo", Configuracao.valor == nome_arquivo)
+        .first()
+        is not None
+    )
+
+
+def remover_logo_se_orfa(session: Session, logo_dir: str, nome_arquivo: str) -> bool:
+    """
+    Apaga o arquivo de logo do disco SÓ se nenhum escritório o referencia.
+
+    Instalações antigas têm um `logo.png` compartilhado por vários escritórios;
+    apagá-lo "por ser a logo anterior de X" tiraria a logo dos outros. Chamar
+    depois de já ter atualizado/removido a referência do escritório atual.
+    Devolve True se removeu.
+    """
+    # Nunca sai da pasta de logos, mesmo se o valor guardado vier adulterado.
+    if not nome_arquivo or os.path.basename(nome_arquivo) != nome_arquivo:
+        return False
+    if logo_em_uso(session, nome_arquivo):
+        return False
+    caminho = os.path.join(logo_dir, nome_arquivo)
+    try:
+        if os.path.exists(caminho):
+            os.remove(caminho)
+            return True
+    except OSError:
+        logging.getLogger(__name__).warning("Não foi possível remover a logo %s", nome_arquivo)
+    return False
 
 
 class ConfiguracaoService(TenantService):
