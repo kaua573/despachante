@@ -199,6 +199,7 @@ def aplicar_migracoes_leves(app: Flask) -> None:
                     ))
 
         _aplicar_migracao_multi_tenant(app, inspector)
+        _migrar_unicidade_para_tenant(app)
 
 
 def _aplicar_migracao_multi_tenant(app: Flask, inspector) -> None:
@@ -216,12 +217,11 @@ def _aplicar_migracao_multi_tenant(app: Flask, inspector) -> None:
     Sem isso, `escritorio_id NOT NULL` nos models quebraria toda leitura
     das linhas antigas, que não têm valor nenhum nessa coluna.
 
-    Deliberadamente NÃO mexe ainda nas constraints únicas antigas (cpf/cnpj
-    globais, nome_usuario global, hash do log global) — isso exige
-    reconstruir a tabela inteira no SQLite (não dá pra fazer com ALTER
-    TABLE simples) e não é bloqueante enquanto só um escritório estiver
-    ativo. Ver observação de acompanhamento nesta função quando isso for
-    implementado.
+    As constraints únicas antigas (cpf/cnpj globais, nome_usuario global,
+    hash do log global, regra de vencimento e placa globais) NÃO são tratadas
+    aqui: no SQLite exigiriam reconstruir a tabela inteira. No PostgreSQL
+    elas são trocadas pelas versões por escritório em
+    `_migrar_unicidade_para_tenant()`, chamada logo depois desta função.
     """
     from sqlalchemy import text
 
@@ -302,6 +302,108 @@ def _aplicar_migracao_multi_tenant(app: Flask, inspector) -> None:
                 conn.execute(text("DROP TABLE configuracoes"))
                 conn.execute(text("ALTER TABLE configuracoes_novo RENAME TO configuracoes"))
             app.logger.info("[multi-tenant] tabela 'configuracoes' migrada para chave composta")
+
+
+# (tabela, colunas da constraint GLOBAL antiga, nome da nova, colunas da nova)
+_UNICIDADE_POR_TENANT = [
+    ("usuarios", ("nome_usuario",),
+     "uq_usuarios_escritorio_nome", ("escritorio_id", "nome_usuario")),
+    ("clientes", ("cpf",),
+     "uq_clientes_escritorio_cpf", ("escritorio_id", "cpf")),
+    ("clientes", ("cnpj",),
+     "uq_clientes_escritorio_cnpj", ("escritorio_id", "cnpj")),
+    ("log_acao", ("hash_anterior",),
+     "uq_log_acao_escritorio_hash_anterior", ("escritorio_id", "hash_anterior")),
+    ("log_acao", ("hash_atual",),
+     "uq_log_acao_escritorio_hash_atual", ("escritorio_id", "hash_atual")),
+    ("regra_vencimento", ("final_placa", "especie"),
+     "uq_regra_escritorio_final_especie", ("escritorio_id", "final_placa", "especie")),
+]
+
+
+def _migrar_unicidade_para_tenant(app: Flask) -> None:
+    """
+    PostgreSQL: troca as constraints únicas GLOBAIS (anteriores ao multi-tenant)
+    pelas versões por escritório que os models já declaram.
+
+    Sem isso, `create_all()` não altera tabelas existentes, então o banco
+    continua com `UNIQUE (nome_usuario)` e afins: o segundo escritório não
+    consegue nascer (o `admin` inicial colide com o do primeiro), nem ter o
+    mesmo CPF de cliente, a mesma placa, etc.
+
+    As constraints antigas são localizadas pelas COLUNAS, não pelo nome
+    (o Postgres gera nomes como `usuarios_nome_usuario_key` automaticamente,
+    e o nome varia conforme o banco tenha sido criado por create_all ou
+    migrado de outro lugar). Idempotente e protegida por advisory lock, pois
+    várias instâncias/workers podem subir ao mesmo tempo. Tudo roda em uma
+    única transação: ou troca tudo, ou nada.
+
+    No SQLite não faz nada (não dá pra dropar constraint inline sem
+    reconstruir a tabela, e a instalação desktop é de um escritório só).
+    """
+    from sqlalchemy import inspect, text
+
+    if db.engine.dialect.name != "postgresql":
+        return
+
+    with db.engine.begin() as conn:
+        # Lock de transação: libera sozinho no commit/rollback.
+        conn.execute(text("SELECT pg_advisory_xact_lock(740301)"))
+        insp = inspect(conn)
+        tabelas = set(insp.get_table_names())
+
+        for tabela, antigas, nome_novo, novas in _UNICIDADE_POR_TENANT:
+            if tabela not in tabelas:
+                continue
+            colunas = {c["name"] for c in insp.get_columns(tabela)}
+            if not set(novas) <= colunas:
+                continue  # escritorio_id ainda não existe — nada a fazer
+
+            constraints = insp.get_unique_constraints(tabela)
+
+            for uc in constraints:
+                if tuple(uc["column_names"]) == antigas:
+                    conn.execute(text(
+                        f'ALTER TABLE "{tabela}" DROP CONSTRAINT IF EXISTS "{uc["name"]}"'
+                    ))
+                    app.logger.info(f"[multi-tenant] removida constraint global {uc['name']}")
+
+            # Índices únicos "soltos" (ex.: criados por CREATE UNIQUE INDEX em
+            # migrações antigas). Os que só sustentam uma constraint já foram
+            # tratados acima; os parciais (WHERE) são intencionais, não mexe.
+            for ix in insp.get_indexes(tabela):
+                parcial = (ix.get("dialect_options") or {}).get("postgresql_where")
+                if (ix.get("unique") and not ix.get("duplicates_constraint")
+                        and not parcial and tuple(ix["column_names"]) == antigas):
+                    conn.execute(text(f'DROP INDEX IF EXISTS "{ix["name"]}"'))
+                    app.logger.info(f"[multi-tenant] removido índice único global {ix['name']}")
+
+            if nome_novo not in {uc["name"] for uc in constraints}:
+                cols = ", ".join(f'"{c}"' for c in novas)
+                conn.execute(text(
+                    f'ALTER TABLE "{tabela}" ADD CONSTRAINT "{nome_novo}" UNIQUE ({cols})'
+                ))
+                app.logger.info(f"[multi-tenant] criada constraint {nome_novo}")
+
+        # Placa de veículo: índice único parcial (só veículos não vendidos).
+        # No Postgres o índice antigo era global e SEM o WHERE; recria por
+        # escritório e com o filtro, como o model declara.
+        if "veiculos" in tabelas:
+            colunas_v = {c["name"] for c in insp.get_columns("veiculos")}
+            if {"escritorio_id", "placa", "situacao"} <= colunas_v:
+                atual = next(
+                    (ix for ix in insp.get_indexes("veiculos")
+                     if ix["name"] == "uq_veiculo_placa_ativo"),
+                    None,
+                )
+                if atual is None or tuple(atual["column_names"]) != ("escritorio_id", "placa"):
+                    conn.execute(text('DROP INDEX IF EXISTS "uq_veiculo_placa_ativo"'))
+                    conn.execute(text(
+                        'CREATE UNIQUE INDEX "uq_veiculo_placa_ativo" '
+                        'ON "veiculos" ("escritorio_id", "placa") '
+                        "WHERE situacao != 'vendido'"
+                    ))
+                    app.logger.info("[multi-tenant] índice uq_veiculo_placa_ativo recriado por escritório")
 
 
 def _registrar_blueprints(app: Flask) -> None:

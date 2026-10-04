@@ -40,8 +40,9 @@ class Veiculo(db.Model):
         # mesma placa de novo depois (revenda), sem que a placa antiga
         # (histórico) bloqueie o cadastro novo.
         db.Index(
-            "uq_veiculo_placa_ativo", "placa", unique=True,
+            "uq_veiculo_placa_ativo", "escritorio_id", "placa", unique=True,
             sqlite_where=db.text("situacao != 'vendido'"),
+            postgresql_where=db.text("situacao != 'vendido'"),
         ),
     )
 

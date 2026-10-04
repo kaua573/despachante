@@ -242,3 +242,31 @@ def test_super_admin_cria_escritorio_funcional(app):
         assert r.status_code == 302 and "/trocar-senha" in r.headers["Location"]
     finally:
         app.config["SUPER_ADMIN_TOKEN"] = None
+
+
+def test_escritorio_novo_nasce_com_admin_mesmo_com_admin_em_outro(app):
+    """Regressão: criar um escritório novo falhava com UniqueViolation em
+    `usuarios_nome_usuario_key` porque o `admin` inicial colidia com o de
+    outro escritório (constraint global antiga). Nome de usuário só pode ser
+    único DENTRO do escritório."""
+    from sqlalchemy.exc import IntegrityError
+    from app import db
+    from app.models.usuario import Usuario
+    from app.services.escritorio_service import EscritorioService
+
+    with app.app_context():
+        # Escritório A (id 1) já tem um "admin" criado pelo fixture.
+        novo, erro = EscritorioService(db.session).criar("Escritório C")
+        assert novo is not None, erro
+
+        admins = db.session.query(Usuario).filter_by(nome_usuario="admin").all()
+        assert {u.escritorio_id for u in admins} >= {1, novo.id}
+
+        # ...mas continua proibido repetir o nome DENTRO do mesmo escritório.
+        db.session.add(Usuario(
+            escritorio_id=novo.id, nome_usuario="admin", nome_completo="Dup",
+            senha_hash="x", perfil="operador",
+        ))
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
