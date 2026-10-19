@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import re
+import unicodedata
 from typing import Optional
 
 from openpyxl import Workbook, load_workbook
@@ -48,7 +49,14 @@ COLUNAS_VEICULOS_CLIENTE = [
     "Marca/Modelo*", "Situação", "Espécie", "Observação",
 ]
 
-SITUACOES_VALIDAS = {"ativo", "desativado", "vendido", "pendente"}
+SITUACOES_VALIDAS = {"ativo", "desativado", "vendido", "pendente", "pendencia_adm", "baixado"}
+# Variações aceitas na planilha (sem acento, minúsculas) -> valor gravado
+SITUACOES_ALIAS = {
+    "pendencia adm": "pendencia_adm",
+    "pendencia adm.": "pendencia_adm",
+    "pendencia administrativa": "pendencia_adm",
+    "pendencia_administrativa": "pendencia_adm",
+}
 ESPECIES_VALIDAS = {"passeio", "carga", "reboque"}
 
 COR_CABECALHO = "1A4F8A"
@@ -467,6 +475,8 @@ class ImportacaoService(TenantService):
     def _preparar_linha_veiculo(self, placa, renavam, proprietario, marca_modelo, situacao, especie, observacao):
         """Normaliza e valida uma linha de veículo (sem cliente_id ainda). Retorna (erro_ou_None, dados)."""
         situacao = str(situacao or "ativo").strip().lower() or "ativo"
+        sem_acento = "".join(c for c in unicodedata.normalize("NFD", situacao) if unicodedata.category(c) != "Mn")
+        situacao = SITUACOES_ALIAS.get(sem_acento, situacao)
         especie = str(especie or "passeio").strip().lower() or "passeio"
         if situacao not in SITUACOES_VALIDAS:
             situacao = "ativo"

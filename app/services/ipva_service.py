@@ -141,6 +141,33 @@ class IpvaService(TenantService):
         self._s.commit()
         return True, ""
 
+    def editar_vencimento_parcela(self, parcela_id: int, vencimento: str) -> tuple[bool, str, Optional[dict]]:
+        """
+        Altera a data de vencimento de uma parcela que ainda não foi paga
+        (as datas geradas automaticamente são mensais a partir da 1ª parcela;
+        aqui o usuário ajusta uma a uma quando o vencimento real é outro).
+
+        Retorna (ok, mensagem_de_erro, {"de": data_antiga, "para": data_nova}).
+        """
+        parcela = self._parcela_escopada(parcela_id)
+        if not parcela:
+            return False, "Parcela não encontrada.", None
+        if parcela.status == "pago":
+            return False, "Parcela já quitada: o vencimento não pode ser alterado.", None
+
+        try:
+            nova = date.fromisoformat(str(vencimento or "").strip())
+        except ValueError:
+            return False, "Data de vencimento inválida.", None
+
+        antiga = parcela.vencimento
+        parcela.vencimento = nova.isoformat()
+        # Mantém o status coerente com a nova data (o status "vencido" só é
+        # recalculado automaticamente no sentido pendente -> vencido).
+        parcela.status = "vencido" if nova < date.today() else "pendente"
+        self._s.commit()
+        return True, "", {"de": antiga, "para": parcela.vencimento}
+
     def quitar_avista(self, ipva_id: int) -> tuple[bool, str]:
         """
         Quita o IPVA integralmente (modo à vista).

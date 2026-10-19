@@ -147,7 +147,7 @@ class PdfClienteService:
                 return ("PENDENTE", AMAR)
             return ("VENCIDO", VERM) if venc < date.today().isoformat() else ("PENDENTE", AMAR)
 
-        SITUACAO_LABEL = {"ativo": "Ativo", "desativado": "Desativado", "vendido": "Vendido", "pendente": "Pendente"}
+        SITUACAO_LABEL = Veiculo.SITUACAO_LABEL
         ESPECIE_LABEL  = {"passeio": "Passeio", "carga": "Carga", "reboque": "Reboque"}
 
         def bloco_dados():

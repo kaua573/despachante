@@ -155,10 +155,21 @@ class RelatorioService(TenantService):
         'tipo_registro' para identificar de onde ela veio.
         """
         tipos          = tipos_do_config(config)
-        filtros        = config.get("filtros", {})
+        filtros        = dict(config.get("filtros", {}))
         ordenar_por    = config.get("ordenar_por", "vencimento")
         ordem_direcao  = config.get("ordem_direcao", "asc")
         multiplos      = len(tipos) > 1
+
+        # Em qual data o período (data início/fim) filtra as MULTAS: pelo
+        # vencimento (igual IPVA e licenciamento) ou pela data da infração.
+        # Sem a escolha explícita (templates antigos), multas sozinhas
+        # mantêm o comportamento antigo (data da infração) e, combinadas
+        # com outros domínios, usam o vencimento — senão a multa de uma
+        # infração antiga sumia do relatório mesmo com vencimento no período.
+        modo_data = config.get("filtro_data_multas")
+        if modo_data not in ("vencimento", "infracao"):
+            modo_data = "infracao" if tipos == ["multas"] else "vencimento"
+        filtros["_data_multas"] = modo_data
 
         dados: list[dict] = []
         for tipo in tipos:
@@ -245,10 +256,11 @@ class RelatorioService(TenantService):
         return q
 
     def _aplicar_filtros_multas(self, q, filtros: dict):
+        campo_data = Multa.data_infracao if filtros.get("_data_multas") == "infracao" else Multa.vencimento
         if filtros.get("data_inicio"):
-            q = q.filter(Multa.data_infracao >= filtros["data_inicio"])
+            q = q.filter(campo_data >= filtros["data_inicio"])
         if filtros.get("data_fim"):
-            q = q.filter(Multa.data_infracao <= filtros["data_fim"])
+            q = q.filter(campo_data <= filtros["data_fim"])
         if filtros.get("status") == "pago":
             q = q.filter(Multa.pago == True)
         elif filtros.get("status") in ("pendente", "vencido", "a_vencer"):
@@ -292,7 +304,7 @@ class RelatorioService(TenantService):
             "proprietario":   v.proprietario or "",
             "marca_modelo":   v.marca_modelo or "",
             "especie":        (v.especie or "").upper(),
-            "situacao":       (v.situacao or "").upper(),
+            "situacao":       self._situacao_txt(v),
             "ano_referencia": r.ano_referencia,
             "valor":          float(r.valor) if r.valor is not None else None,
             "vencimento":     r.vencimento or "",
@@ -308,7 +320,7 @@ class RelatorioService(TenantService):
             "proprietario":   v.proprietario or "",
             "marca_modelo":   v.marca_modelo or "",
             "especie":        (v.especie or "").upper(),
-            "situacao":       (v.situacao or "").upper(),
+            "situacao":       self._situacao_txt(v),
             "ano_referencia": r.ano_referencia,
             "valor":          float(r.valor) if r.valor is not None else None,
             "vencimento":     r.vencimento or "",
@@ -324,6 +336,7 @@ class RelatorioService(TenantService):
             "proprietario":   v.proprietario or "",
             "marca_modelo":   v.marca_modelo or "",
             "especie":        (v.especie or "").upper(),
+            "situacao":       self._situacao_txt(v),
             "auto_infracao":  r.auto_infracao or "",
             "data_infracao":  r.data_infracao or "",
             "descricao":      r.descricao or "",
@@ -333,6 +346,10 @@ class RelatorioService(TenantService):
             "data_pagamento": r.data_pagamento or "",
             "observacao":     r.observacao or "",
         }
+
+    @staticmethod
+    def _situacao_txt(v: Veiculo) -> str:
+        return Veiculo.SITUACAO_LABEL.get(v.situacao or "", v.situacao or "").upper()
 
     @staticmethod
     def _status_vencimento(vencimento: Optional[str]) -> str:

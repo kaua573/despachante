@@ -9,8 +9,23 @@ class Veiculo(db.Model):
     # para fins de gerar pendência/notificação (Painel, Central de
     # Pendências, Previsão de Vencimentos, Panorama). "pendente" (doc./
     # regularização em andamento, ex.: transferência) conta como ativo por
-    # decisão do escritório — só "desativado" e "vendido" ficam de fora.
-    SITUACOES_ATIVAS = ("ativo", "pendente")
+    # decisão do escritório. "pendencia_adm" também conta como ativo; só
+    # "desativado", "baixado" e "vendido" ficam de fora.
+    SITUACOES_ATIVAS = ("ativo", "pendente", "pendencia_adm")
+
+    # Todas as situações possíveis, na ordem em que aparecem nos filtros e
+    # formulários, e o rótulo exibido para cada uma. "baixado" (veículo com
+    # baixa de registro) fica fora de SITUACOES_ATIVAS, como "desativado" e
+    # "vendido": não gera pendência nem notificação.
+    SITUACOES = ("ativo", "pendente", "pendencia_adm", "desativado", "baixado", "vendido")
+    SITUACAO_LABEL = {
+        "ativo":         "Ativo",
+        "pendente":      "Pendente",
+        "pendencia_adm": "Pendência adm.",
+        "desativado":    "Desativado",
+        "baixado":       "Baixado",
+        "vendido":       "Vendido",
+    }
 
     id = db.Column(db.Integer, primary_key=True)
     # Redundante em relação a cliente.escritorio_id de propósito: permite

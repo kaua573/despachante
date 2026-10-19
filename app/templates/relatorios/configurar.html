@@ -49,6 +49,13 @@
           <div class="field"><label>Data início</label><input id="cfg-data-inicio" type="date"></div>
           <div class="field"><label>Data fim</label><input id="cfg-data-fim" type="date"></div>
         </div>
+        <div class="field" id="cfg-data-multas-wrap" style="display:none;">
+          <label>Período das multas por</label>
+          <select id="cfg-data-multas">
+            <option value="vencimento">Vencimento</option>
+            <option value="infracao">Data da infração</option>
+          </select>
+        </div>
         <div class="field">
           <label>Status</label>
           <select id="cfg-status">
@@ -190,7 +197,13 @@ function obterTiposSelecionados() {
   return Array.from(document.querySelectorAll('#cfg-tipos input[type="checkbox"]:checked')).map(el => el.value);
 }
 
+function atualizarOpcaoDataMultas() {
+  const mostrar = obterTiposSelecionados().includes('multas');
+  document.getElementById('cfg-data-multas-wrap').style.display = mostrar ? '' : 'none';
+}
+
 async function onTiposChange() {
+  atualizarOpcaoDataMultas();
   const tipos = obterTiposSelecionados();
   if (!tipos.length) {
     camposDisponiveis = [];
@@ -281,6 +294,7 @@ function obterConfig() {
       placa:        document.getElementById('cfg-placa').value.trim() || null,
       cliente_nome: document.getElementById('cfg-cliente').value.trim() || null,
     },
+    filtro_data_multas: document.getElementById('cfg-data-multas').value,
     agrupar_por:    document.getElementById('cfg-agrupar').value,
     ordenar_por:    document.getElementById('cfg-ordenar').value,
     ordem_direcao:  document.getElementById('cfg-direcao').value,
@@ -449,6 +463,9 @@ function aplicarConfig(cfg) {
       document.getElementById('cfg-placa').value       = cfg.filtros.placa       || '';
       document.getElementById('cfg-cliente').value     = cfg.filtros.cliente_nome || '';
     }
+    // Templates antigos não têm esta chave: só multas sozinhas filtravam pela data da infração
+    document.getElementById('cfg-data-multas').value =
+      cfg.filtro_data_multas || ((tipos.length === 1 && tipos[0] === 'multas') ? 'infracao' : 'vencimento');
     document.getElementById('cfg-agrupar').value  = cfg.agrupar_por   || 'nenhum';
     document.getElementById('cfg-ordenar').value  = cfg.ordenar_por   || 'vencimento';
     document.getElementById('cfg-direcao').value  = cfg.ordem_direcao || 'asc';

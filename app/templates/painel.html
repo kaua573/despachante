@@ -16,7 +16,9 @@
         <span class="chip-placa" style="font-size:18px;padding:5px 12px;">{{ veiculo.placa }}</span>
         {% if veiculo.situacao == 'ativo' %}<span class="badge badge-ativo">Ativo</span>{% endif %}
         {% if veiculo.situacao == 'pendente' %}<span class="badge badge-pendente">Pendente</span>{% endif %}
+        {% if veiculo.situacao == 'pendencia_adm' %}<span class="badge badge-pendencia-adm">Pendência adm.</span>{% endif %}
         {% if veiculo.situacao == 'desativado' %}<span class="badge badge-inativo">Desativado</span>{% endif %}
+        {% if veiculo.situacao == 'baixado' %}<span class="badge badge-baixado">Baixado</span>{% endif %}
         {% if veiculo.situacao == 'vendido' %}<span class="badge badge-vencido">Vendido</span>{% endif %}
       </div>
       <div style="color:var(--sub);font-size:14px;margin-top:3px;">
@@ -333,7 +335,9 @@ async function renderizarParcelas(ipvaId) {
     <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Quitado em</th><th>Ação</th></tr></thead>
     <tbody>${resultado.parcelas.map(p => `<tr>
       <td><strong>${p.numero}ª</strong></td>
-      <td>${fmtData(p.vencimento)}</td>
+      <td id="venc-cel-${p.id}">${fmtData(p.vencimento)}${p.status !== 'pago'
+        ? ` <button class="btn btn-ghost btn-sm" title="Editar vencimento" onclick="editarVencimentoParcela(${p.id},'${p.vencimento}')">✎</button>`
+        : ''}</td>
       <td>${fmtMoeda(p.valor)}</td>
       <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
       <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
@@ -364,6 +368,27 @@ async function gerarParcelas() {
   if (!data) { aviso.textContent = ''; return; }
   aviso.textContent = '';
   toast('Parcelas geradas!');
+  await renderizarParcelas(parcelasIpvaId);
+}
+
+function editarVencimentoParcela(parcelaId, atual) {
+  const cel = document.getElementById(`venc-cel-${parcelaId}`);
+  cel.innerHTML = `<input type="date" id="venc-input-${parcelaId}" value="${atual}" style="width:140px;">
+    <button class="btn btn-success btn-sm" title="Salvar" onclick="salvarVencimentoParcela(${parcelaId})">✓</button>
+    <button class="btn btn-ghost btn-sm" title="Cancelar" onclick="renderizarParcelas(parcelasIpvaId)">✕</button>`;
+  document.getElementById(`venc-input-${parcelaId}`).focus();
+}
+
+async function salvarVencimentoParcela(parcelaId) {
+  const valor = document.getElementById(`venc-input-${parcelaId}`).value;
+  if (!valor) { toast('Informe a data de vencimento.', 'err'); return; }
+  const data = await apiFetch(`/api/ipva/parcelas/${parcelaId}/vencimento`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vencimento: valor }),
+  });
+  if (!data) return;
+  toast('Vencimento atualizado!');
   await renderizarParcelas(parcelasIpvaId);
 }
 
