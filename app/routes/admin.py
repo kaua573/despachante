@@ -141,7 +141,7 @@ def log_acoes():
     usuarios = db.session.query(Usuario).filter_by(escritorio_id=g.escritorio_id).order_by(Usuario.nome_completo).all()
     entidades = [
         r[0] for r in
-        db.session.query(LogAcao.entidade).filter(LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
+        db.session.query(LogAcao.entidade).filter(LogAcao.escritorio_id == g.escritorio_id, LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
     ]
     return render_template("admin/log.html", **resultado, usuarios=usuarios, entidades=entidades,
                            filtros={"usuario_id": usuario_id, "acao": acao, "entidade": entidade,

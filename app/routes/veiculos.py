@@ -25,7 +25,7 @@ def _log() -> LogService:
 @login_required
 @requer_permissao("visualizar_veiculos")
 def veiculos(cid):
-    cliente = db.session.get(Cliente, cid)
+    cliente = db.session.query(Cliente).filter_by(id=cid, escritorio_id=g.escritorio_id).first()
     if not cliente:
         return redirect(url_for("clientes.clientes"))
     return render_template("veiculos.html", cliente=cliente.to_dict())
@@ -37,7 +37,7 @@ def veiculos(cid):
 @login_required
 @requer_permissao("visualizar_veiculos")
 def api_proprietarios_por_cliente(cid):
-    cliente = db.session.get(Cliente, cid)
+    cliente = db.session.query(Cliente).filter_by(id=cid, escritorio_id=g.escritorio_id).first()
     if not cliente:
         return jsonify({"ok": False, "erro": "Cliente não encontrado."}), 404
     rows = (

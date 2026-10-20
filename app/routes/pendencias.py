@@ -23,7 +23,7 @@ def _log() -> LogService:
 @login_required
 @requer_permissao("visualizar_veiculos")
 def pendencias(cid):
-    cliente = db.session.get(Cliente, cid)
+    cliente = db.session.query(Cliente).filter_by(id=cid, escritorio_id=g.escritorio_id).first()
     if not cliente:
         return redirect(url_for("clientes.clientes"))
     return render_template("pendencias.html", cliente=cliente.to_dict())

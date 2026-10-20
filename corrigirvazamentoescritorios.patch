@@ -1,0 +1,141 @@
+diff --git a/app/routes/admin.py b/app/routes/admin.py
+index ccd92a2..6a5a681 100644
+--- a/app/routes/admin.py
++++ b/app/routes/admin.py
+@@ -141,7 +141,7 @@ def log_acoes():
+     usuarios = db.session.query(Usuario).filter_by(escritorio_id=g.escritorio_id).order_by(Usuario.nome_completo).all()
+     entidades = [
+         r[0] for r in
+-        db.session.query(LogAcao.entidade).filter(LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
++        db.session.query(LogAcao.entidade).filter(LogAcao.escritorio_id == g.escritorio_id, LogAcao.entidade.isnot(None)).distinct().order_by(LogAcao.entidade)
+     ]
+     return render_template("admin/log.html", **resultado, usuarios=usuarios, entidades=entidades,
+                            filtros={"usuario_id": usuario_id, "acao": acao, "entidade": entidade,
+diff --git a/app/routes/main.py b/app/routes/main.py
+index b913d23..7b1863c 100644
+--- a/app/routes/main.py
++++ b/app/routes/main.py
+@@ -49,7 +49,10 @@ def api_busca_global():
+         from app.models.cliente import Cliente
+         clientes = (
+             db.session.query(Cliente)
+-            .filter(db.or_(Cliente.nome.ilike(like), Cliente.cpf.ilike(like), Cliente.cnpj.ilike(like)))
++            .filter(
++                Cliente.escritorio_id == g.escritorio_id,
++                db.or_(Cliente.nome.ilike(like), Cliente.cpf.ilike(like), Cliente.cnpj.ilike(like)),
++            )
+             .order_by(Cliente.nome)
+             .limit(8)
+             .all()
+@@ -65,7 +68,7 @@ def api_busca_global():
+         veiculos = (
+             db.session.query(Veiculo)
+             .join(Cliente, Veiculo.cliente_id == Cliente.id)
+-            .filter(Veiculo.placa.ilike(like))
++            .filter(Veiculo.escritorio_id == g.escritorio_id, Veiculo.placa.ilike(like))
+             .order_by(Veiculo.placa)
+             .limit(8)
+             .all()
+diff --git a/app/routes/painel.py b/app/routes/painel.py
+index 10e4c71..ef0b003 100644
+--- a/app/routes/painel.py
++++ b/app/routes/painel.py
+@@ -1,4 +1,4 @@
+-from flask import Blueprint, render_template, redirect, url_for
++from flask import Blueprint, render_template, redirect, url_for, g
+ from flask_login import login_required
+ from app import db
+ from app.models.veiculo import Veiculo
+@@ -12,7 +12,7 @@ bp = Blueprint("painel", __name__)
+ @login_required
+ @requer_permissao("visualizar_veiculos")
+ def painel(vid):
+-    v = db.session.get(Veiculo, vid)
++    v = db.session.query(Veiculo).filter_by(id=vid, escritorio_id=g.escritorio_id).first()
+     if not v:
+         return redirect(url_for("clientes.clientes"))
+     cliente = db.session.get(Cliente, v.cliente_id)
+diff --git a/app/routes/pendencias.py b/app/routes/pendencias.py
+index f7c9269..1aa8ff3 100644
+--- a/app/routes/pendencias.py
++++ b/app/routes/pendencias.py
+@@ -23,7 +23,7 @@ def _log() -> LogService:
+ @login_required
+ @requer_permissao("visualizar_veiculos")
+ def pendencias(cid):
+-    cliente = db.session.get(Cliente, cid)
++    cliente = db.session.query(Cliente).filter_by(id=cid, escritorio_id=g.escritorio_id).first()
+     if not cliente:
+         return redirect(url_for("clientes.clientes"))
+     return render_template("pendencias.html", cliente=cliente.to_dict())
+diff --git a/app/routes/veiculos.py b/app/routes/veiculos.py
+index ee4f038..016bd6a 100644
+--- a/app/routes/veiculos.py
++++ b/app/routes/veiculos.py
+@@ -25,7 +25,7 @@ def _log() -> LogService:
+ @login_required
+ @requer_permissao("visualizar_veiculos")
+ def veiculos(cid):
+-    cliente = db.session.get(Cliente, cid)
++    cliente = db.session.query(Cliente).filter_by(id=cid, escritorio_id=g.escritorio_id).first()
+     if not cliente:
+         return redirect(url_for("clientes.clientes"))
+     return render_template("veiculos.html", cliente=cliente.to_dict())
+@@ -37,7 +37,7 @@ def veiculos(cid):
+ @login_required
+ @requer_permissao("visualizar_veiculos")
+ def api_proprietarios_por_cliente(cid):
+-    cliente = db.session.get(Cliente, cid)
++    cliente = db.session.query(Cliente).filter_by(id=cid, escritorio_id=g.escritorio_id).first()
+     if not cliente:
+         return jsonify({"ok": False, "erro": "Cliente não encontrado."}), 404
+     rows = (
+diff --git a/tests/test_tenant_isolation.py b/tests/test_tenant_isolation.py
+index e5b226f..88685f8 100644
+--- a/tests/test_tenant_isolation.py
++++ b/tests/test_tenant_isolation.py
+@@ -270,3 +270,44 @@ def test_escritorio_novo_nasce_com_admin_mesmo_com_admin_em_outro(app):
+         with pytest.raises(IntegrityError):
+             db.session.commit()
+         db.session.rollback()
++
++
++def test_busca_global_nao_mistura_escritorios(app, cliente_logado_a, cliente_logado_b):
++    """Regressão: a caixa de pesquisa do topo devolvia clientes e veículos de outro escritório."""
++    from app import db
++    from app.models.veiculo import Veiculo
++
++    assert _criar_cliente(cliente_logado_a, "Maria Silva", CPF_A).status_code == 200
++    assert _criar_cliente(cliente_logado_b, "Maria Souza", CPF_B).status_code == 200
++    cid_a = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
++
++    with app.app_context():
++        db.session.add(Veiculo(escritorio_id=1, cliente_id=cid_a, placa="ABC1D23"))
++        db.session.commit()
++
++    r_a = cliente_logado_a.get("/api/busca-global?q=Maria").get_json()
++    r_b = cliente_logado_b.get("/api/busca-global?q=Maria").get_json()
++    assert [c["nome"] for c in r_a["clientes"]] == ["Maria Silva"], r_a
++    assert [c["nome"] for c in r_b["clientes"]] == ["Maria Souza"], r_b
++
++    assert len(cliente_logado_a.get("/api/busca-global?q=ABC1").get_json()["veiculos"]) == 1
++    assert cliente_logado_b.get("/api/busca-global?q=ABC1").get_json()["veiculos"] == []
++
++
++def test_paginas_por_id_nao_abrem_dado_de_outro_escritorio(app, cliente_logado_a, cliente_logado_b):
++    from app import db
++    from app.models.veiculo import Veiculo
++
++    assert _criar_cliente(cliente_logado_a, "Cliente do A", CPF_A).status_code == 200
++    cid_a = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
++    with app.app_context():
++        v = Veiculo(escritorio_id=1, cliente_id=cid_a, placa="XYZ9K88")
++        db.session.add(v)
++        db.session.commit()
++        vid_a = v.id
++
++    for url in (f"/clientes/{cid_a}/veiculos", f"/clientes/{cid_a}/pendencias",
++                f"/veiculos/{vid_a}/painel", f"/api/clientes/{cid_a}/proprietarios"):
++        assert cliente_logado_a.get(url).status_code == 200, url
++        r = cliente_logado_b.get(url)
++        assert r.status_code in (302, 404), f"B acessou {url}: {r.status_code}"

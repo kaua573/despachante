@@ -270,3 +270,44 @@ def test_escritorio_novo_nasce_com_admin_mesmo_com_admin_em_outro(app):
         with pytest.raises(IntegrityError):
             db.session.commit()
         db.session.rollback()
+
+
+def test_busca_global_nao_mistura_escritorios(app, cliente_logado_a, cliente_logado_b):
+    """Regressão: a caixa de pesquisa do topo devolvia clientes e veículos de outro escritório."""
+    from app import db
+    from app.models.veiculo import Veiculo
+
+    assert _criar_cliente(cliente_logado_a, "Maria Silva", CPF_A).status_code == 200
+    assert _criar_cliente(cliente_logado_b, "Maria Souza", CPF_B).status_code == 200
+    cid_a = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
+
+    with app.app_context():
+        db.session.add(Veiculo(escritorio_id=1, cliente_id=cid_a, placa="ABC1D23"))
+        db.session.commit()
+
+    r_a = cliente_logado_a.get("/api/busca-global?q=Maria").get_json()
+    r_b = cliente_logado_b.get("/api/busca-global?q=Maria").get_json()
+    assert [c["nome"] for c in r_a["clientes"]] == ["Maria Silva"], r_a
+    assert [c["nome"] for c in r_b["clientes"]] == ["Maria Souza"], r_b
+
+    assert len(cliente_logado_a.get("/api/busca-global?q=ABC1").get_json()["veiculos"]) == 1
+    assert cliente_logado_b.get("/api/busca-global?q=ABC1").get_json()["veiculos"] == []
+
+
+def test_paginas_por_id_nao_abrem_dado_de_outro_escritorio(app, cliente_logado_a, cliente_logado_b):
+    from app import db
+    from app.models.veiculo import Veiculo
+
+    assert _criar_cliente(cliente_logado_a, "Cliente do A", CPF_A).status_code == 200
+    cid_a = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
+    with app.app_context():
+        v = Veiculo(escritorio_id=1, cliente_id=cid_a, placa="XYZ9K88")
+        db.session.add(v)
+        db.session.commit()
+        vid_a = v.id
+
+    for url in (f"/clientes/{cid_a}/veiculos", f"/clientes/{cid_a}/pendencias",
+                f"/veiculos/{vid_a}/painel", f"/api/clientes/{cid_a}/proprietarios"):
+        assert cliente_logado_a.get(url).status_code == 200, url
+        r = cliente_logado_b.get(url)
+        assert r.status_code in (302, 404), f"B acessou {url}: {r.status_code}"

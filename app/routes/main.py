@@ -49,7 +49,10 @@ def api_busca_global():
         from app.models.cliente import Cliente
         clientes = (
             db.session.query(Cliente)
-            .filter(db.or_(Cliente.nome.ilike(like), Cliente.cpf.ilike(like), Cliente.cnpj.ilike(like)))
+            .filter(
+                Cliente.escritorio_id == g.escritorio_id,
+                db.or_(Cliente.nome.ilike(like), Cliente.cpf.ilike(like), Cliente.cnpj.ilike(like)),
+            )
             .order_by(Cliente.nome)
             .limit(8)
             .all()
@@ -65,7 +68,7 @@ def api_busca_global():
         veiculos = (
             db.session.query(Veiculo)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
-            .filter(Veiculo.placa.ilike(like))
+            .filter(Veiculo.escritorio_id == g.escritorio_id, Veiculo.placa.ilike(like))
             .order_by(Veiculo.placa)
             .limit(8)
             .all()
