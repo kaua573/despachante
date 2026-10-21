@@ -311,3 +311,68 @@ def test_paginas_por_id_nao_abrem_dado_de_outro_escritorio(app, cliente_logado_a
         assert cliente_logado_a.get(url).status_code == 200, url
         r = cliente_logado_b.get(url)
         assert r.status_code in (302, 404), f"B acessou {url}: {r.status_code}"
+
+
+def test_relatorio_filtra_por_cliente_e_proprietario_sem_acento(app, cliente_logado_a):
+    """Regressão: filtro de cliente ignorava acentos e o de proprietário não existia."""
+    from app import db
+    from app.models.veiculo import Veiculo
+    from app.models.ipva import Ipva
+
+    assert _criar_cliente(cliente_logado_a, "João da Silva", CPF_A).status_code == 200
+    cid = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
+    with app.app_context():
+        v = Veiculo(escritorio_id=1, cliente_id=cid, placa="ABC1D23", proprietario="Maria Souza")
+        db.session.add(v)
+        db.session.commit()
+        db.session.add(Ipva(veiculo_id=v.id, ano_referencia=2026, valor=100,
+                            vencimento="2026-11-10", pago=False))
+        db.session.commit()
+
+    def total(filtros):
+        cfg = {"tipos": ["ipva"], "filtros": filtros, "agrupar_por": "nenhum"}
+        return len(cliente_logado_a.post("/api/relatorios/dados", json=cfg).get_json()["dados"])
+
+    assert total({}) == 1
+    for termo in ("Jo", "joao", "JOÃO", "silva"):
+        assert total({"cliente_nome": termo}) == 1, termo
+    assert total({"cliente_nome": "Pedro"}) == 0
+    for termo in ("maria", "MARIA SOUZA", "souza"):
+        assert total({"proprietario": termo}) == 1, termo
+    assert total({"proprietario": "Pedro"}) == 0
+    assert total({"cliente_nome": "joao", "proprietario": "maria"}) == 1
+    assert total({"cliente_nome": "joao", "proprietario": "pedro"}) == 0
+
+
+def test_exportar_pdf_com_caracteres_especiais_e_agrupamento(app, cliente_logado_a):
+    """O PDF não pode quebrar com '&' ou '<' em nomes, nem com agrupamento e resumo."""
+    from app import db
+    from app.models.veiculo import Veiculo
+    from app.models.ipva import Ipva
+
+    assert _criar_cliente(cliente_logado_a, "Silva & Filhos <Ltda>", CPF_A).status_code == 200
+    cid = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
+    with app.app_context():
+        v = Veiculo(escritorio_id=1, cliente_id=cid, placa="ABC1D23", proprietario="A & B")
+        db.session.add(v)
+        db.session.commit()
+        db.session.add(Ipva(veiculo_id=v.id, ano_referencia=2026, valor=100,
+                            vencimento="2020-01-10", pago=False))
+        db.session.commit()
+
+    campos = [{"id": "cliente_nome", "label": "Cliente"}, {"id": "valor", "label": "Valor"},
+              {"id": "status_pag", "label": "Status"}]
+    for extra in ({}, {"agrupar_por": "cliente_nome", "mostrar_resumo": True,
+                       "mostrar_totais": True, "quebra_pagina_grupo": True}):
+        config = {"tipos": ["ipva"], "filtros": {"cliente_nome": "silva"}, **extra}
+        r = cliente_logado_a.post("/api/relatorios/exportar/pdf",
+                                  json={"config": config, "campos_visiveis": campos})
+        assert r.status_code == 200 and r.data.startswith(b"%PDF"), extra
+
+
+def test_pagina_relatorios_renderiza(cliente_logado_a):
+    r = cliente_logado_a.get("/relatorios")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    for marcador in ("relatorio-acoes", "aplicarAtalho", "cfg-proprietario", "campos-body"):
+        assert marcador in html, marcador

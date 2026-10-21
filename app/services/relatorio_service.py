@@ -11,8 +11,10 @@ from __future__ import annotations
 import io
 import json
 import os
+import unicodedata
 from datetime import date, datetime
 from typing import Any, Optional
+from xml.sax.saxutils import escape as _xml_escape
 
 from sqlalchemy.orm import Session
 
@@ -171,6 +173,11 @@ class RelatorioService(TenantService):
             modo_data = "infracao" if tipos == ["multas"] else "vencimento"
         filtros["_data_multas"] = modo_data
 
+        # Cliente e proprietário são filtrados em Python (ignorando acentos e
+        # maiúsculas): o ILIKE do banco não casa "Joao" com "João".
+        filtro_cliente = filtros.pop("cliente_nome", None)
+        filtro_proprietario = filtros.pop("proprietario", None)
+
         dados: list[dict] = []
         for tipo in tipos:
             if tipo == "ipva":
@@ -181,6 +188,9 @@ class RelatorioService(TenantService):
                 linhas = self._buscar_multas(filtros, ordenar_por, ordem_direcao)
             else:
                 continue
+            linhas = self._filtrar_por_texto(
+                linhas, filtro_cliente, filtro_proprietario
+            )
             if multiplos:
                 for linha in linhas:
                     linha["tipo_registro"] = TIPO_LABEL.get(tipo, tipo).upper()
@@ -189,6 +199,23 @@ class RelatorioService(TenantService):
         if multiplos:
             dados = self._ordenar_combinado(dados, ordenar_por, ordem_direcao)
         return dados
+
+    @staticmethod
+    def _normalizar_texto(valor: Any) -> str:
+        """Minúsculas e sem acentos, para comparar 'João' com 'joao'."""
+        texto = unicodedata.normalize("NFKD", str(valor or ""))
+        return "".join(c for c in texto if not unicodedata.combining(c)).casefold().strip()
+
+    @classmethod
+    def _filtrar_por_texto(cls, linhas: list[dict], cliente: Optional[str],
+                           proprietario: Optional[str]) -> list[dict]:
+        """Mantém só as linhas cujo cliente/proprietário contém o texto buscado."""
+        for campo, termo in (("cliente_nome", cliente), ("proprietario", proprietario)):
+            termo = cls._normalizar_texto(termo)
+            if termo:
+                linhas = [l for l in linhas
+                          if termo in cls._normalizar_texto(l.get(campo))]
+        return linhas
 
     @staticmethod
     def _ordenar_combinado(dados: list[dict], campo: str, direcao: str) -> list[dict]:
@@ -390,7 +417,56 @@ class RelatorioService(TenantService):
             "valor_pendente":  valor_pendente,
         }
 
+
     # ── Exportação PDF ──────────────────────────────────────────────────────
+
+    # Peso relativo de cada coluna na largura da página: nomes e textos longos
+    # ganham mais espaço que placa, ano ou datas.
+    _PESOS_COLUNA = {
+        "cliente_nome": 2.1, "placa": 1.35, "proprietario": 2.2, "marca_modelo": 2.0,
+        "especie": 1.45, "situacao": 1.3, "ano_referencia": 1.3, "valor": 1.5,
+        "vencimento": 1.5, "status_pag": 1.5, "data_pagamento": 1.4,
+        "observacao": 2.2, "auto_infracao": 1.6, "data_infracao": 1.4,
+        "descricao": 2.4, "tipo_registro": 1.4,
+    }
+    _CORES_STATUS = {
+        "VENCIDO": "#B42318", "PAGO": "#067647",
+        "A VENCER": "#B54708", "PENDENTE": "#475467",
+    }
+    _STATUS_LABEL = {"pago": "Pago", "pendente": "Pendente", "vencido": "Vencido", "a_vencer": "A vencer"}
+
+    def _descrever_filtros(self, config: dict) -> list[str]:
+        """Texto curto dos filtros/ordenação aplicados, para constar no PDF."""
+        f = config.get("filtros") or {}
+        filtros: list[str] = []
+        ini, fim = f.get("data_inicio"), f.get("data_fim")
+        if ini and fim:
+            filtros.append(f"Período: {self._fmt_data(ini)} a {self._fmt_data(fim)}")
+        elif ini:
+            filtros.append(f"A partir de {self._fmt_data(ini)}")
+        elif fim:
+            filtros.append(f"Até {self._fmt_data(fim)}")
+        if f.get("status"):
+            filtros.append(f"Status: {self._STATUS_LABEL.get(f['status'], f['status'])}")
+        if f.get("placa"):
+            filtros.append(f"Placa: {f['placa']}")
+        if f.get("cliente_nome"):
+            filtros.append(f"Cliente: {f['cliente_nome']}")
+        if f.get("proprietario"):
+            filtros.append(f"Proprietário: {f['proprietario']}")
+
+        rotulos = {c["id"]: c["label"] for c in CAMPOS_IPVA + CAMPOS_MULTAS}
+        organizacao: list[str] = []
+        grupo = config.get("agrupar_por")
+        if grupo and grupo != "nenhum":
+            organizacao.append(f"Agrupado por {rotulos.get(grupo, grupo)}")
+        ordem = config.get("ordenar_por") or "vencimento"
+        sentido = "decrescente" if config.get("ordem_direcao") == "desc" else "crescente"
+        organizacao.append(f"Ordenado por {rotulos.get(ordem, ordem)} ({sentido})")
+
+        linhas = [" · ".join(filtros) if filtros else "Sem filtros (todos os registros)"]
+        linhas.append(" · ".join(organizacao))
+        return linhas
 
     def gerar_pdf(
         self,
@@ -402,10 +478,10 @@ class RelatorioService(TenantService):
         """
         Gera PDF do relatório.
 
-        Visual fixo, inspirado em documentos de sistemas de gestão tradicionais
-        (cabeçalho com identificação do escritório, barra cinza de título,
-        caixas com borda, tabela com cabeçalho e total sombreados) — sem
-        opções de cor/fonte configuráveis; só o conteúdo muda com os filtros.
+        Layout: cabeçalho com logo/escritório, barra de título com data de
+        geração, filtros aplicados, resumo em cartões (opcional), tabela com
+        colunas proporcionais ao conteúdo, valores à direita, status colorido
+        e rodapé com numeração "Página X de Y".
 
         Args:
             dados: linhas do relatório
@@ -417,58 +493,111 @@ class RelatorioService(TenantService):
         from reportlab.lib import colors as rl_colors
         from reportlab.lib.units import cm
         from reportlab.lib.styles import ParagraphStyle
+        from reportlab.pdfgen import canvas as rl_canvas
         from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table,
-            TableStyle, Image as RLImage,
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+            Image as RLImage, CondPageBreak, PageBreak,
         )
 
-        nome_escritorio = cfg_pdf.get("nome_escritorio", "")
+        nome_escritorio = cfg_pdf.get("nome_escritorio", "") or "Sistema Despachante"
         logo_dir        = cfg_pdf.get("logo_dir", "")
         logo_arquivo    = cfg_pdf.get("logo_arquivo", "")
 
-        # Paleta fixa (preto/cinza), sem personalização — mesma família de
-        # tons do sistema web (ink/paper), aplicada em preto-e-branco no PDF.
-        PRETO   = rl_colors.HexColor("#16181C")
-        CINZA_BARRA  = rl_colors.HexColor("#EDEAE1")
-        CINZA_BORDA  = rl_colors.HexColor("#D8D4C8")
-        CINZA_SUB    = rl_colors.HexColor("#63697A")
-        BRANCO  = rl_colors.white
-        FONTE_BASE = "Helvetica"
-        FONTE_BOLD = "Helvetica-Bold"
+        PRETO       = rl_colors.HexColor("#16181C")
+        CABECALHO   = rl_colors.HexColor("#1F2A37")
+        CINZA_BARRA = rl_colors.HexColor("#EDEAE1")
+        CINZA_BORDA = rl_colors.HexColor("#D8D4C8")
+        CINZA_SUB   = rl_colors.HexColor("#63697A")
+        ZEBRA       = rl_colors.HexColor("#F7F6F2")
+        BRANCO      = rl_colors.white
+        FONTE_BASE, FONTE_BOLD = "Helvetica", "Helvetica-Bold"
 
-        sEscrit = ParagraphStyle("escrit", fontName=FONTE_BOLD, fontSize=13, textColor=PRETO, spaceAfter=1)
-        sEscritSub = ParagraphStyle("escritsub", fontName=FONTE_BASE, fontSize=8, textColor=CINZA_SUB, leading=11)
-        sBarraTxt  = ParagraphStyle("barratxt", fontName=FONTE_BOLD, fontSize=11, textColor=PRETO)
-        sBarraData = ParagraphStyle("barradata", fontName=FONTE_BASE, fontSize=9.5, textColor=PRETO, alignment=2)
-        sSecaoBarra = ParagraphStyle("secaobarra", fontName=FONTE_BOLD, fontSize=9, textColor=PRETO)
-        sLabel  = ParagraphStyle("label", fontName=FONTE_BOLD, fontSize=8.5, textColor=PRETO)
-        sValor  = ParagraphStyle("valor", fontName=FONTE_BASE, fontSize=8.5, textColor=PRETO)
-        sCell   = ParagraphStyle("cell",  fontName=FONTE_BASE, fontSize=8.5, textColor=PRETO)
-        sHead   = ParagraphStyle("head",  fontName=FONTE_BOLD, fontSize=8,   textColor=PRETO)
-        sTotal  = ParagraphStyle("total", fontName=FONTE_BOLD, fontSize=8.5, textColor=PRETO)
-        sRodape = ParagraphStyle("rodape", fontName=FONTE_BASE, fontSize=7.5, textColor=CINZA_SUB)
+        n_colunas = max(len(campos_visiveis), 1)
+        compacto  = n_colunas > 8
+        t_cell, t_head = (7.5, 7) if compacto else (8.5, 8)
+
+        def estilo(nome, **kw):
+            kw.setdefault("fontName", FONTE_BASE)
+            kw.setdefault("textColor", PRETO)
+            kw.setdefault("fontSize", t_cell)
+            kw.setdefault("leading", kw["fontSize"] * 1.25)
+            return ParagraphStyle(nome, **kw)
+
+        estilos = {
+            "escrit":   estilo("escrit", fontName=FONTE_BOLD, fontSize=14),
+            "barra":    estilo("barra", fontName=FONTE_BOLD, fontSize=10.5),
+            "barra_d":  estilo("barra_d", fontSize=9.5, alignment=2),
+            "secao":    estilo("secao", fontName=FONTE_BOLD, fontSize=9),
+            "filtros":  estilo("filtros", fontSize=8, textColor=CINZA_SUB, leading=11),
+            "cell":     estilo("cell"),
+            "cell_d":   estilo("cell_d", alignment=2),
+            "cell_c":   estilo("cell_c", alignment=1),
+            "head":     estilo("head", fontName=FONTE_BOLD, fontSize=t_head, textColor=BRANCO),
+            "head_d":   estilo("head_d", fontName=FONTE_BOLD, fontSize=t_head, textColor=BRANCO, alignment=2),
+            "head_c":   estilo("head_c", fontName=FONTE_BOLD, fontSize=t_head, textColor=BRANCO, alignment=1),
+            "total":    estilo("total", fontName=FONTE_BOLD),
+            "total_d":  estilo("total_d", fontName=FONTE_BOLD, alignment=2),
+            "kpi_rot":  estilo("kpi_rot", fontSize=7.5, textColor=CINZA_SUB),
+            "kpi_val":  estilo("kpi_val", fontName=FONTE_BOLD, fontSize=11, leading=14),
+            "kpi_sub":  estilo("kpi_sub", fontSize=7.5, textColor=CINZA_SUB),
+            "vazio":    estilo("vazio"),
+        }
 
         pagesize = landscape(A4) if len(campos_visiveis) > 6 else A4
+        margem   = 1.5 * cm
+        largura_util = pagesize[0] - 2 * margem
+        data_geracao = datetime.now().strftime("%d/%m/%Y %H:%M")
+        texto_rodape = f"{nome_escritorio} — Relatório emitido em {data_geracao}"
+
+        class _CanvasNumerado(rl_canvas.Canvas):
+            """Canvas em duas passadas, para poder escrever 'Página X de Y'."""
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._paginas: list[dict] = []
+
+            def showPage(self):
+                self._paginas.append(dict(self.__dict__))
+                self._startPage()
+
+            def save(self):
+                total = len(self._paginas)
+                for pagina in self._paginas:
+                    self.__dict__.update(pagina)
+                    self._rodape(total)
+                    super().showPage()
+                super().save()
+
+            def _rodape(self, total):
+                self.setStrokeColor(CINZA_BORDA)
+                self.setLineWidth(0.5)
+                self.line(margem, 1.15 * cm, pagesize[0] - margem, 1.15 * cm)
+                self.setFont(FONTE_BASE, 7.5)
+                self.setFillColor(CINZA_SUB)
+                self.drawString(margem, 0.7 * cm, texto_rodape)
+                self.drawRightString(pagesize[0] - margem, 0.7 * cm,
+                                     f"Página {self._pageNumber} de {total}")
 
         buf = io.BytesIO()
         doc = SimpleDocTemplate(
             buf, pagesize=pagesize,
-            leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-            topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+            leftMargin=margem, rightMargin=margem,
+            topMargin=1.5 * cm, bottomMargin=1.8 * cm,
+            title=f"Relatório — {tipos_label(tipos_do_config(config))}",
+            author=nome_escritorio,
         )
-        story = []
+        story: list = []
 
         def barra_secao(texto: str, texto_direita: str = "") -> Table:
-            """Barra cinza de seção (rótulo em maiúsculas, borda fina) — mesmo
-            papel visual das seções 'DADOS DO CLIENTE', 'PRODUTOS' etc. da
-            referência."""
             if texto_direita:
                 t = Table(
-                    [[Paragraph(texto.upper(), sSecaoBarra), Paragraph(texto_direita, sBarraData)]],
-                    colWidths=["70%", "30%"],
+                    [[Paragraph(_xml_escape(texto.upper()), estilos["secao"]),
+                      Paragraph(_xml_escape(texto_direita), estilos["barra_d"])]],
+                    colWidths=[largura_util * 0.7, largura_util * 0.3],
                 )
             else:
-                t = Table([[Paragraph(texto.upper(), sSecaoBarra)]], colWidths=["100%"])
+                t = Table([[Paragraph(_xml_escape(texto.upper()), estilos["secao"])]],
+                          colWidths=[largura_util])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, -1), CINZA_BARRA),
                 ("BOX",        (0, 0), (-1, -1), 0.6, CINZA_BORDA),
@@ -478,124 +607,176 @@ class RelatorioService(TenantService):
             return t
 
         # ── Cabeçalho: logo + nome do escritório ─────────────────────────
+        nome_par = Paragraph(_xml_escape(nome_escritorio), estilos["escrit"])
         logo_path = os.path.join(logo_dir, logo_arquivo) if logo_dir and logo_arquivo else ""
+        cabecalho = nome_par
         if logo_path and os.path.exists(logo_path):
             try:
                 logo_img = RLImage(logo_path)
-                altura_alvo = 1.8 * cm
-                razao = altura_alvo / logo_img.imageHeight
+                razao = (1.8 * cm) / logo_img.imageHeight
                 largura_final = min(logo_img.imageWidth * razao, 5 * cm)
                 altura_final  = largura_final / (logo_img.imageWidth / logo_img.imageHeight)
                 logo_cell = RLImage(logo_path, width=largura_final, height=altura_final)
-                nome_cell = [Paragraph(nome_escritorio or "Sistema Despachante", sEscrit)]
-                cabec_tbl = Table([[logo_cell, nome_cell]], colWidths=[largura_final + 0.4 * cm, None])
-                cabec_tbl.setStyle(TableStyle([
+                cabecalho = Table([[logo_cell, nome_par]], colWidths=[largura_final + 0.4 * cm, None])
+                cabecalho.setStyle(TableStyle([
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                     ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
                 ]))
-                story.append(cabec_tbl)
             except Exception:
-                story.append(Paragraph(nome_escritorio or "Sistema Despachante", sEscrit))
-        else:
-            story.append(Paragraph(nome_escritorio or "Sistema Despachante", sEscrit))
+                cabecalho = nome_par
+        story.append(cabecalho)
         story.append(Spacer(1, 8))
 
-        # ── Barra de título — nome do relatório + data de geração ────────
+        # ── Barra de título + filtros aplicados ──────────────────────────
         tipo_label = tipos_label(tipos_do_config(config))
-        data_geracao = datetime.now().strftime("%d/%m/%Y %H:%M")
         story.append(barra_secao(f"Relatório — {tipo_label}", data_geracao))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 4))
+        for linha_filtro in self._descrever_filtros(config):
+            story.append(Paragraph(_xml_escape(linha_filtro), estilos["filtros"]))
+        story.append(Spacer(1, 8))
 
-        # ── Resumo executivo (opcional) ────────────────────────────────────
+        # ── Resumo em cartões (opcional) ─────────────────────────────────
         if config.get("mostrar_resumo"):
-            totais = self.calcular_totais(dados)
-            story.append(barra_secao("Resumo"))
-            resumo_data = [
-                [Paragraph("Total de registros", sLabel), Paragraph(str(totais["total_registros"]), sValor)],
-                [Paragraph("Valor total",         sLabel), Paragraph(self._fmt_moeda(totais["total_valor"]),  sValor)],
-                [Paragraph("Pagos",               sLabel), Paragraph(f"{totais['total_pago']} ({self._fmt_moeda(totais['valor_pago'])})", sValor)],
-                [Paragraph("Pendentes",           sLabel), Paragraph(str(totais["total_pendente"]), sValor)],
-                [Paragraph("A Vencer",            sLabel), Paragraph(str(totais["total_a_vencer"]), sValor)],
-                [Paragraph("Vencidos",            sLabel), Paragraph(f"{totais['total_vencido']} ({self._fmt_moeda(totais['valor_pendente'])})", sValor)],
-            ]
-            t_resumo = Table(resumo_data, colWidths=["40%", "60%"])
-            t_resumo.setStyle(TableStyle([
-                ("BOX",        (0, 0), (-1, -1), 0.6, CINZA_BORDA),
-                ("INNERGRID",  (0, 0), (-1, -1), 0.4, CINZA_BORDA),
-                ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
-                ("PADDING",    (0, 0), (-1, -1), 6),
-            ]))
-            story.append(t_resumo)
+            story.append(self._montar_resumo_pdf(dados, estilos, largura_util, ZEBRA, CINZA_BORDA, BRANCO))
             story.append(Spacer(1, 12))
 
-        # ── Tabela de dados ────────────────────────────────────────────────
+        # ── Tabela(s) de dados ───────────────────────────────────────────
+        contexto = {
+            "estilos": estilos, "largura": largura_util, "cabecalho": CABECALHO,
+            "zebra": ZEBRA, "borda": CINZA_BORDA, "barra": CINZA_BARRA, "branco": BRANCO,
+        }
         campo_grupo = config.get("agrupar_por", "")
         if campo_grupo and campo_grupo != "nenhum":
             grupos = self.agrupar(dados, campo_grupo)
-            for nome_grupo, linhas in grupos.items():
-                story.append(barra_secao(str(nome_grupo)))
-                story.extend(self._montar_tabela_pdf(linhas, campos_visiveis, sHead, sCell, sTotal, CINZA_BARRA, CINZA_BORDA, BRANCO, config))
+            for i, (nome_grupo, linhas) in enumerate(grupos.items()):
+                if i and config.get("quebra_pagina_grupo"):
+                    story.append(PageBreak())
+                else:
+                    story.append(CondPageBreak(4 * cm))
+                total_grupo = self._fmt_moeda(sum(float(l.get("valor") or 0) for l in linhas))
+                n = len(linhas)
+                story.append(barra_secao(
+                    f"{nome_grupo} — {n} registro{'s' if n != 1 else ''}", total_grupo))
+                story.extend(self._montar_tabela_pdf(linhas, campos_visiveis, config, contexto))
                 story.append(Spacer(1, 10))
+            if len(grupos) > 1:
+                story.append(CondPageBreak(2 * cm))
+                story.append(barra_secao(
+                    f"Total geral — {len(dados)} registros",
+                    self._fmt_moeda(sum(float(l.get("valor") or 0) for l in dados))))
         else:
             story.append(barra_secao("Registros"))
-            story.extend(self._montar_tabela_pdf(dados, campos_visiveis, sHead, sCell, sTotal, CINZA_BARRA, CINZA_BORDA, BRANCO, config))
+            story.extend(self._montar_tabela_pdf(dados, campos_visiveis, config, contexto))
 
-        # ── Rodapé ────────────────────────────────────────────────────────
-        story.append(Spacer(1, 14))
-        story.append(Paragraph(
-            f"Relatório emitido pelo {nome_escritorio or 'Sistema Despachante'} em {data_geracao}",
-            sRodape,
-        ))
-
-        doc.build(story)
+        doc.build(story, canvasmaker=_CanvasNumerado)
         buf.seek(0)
         return buf.read()
 
-    def _montar_tabela_pdf(self, dados, campos_visiveis, sHead, sCell, sTotal, cinza_barra, cinza_borda, branco, config):
+    def _montar_resumo_pdf(self, dados, estilos, largura, fundo, borda, branco):
+        """Faixa de cartões: registros, valor total, pago, vencido e a vencer."""
+        from reportlab.platypus import Paragraph, Table, TableStyle
+
+        def soma(status):
+            linhas = [r for r in dados if r.get("status_pag") == status]
+            return len(linhas), sum(float(r.get("valor") or 0) for r in linhas)
+
+        totais = self.calcular_totais(dados)
+        n_pago, v_pago = soma("PAGO")
+        n_venc, v_venc = soma("VENCIDO")
+        n_avenc, v_avenc = soma("A VENCER")
+        cartoes = [
+            ("REGISTROS", str(totais["total_registros"]), ""),
+            ("VALOR TOTAL", self._fmt_moeda(totais["total_valor"]), ""),
+            ("PAGO", self._fmt_moeda(v_pago), f"{n_pago} registro(s)"),
+            ("VENCIDO", self._fmt_moeda(v_venc), f"{n_venc} registro(s)"),
+            ("A VENCER", self._fmt_moeda(v_avenc), f"{n_avenc} registro(s)"),
+        ]
+        celulas = [[
+            [Paragraph(rot, estilos["kpi_rot"]), Paragraph(val, estilos["kpi_val"]),
+             Paragraph(sub or "&nbsp;", estilos["kpi_sub"])]
+            for rot, val, sub in cartoes
+        ]]
+        t = Table(celulas, colWidths=[largura / len(cartoes)] * len(cartoes))
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), fundo),
+            ("BOX",        (0, 0), (-1, -1), 0.6, borda),
+            ("LINEAFTER",  (0, 0), (-2, -1), 0.6, borda),
+            ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+            ("PADDING",    (0, 0), (-1, -1), 7),
+        ]))
+        return t
+
+    def _montar_tabela_pdf(self, dados, campos_visiveis, config, ctx):
         from reportlab.platypus import Table, TableStyle, Paragraph
 
+        estilos = ctx["estilos"]
         if not dados:
-            return [Paragraph("Nenhum registro encontrado.", sCell)]
+            return [Paragraph("Nenhum registro encontrado.", estilos["vazio"])]
 
-        cabecalho = [Paragraph(c["label"], sHead) for c in campos_visiveis]
-        linhas    = [cabecalho]
+        ids = [c["id"] for c in campos_visiveis]
+        a_direita = {"valor"}
+        centralizados = {"placa", "ano_referencia", "vencimento", "data_pagamento", "data_infracao"}
+
+        def estilo_cel(campo_id, prefixo="cell"):
+            if campo_id in a_direita:
+                return estilos[f"{prefixo}_d"]
+            if campo_id in centralizados and prefixo != "total":
+                return estilos[f"{prefixo}_c"]
+            return estilos[prefixo]
+
+        linhas = [[Paragraph(_xml_escape(c["label"]), estilo_cel(c["id"], "head")) for c in campos_visiveis]]
 
         for linha in dados:
             row = []
             for campo in campos_visiveis:
-                val = linha.get(campo["id"], "")
-                if campo["id"] == "valor" and val is not None:
-                    val = self._fmt_moeda(val)
-                elif campo["id"] in ("vencimento", "data_pagamento", "data_infracao"):
-                    val = self._fmt_data(str(val))
-                row.append(Paragraph(str(val) if val is not None else "—", sCell))
+                cid = campo["id"]
+                val = linha.get(cid, "")
+                if cid == "valor":
+                    texto = _xml_escape(self._fmt_moeda(val))
+                elif cid in ("vencimento", "data_pagamento", "data_infracao"):
+                    texto = _xml_escape(self._fmt_data(str(val or "")))
+                elif cid == "status_pag" and str(val) in self._CORES_STATUS:
+                    texto = f'<font color="{self._CORES_STATUS[str(val)]}"><b>{_xml_escape(str(val))}</b></font>'
+                else:
+                    texto = _xml_escape(str(val)) if val not in (None, "") else "—"
+                row.append(Paragraph(texto, estilo_cel(cid)))
             linhas.append(row)
 
-        # Linha de totais (destaque visual — mesma sombra cinza do cabeçalho)
-        if config.get("mostrar_totais") and dados:
-            totais     = self.calcular_totais(dados)
-            linha_tot  = ["—"] * len(campos_visiveis)
-            ids        = [c["id"] for c in campos_visiveis]
+        tem_totais = bool(config.get("mostrar_totais"))
+        if tem_totais:
+            totais = self.calcular_totais(dados)
+            linha_tot = [""] * len(ids)
+            idx_rotulo = next((i for i, c in enumerate(ids) if c != "valor"), None)
+            if idx_rotulo is not None:
+                n = totais["total_registros"]
+                linha_tot[idx_rotulo] = f"Total: {n} registro{'s' if n != 1 else ''}"
             if "valor" in ids:
                 linha_tot[ids.index("valor")] = self._fmt_moeda(totais["total_valor"])
-            if "cliente_nome" in ids:
-                linha_tot[ids.index("cliente_nome")] = f"Total: {totais['total_registros']} registros"
-            linhas.append([Paragraph(v, sTotal) for v in linha_tot])
+            linhas.append([Paragraph(_xml_escape(v), estilo_cel(cid, "total"))
+                           for v, cid in zip(linha_tot, ids)])
 
-        n     = len(campos_visiveis)
-        col_w = [f"{100 / n:.1f}%"] * n
-        t     = Table(linhas, colWidths=col_w, repeatRows=1)
-        estilos = [
-            ("BACKGROUND",    (0, 0), (-1, 0), cinza_barra),
-            ("BOX",           (0, 0), (-1, -1), 0.6, cinza_borda),
-            ("INNERGRID",     (0, 0), (-1, -1), 0.4, cinza_borda),
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-            ("PADDING",       (0, 0), (-1, -1), 6),
+        pesos = [self._PESOS_COLUNA.get(cid, 1.4) for cid in ids]
+        col_w = [ctx["largura"] * p / sum(pesos) for p in pesos]
+        t = Table(linhas, colWidths=col_w, repeatRows=1)
+        ultima_dado = len(dados)
+        regras = [
+            ("BACKGROUND",     (0, 0), (-1, 0), ctx["cabecalho"]),
+            ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING",    (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING",   (0, 0), (-1, -1), 5),
+            ("TOPPADDING",     (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING",  (0, 0), (-1, -1), 4),
+            ("ROWBACKGROUNDS", (0, 1), (-1, ultima_dado), [ctx["branco"], ctx["zebra"]]),
+            ("LINEBELOW",      (0, 1), (-1, ultima_dado), 0.3, ctx["borda"]),
+            ("BOX",            (0, 0), (-1, -1), 0.6, ctx["borda"]),
         ]
-        if config.get("mostrar_totais") and dados:
-            estilos.append(("BACKGROUND", (0, -1), (-1, -1), cinza_barra))
-        t.setStyle(TableStyle(estilos))
+        if tem_totais:
+            regras += [
+                ("BACKGROUND", (0, -1), (-1, -1), ctx["barra"]),
+                ("LINEABOVE",  (0, -1), (-1, -1), 0.8, ctx["borda"]),
+            ]
+        t.setStyle(TableStyle(regras))
         return [t]
 
     # ── Exportação Excel ────────────────────────────────────────────────────
