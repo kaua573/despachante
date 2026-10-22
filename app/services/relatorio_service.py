@@ -16,6 +16,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 from xml.sax.saxutils import escape as _xml_escape
 
+from sqlalchemy import false as _sql_false, func
 from sqlalchemy.orm import Session
 
 from app.models.cliente import Cliente
@@ -175,6 +176,12 @@ class RelatorioService(TenantService):
 
         # Cliente e proprietário são filtrados em Python (ignorando acentos e
         # maiúsculas): o ILIKE do banco não casa "Joao" com "João".
+        filtros["cliente_id"] = self._inteiro(filtros.get("cliente_id"))
+        ids_veiculos = filtros.get("veiculo_ids")
+        filtros["veiculo_ids"] = (
+            [i for i in map(self._inteiro, ids_veiculos) if i is not None]
+            if isinstance(ids_veiculos, list) else None
+        )
         filtro_cliente = filtros.pop("cliente_nome", None)
         filtro_proprietario = filtros.pop("proprietario", None)
 
@@ -199,6 +206,86 @@ class RelatorioService(TenantService):
         if multiplos:
             dados = self._ordenar_combinado(dados, ordenar_por, ordem_direcao)
         return dados
+
+    @staticmethod
+    def _inteiro(valor: Any) -> Optional[int]:
+        try:
+            return int(valor)
+        except (TypeError, ValueError):
+            return None
+
+    # ── Escolha do cliente na tela de relatórios ────────────────────────────
+
+    def buscar_clientes(self, termo: str, limite: int = 8) -> list[dict]:
+        """Sugestões de clientes do escritório por nome (sem acento) ou CPF/CNPJ."""
+        palavras = self._normalizar_texto(termo).split()
+        digitos = "".join(ch for ch in str(termo or "") if ch.isdigit())
+        if not palavras or len(" ".join(palavras)) < 2:
+            return []
+
+        linhas = (
+            self._s.query(Cliente.id, Cliente.nome, Cliente.cpf, Cliente.cnpj)
+            .filter(Cliente.escritorio_id == self.escritorio_id)
+            .all()
+        )
+        achados = []
+        for cid, nome, cpf, cnpj in linhas:
+            nome_n = self._normalizar_texto(nome)
+            doc = cpf or cnpj or ""
+            doc_digitos = "".join(ch for ch in doc if ch.isdigit())
+            if all(p in nome_n for p in palavras):
+                relevancia = 0 if nome_n.startswith(palavras[0]) else (
+                    1 if any(parte.startswith(palavras[0]) for parte in nome_n.split()) else 2)
+            elif len(digitos) >= 3 and digitos in doc_digitos:
+                relevancia = 2
+            else:
+                continue
+            achados.append((relevancia, nome_n, cid, nome, doc))
+        achados.sort()
+        achados = achados[:limite]
+        if not achados:
+            return []
+
+        contagem = dict(
+            self._s.query(Veiculo.cliente_id, func.count(Veiculo.id))
+            .filter(Veiculo.escritorio_id == self.escritorio_id,
+                    Veiculo.cliente_id.in_([a[2] for a in achados]))
+            .group_by(Veiculo.cliente_id)
+            .all()
+        )
+        return [
+            {"id": cid, "nome": nome, "documento": doc, "total_veiculos": contagem.get(cid, 0)}
+            for _, _, cid, nome, doc in achados
+        ]
+
+    def escopo_cliente(self, cliente_id: int) -> Optional[dict]:
+        """Proprietários e veículos de um cliente, para escolher o que entra no relatório."""
+        cliente = (
+            self._s.query(Cliente)
+            .filter(Cliente.id == cliente_id, Cliente.escritorio_id == self.escritorio_id)
+            .first()
+        )
+        if not cliente:
+            return None
+        veiculos = (
+            self._s.query(Veiculo)
+            .filter(Veiculo.cliente_id == cliente.id, Veiculo.escritorio_id == self.escritorio_id)
+            .order_by(Veiculo.placa)
+            .all()
+        )
+        grupos: dict[str, dict] = {}
+        for v in veiculos:
+            nome = (v.proprietario or "").strip() or "Sem proprietário informado"
+            grupo = grupos.setdefault(self._normalizar_texto(nome), {"nome": nome, "veiculos": []})
+            grupo["veiculos"].append({
+                "id": v.id, "placa": v.placa,
+                "marca_modelo": v.marca_modelo or "", "situacao": self._situacao_txt(v),
+            })
+        return {
+            "cliente": {"id": cliente.id, "nome": cliente.nome, "documento": cliente.cpf or cliente.cnpj or ""},
+            "total_veiculos": len(veiculos),
+            "proprietarios": sorted(grupos.values(), key=lambda g: self._normalizar_texto(g["nome"])),
+        }
 
     @staticmethod
     def _normalizar_texto(valor: Any) -> str:
@@ -280,6 +367,20 @@ class RelatorioService(TenantService):
             q = q.filter(Veiculo.placa.ilike(f"%{filtros['placa']}%"))
         if filtros.get("cliente_nome"):
             q = q.filter(Cliente.nome.ilike(f"%{filtros['cliente_nome']}%"))
+        return self._aplicar_filtros_escopo(q, filtros)
+
+    @staticmethod
+    def _aplicar_filtros_escopo(q, filtros: dict):
+        """Escopo escolhido na tela: um cliente e, dentro dele, só alguns veículos.
+
+        As consultas já são limitadas ao escritório (Veiculo.escritorio_id),
+        então um id de outro escritório simplesmente não retorna nada.
+        """
+        if filtros.get("cliente_id") is not None:
+            q = q.filter(Cliente.id == filtros["cliente_id"])
+        ids = filtros.get("veiculo_ids")
+        if ids is not None:
+            q = q.filter(Veiculo.id.in_(ids)) if ids else q.filter(_sql_false())
         return q
 
     def _aplicar_filtros_multas(self, q, filtros: dict):
@@ -301,7 +402,7 @@ class RelatorioService(TenantService):
             q = q.filter(Veiculo.placa.ilike(f"%{filtros['placa']}%"))
         if filtros.get("cliente_nome"):
             q = q.filter(Cliente.nome.ilike(f"%{filtros['cliente_nome']}%"))
-        return q
+        return self._aplicar_filtros_escopo(q, filtros)
 
     def _aplicar_ordenacao(self, q, modelo, veiculo_model, cliente_model, campo: str, direcao: str):
         mapa = {
@@ -439,6 +540,21 @@ class RelatorioService(TenantService):
         """Texto curto dos filtros/ordenação aplicados, para constar no PDF."""
         f = config.get("filtros") or {}
         filtros: list[str] = []
+        cid = self._inteiro(f.get("cliente_id"))
+        if cid is not None:
+            nome = (self._s.query(Cliente.nome)
+                    .filter(Cliente.id == cid, Cliente.escritorio_id == self.escritorio_id)
+                    .scalar())
+            if nome:
+                filtros.append(f"Cliente: {nome}")
+        if isinstance(f.get("veiculo_ids"), list):
+            ids = [i for i in map(self._inteiro, f["veiculo_ids"]) if i is not None]
+            placas = [pl for (pl,) in (self._s.query(Veiculo.placa)
+                      .filter(Veiculo.id.in_(ids), Veiculo.escritorio_id == self.escritorio_id)
+                      .order_by(Veiculo.placa).all())]
+            if placas:
+                resto = f" +{len(placas) - 6}" if len(placas) > 6 else ""
+                filtros.append(f"Veículos: {', '.join(placas[:6])}{resto}")
         ini, fim = f.get("data_inicio"), f.get("data_fim")
         if ini and fim:
             filtros.append(f"Período: {self._fmt_data(ini)} a {self._fmt_data(fim)}")

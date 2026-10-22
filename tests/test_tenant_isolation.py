@@ -374,5 +374,82 @@ def test_pagina_relatorios_renderiza(cliente_logado_a):
     r = cliente_logado_a.get("/relatorios")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    for marcador in ("relatorio-acoes", "aplicarAtalho", "cfg-proprietario", "campos-body"):
+    for marcador in ("relatorio-acoes", "aplicarAtalho", "cfg-proprietario", "busca-cliente", "arvore-escopo"):
         assert marcador in html, marcador
+
+
+def _montar_cliente_com_veiculos(app, cliente_http, nome, cpf, veiculos, escritorio_id):
+    """Cria um cliente e veículos (placa, proprietário, valor do IPVA); devolve (cliente_id, [veiculo_id])."""
+    from app import db
+    from app.models.veiculo import Veiculo
+    from app.models.ipva import Ipva
+
+    assert _criar_cliente(cliente_http, nome, cpf).status_code == 200
+    cid = [c["id"] for c in cliente_http.get("/api/clientes").get_json() if c["nome"] == nome][0]
+    ids = []
+    with app.app_context():
+        for placa, prop, valor in veiculos:
+            v = Veiculo(escritorio_id=escritorio_id, cliente_id=cid, placa=placa, proprietario=prop)
+            db.session.add(v)
+            db.session.flush()
+            db.session.add(Ipva(veiculo_id=v.id, ano_referencia=2026, valor=valor,
+                                vencimento="2020-01-10", pago=False))
+            ids.append(v.id)
+        db.session.commit()
+    return cid, ids
+
+
+def test_busca_de_clientes_para_relatorio_e_isolada_e_ignora_acentos(app, cliente_logado_a, cliente_logado_b):
+    _montar_cliente_com_veiculos(app, cliente_logado_a, "João da Silva", CPF_A, [], 1)
+    _montar_cliente_com_veiculos(app, cliente_logado_b, "João Souza", CPF_B, [], 2)
+
+    nomes = lambda r: [c["nome"] for c in r.get_json()]
+    assert nomes(cliente_logado_a.get("/api/relatorios/clientes?q=joao")) == ["João da Silva"]
+    assert nomes(cliente_logado_b.get("/api/relatorios/clientes?q=JOAO")) == ["João Souza"]
+    assert nomes(cliente_logado_a.get("/api/relatorios/clientes?q=silva joao")) == ["João da Silva"]
+    assert nomes(cliente_logado_a.get("/api/relatorios/clientes?q=souza")) == []
+    assert cliente_logado_a.get("/api/relatorios/clientes?q=j").get_json() == []
+
+
+def test_escopo_do_cliente_agrupa_por_proprietario_e_nao_vaza(app, cliente_logado_a, cliente_logado_b):
+    cid, ids = _montar_cliente_com_veiculos(
+        app, cliente_logado_a, "Cliente Frota", CPF_A,
+        [("AAA1A11", "Maria Souza", 100), ("BBB2B22", "maria souza", 200), ("CCC3C33", "José Souza", 300)], 1)
+
+    escopo = cliente_logado_a.get(f"/api/relatorios/clientes/{cid}/escopo").get_json()
+    assert escopo["total_veiculos"] == 3
+    assert [(p["nome"], len(p["veiculos"])) for p in escopo["proprietarios"]] == [("José Souza", 1), ("Maria Souza", 2)]
+    assert cliente_logado_b.get(f"/api/relatorios/clientes/{cid}/escopo").status_code == 404
+
+
+def test_relatorio_por_cliente_e_veiculos_escolhidos(app, cliente_logado_a, cliente_logado_b):
+    cid, ids = _montar_cliente_com_veiculos(
+        app, cliente_logado_a, "Cliente Frota", CPF_A,
+        [("AAA1A11", "Maria Souza", 100), ("BBB2B22", "Maria Souza", 200), ("CCC3C33", "José Souza", 300)], 1)
+    _montar_cliente_com_veiculos(app, cliente_logado_a, "Outro Cliente", "52998224725", [("ZZZ9Z99", "X", 999)], 1)
+
+    def valores(http, filtros):
+        cfg = {"tipos": ["ipva"], "filtros": filtros, "agrupar_por": "nenhum"}
+        return sorted(l["valor"] for l in http.post("/api/relatorios/dados", json=cfg).get_json()["dados"])
+
+    assert valores(cliente_logado_a, {"cliente_id": cid}) == [100, 200, 300]
+    assert valores(cliente_logado_a, {"cliente_id": cid, "veiculo_ids": ids[:2]}) == [100, 200]
+    assert valores(cliente_logado_a, {"cliente_id": cid, "veiculo_ids": [ids[2]]}) == [300]
+    assert valores(cliente_logado_a, {"cliente_id": cid, "veiculo_ids": []}) == []
+    assert valores(cliente_logado_a, {"cliente_id": "abc"}) == [100, 200, 300, 999]  # id inválido é ignorado
+    # o outro escritório não enxerga nada, mesmo conhecendo os ids
+    assert valores(cliente_logado_b, {"cliente_id": cid}) == []
+    assert valores(cliente_logado_b, {"veiculo_ids": ids}) == []
+
+
+def test_pdf_descreve_cliente_e_veiculos_escolhidos(app, cliente_logado_a):
+    from app.services.relatorio_service import RelatorioService
+    from app import db
+
+    cid, ids = _montar_cliente_com_veiculos(
+        app, cliente_logado_a, "Cliente Frota", CPF_A,
+        [("AAA1A11", "Maria", 100), ("BBB2B22", "José", 200)], 1)
+    with app.app_context():
+        texto = RelatorioService(db.session, 1)._descrever_filtros(
+            {"filtros": {"cliente_id": cid, "veiculo_ids": [ids[0]]}})[0]
+    assert "Cliente: Cliente Frota" in texto and "AAA1A11" in texto and "BBB2B22" not in texto

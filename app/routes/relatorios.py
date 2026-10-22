@@ -53,6 +53,27 @@ def api_campos(tipo):
     return jsonify(CAMPOS_POR_TIPO[tipo])
 
 
+# ── API — Escolha do cliente ─────────────────────────────────────────────────
+
+@bp.route("/api/relatorios/clientes")
+@login_required
+@requer_permissao("gerar_relatorios")
+def api_buscar_clientes():
+    """Sugestões para o campo de busca de cliente (nome ou CPF/CNPJ)."""
+    return jsonify(_svc().buscar_clientes(request.args.get("q", "")))
+
+
+@bp.route("/api/relatorios/clientes/<int:cid>/escopo")
+@login_required
+@requer_permissao("gerar_relatorios")
+def api_escopo_cliente(cid):
+    """Proprietários e veículos do cliente, para o usuário escolher o que incluir."""
+    escopo = _svc().escopo_cliente(cid)
+    if not escopo:
+        return jsonify({"ok": False, "erro": "Cliente não encontrado."}), 404
+    return jsonify(escopo)
+
+
 # ── API — Dados do relatório ─────────────────────────────────────────────────
 
 @bp.route("/api/relatorios/dados", methods=["POST"])
