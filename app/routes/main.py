@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, jsonify, send_from_directory, current_app, request, g
+from flask import Blueprint, render_template, jsonify, send_from_directory, current_app, request, g, abort
 from flask_login import login_required, current_user
 from app import db
 from app.services.dashboard_service import DashboardService
@@ -84,6 +84,18 @@ def api_busca_global():
 @bp.route("/static/uploads/documentos/<nome>")
 @login_required
 def baixar_documento(nome):
+    # O nome do arquivo é aleatório, mas isso não basta: só entrega se o
+    # documento pertence a um cliente DESTE escritório.
+    from app.models.cliente import Cliente
+    from app.models.documento import Documento
+    pertence = (
+        db.session.query(Documento.id)
+        .join(Cliente, Documento.cliente_id == Cliente.id)
+        .filter(Documento.arquivo == nome, Cliente.escritorio_id == g.escritorio_id)
+        .first()
+    )
+    if not pertence:
+        abort(404)
     return send_from_directory(current_app.config["UPLOAD_DIR"], nome, as_attachment=True)
 
 
@@ -93,4 +105,8 @@ def logo_arquivo(nome):
     # pelo usuário em tempo de execução e fica em LOGO_DIR, que no .exe
     # empacotado mora na pasta "dados", fora da pasta estática somente-leitura
     # do bundle. Mantém a mesma URL de sempre para não quebrar templates.
-    return send_from_directory(current_app.config["LOGO_DIR"], nome)
+    resp = send_from_directory(current_app.config["LOGO_DIR"], nome)
+    # Um SVG enviado como logo pode conter script: com isto, aberto direto no
+    # navegador ele só é exibido, nunca executado.
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    return resp

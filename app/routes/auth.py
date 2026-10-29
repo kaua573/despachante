@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, g, abort
 from flask_login import login_user, logout_user, login_required, current_user
 from datetime import datetime
@@ -68,13 +69,21 @@ def login_escritorio(slug):
                 if usuario.senha_temporaria:
                     return redirect(url_for("auth.trocar_senha_obrigatorio"))
 
-                destino = request.args.get("next") or url_for("main.dashboard")
-                # Segurança: só redireciona para URLs relativas
-                if destino and not destino.startswith("/"):
-                    destino = url_for("main.dashboard")
-                return redirect(destino)
+                return redirect(_destino_seguro(request.args.get("next")))
 
     return render_template("auth/login.html", erro=erro, escritorio=escritorio)
+
+
+def _destino_seguro(destino):
+    """Só aceita caminhos deste mesmo site. '//outro.com' e '/\\outro.com' começam
+    com '/', mas o navegador os trata como outro endereço (open redirect)."""
+    padrao = url_for("main.dashboard")
+    if not destino or not destino.startswith("/") or destino.startswith(("//", "/\\")):
+        return padrao
+    partes = urlparse(destino)
+    if partes.scheme or partes.netloc:
+        return padrao
+    return destino
 
 
 @bp.route("/logout")

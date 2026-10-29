@@ -64,7 +64,8 @@ class EscritorioService:
     def obter(self, escritorio_id: int) -> Optional[Escritorio]:
         return self._s.get(Escritorio, escritorio_id)
 
-    def criar(self, nome: str, slug: Optional[str] = None) -> tuple[Optional[Escritorio], str]:
+    def criar(self, nome: str, slug: Optional[str] = None,
+              senha_admin: Optional[str] = None) -> tuple[Optional[Escritorio], str]:
         nome = (nome or "").strip()
         if not nome:
             return None, "Nome é obrigatório."
@@ -86,7 +87,7 @@ class EscritorioService:
         # mesma lógica usada no bootstrap do escritório "principal"
         # (wsgi.py), reaproveitada aqui pra um escritório novo.
         ConfiguracaoService(self._s, escritorio.id).seed_defaults()
-        AuthService(self._s).seed_admin(escritorio.id)
+        AuthService(self._s).seed_admin(escritorio.id, senha_admin)
 
         return escritorio, ""
 

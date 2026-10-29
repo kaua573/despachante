@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -49,7 +49,13 @@ def create_app(config_name: str = "default") -> Flask:
         from app.models.usuario import Usuario
         return db.session.get(Usuario, int(user_id))
 
+    if config_name == "production":
+        # Atrás do proxy do Cloud Run: enxerga o IP e o https reais do visitante
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
     _registrar_escopo_tenant(app)
+    _registrar_protecoes(app)
 
     _registrar_helpers_jinja(app)
     _registrar_blueprints(app)
@@ -58,6 +64,43 @@ def create_app(config_name: str = "default") -> Flask:
     _iniciar_backup_automatico(app)
 
     return app
+
+
+def _registrar_protecoes(app: Flask) -> None:
+    """Verificação de origem (anti-CSRF) e cabeçalhos de segurança em toda resposta."""
+    from urllib.parse import urlparse
+
+    @app.before_request
+    def _checar_origem():
+        # Todo navegador informa de que site partiu um POST/PUT/DELETE (Origin ou
+        # Referer). Se informou e não é este mesmo site, recusa: é assim que um
+        # site de terceiros tentaria agir em nome de quem está logado.
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        origem = request.headers.get("Origin") or request.headers.get("Referer")
+        if not origem:
+            return None  # clientes que não são navegadores (scripts, testes)
+        hosts_aceitos = {request.host}
+        encaminhado = request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
+        if encaminhado:
+            hosts_aceitos.add(encaminhado)
+        if urlparse(origem).netloc not in hosts_aceitos:
+            return jsonify({"ok": False, "erro": "Requisição recusada: origem não confiável."}), 403
+        return None
+
+    @app.after_request
+    def _cabecalhos_seguranca(resp):
+        h = resp.headers
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("X-Frame-Options", "SAMEORIGIN")
+        h.setdefault("Referrer-Policy", "same-origin")
+        h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        h.setdefault("Content-Security-Policy", "frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
+        if not app.debug and not app.testing:
+            h.setdefault("Strict-Transport-Security", "max-age=31536000")
+        if request.path.startswith("/api/"):
+            h.setdefault("Cache-Control", "no-store")  # dados de clientes não ficam em cache
+        return resp
 
 
 def _registrar_helpers_jinja(app: Flask) -> None:
@@ -200,6 +243,35 @@ def aplicar_migracoes_leves(app: Flask) -> None:
 
         _aplicar_migracao_multi_tenant(app, inspector)
         _migrar_unicidade_para_tenant(app)
+        _garantir_indices(app)
+
+
+# Índices nas colunas usadas para ligar tabelas e filtrar vencimentos. No
+# PostgreSQL a chave estrangeira NÃO ganha índice sozinha: sem eles, cada tela
+# varre a tabela inteira. IF NOT EXISTS torna seguro rodar a cada start.
+_INDICES = [
+    ("ix_veiculos_cliente_id", "veiculos", "cliente_id"),
+    ("ix_ipva_veiculo_id", "ipva", "veiculo_id"),
+    ("ix_ipva_pago_vencimento", "ipva", "pago, vencimento"),
+    ("ix_ipva_parcela_ipva_id", "ipva_parcela", "ipva_id"),
+    ("ix_licenciamento_veiculo_id", "licenciamento", "veiculo_id"),
+    ("ix_licenciamento_pago_vencimento", "licenciamento", "pago, vencimento"),
+    ("ix_multas_veiculo_id", "multas", "veiculo_id"),
+    ("ix_multas_pago_vencimento", "multas", "pago, vencimento"),
+    ("ix_documentos_cliente_id", "documentos", "cliente_id"),
+    ("ix_contato_pendencia_cliente_id", "contato_pendencia", "cliente_id"),
+    ("ix_contato_pendencia_veiculo_id", "contato_pendencia", "veiculo_id"),
+    ("ix_log_acao_criado_em", "log_acao", "criado_em"),
+]
+
+
+def _garantir_indices(app: Flask) -> None:
+    from sqlalchemy import inspect, text
+    tabelas = set(inspect(db.engine).get_table_names())
+    with db.engine.begin() as conn:
+        for nome, tabela, colunas in _INDICES:
+            if tabela in tabelas:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {nome} ON {tabela} ({colunas})"))
 
 
 def _aplicar_migracao_multi_tenant(app: Flask, inspector) -> None:

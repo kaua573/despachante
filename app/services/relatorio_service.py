@@ -936,6 +936,8 @@ class RelatorioService(TenantService):
                         val = ""
                 elif campo["id"] in ("vencimento", "data_pagamento", "data_infracao"):
                     val = self._fmt_data(str(val)) if val else ""
+                if isinstance(val, str) and val[:1] in ("=", "+", "-", "@"):
+                    val = "'" + val  # nome como "=CMD(...)" não pode virar fórmula na planilha
                 cell           = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else "")
                 if fill_row:
                     cell.fill  = fill_row

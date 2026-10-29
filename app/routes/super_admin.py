@@ -6,6 +6,8 @@ e config.py:SUPER_ADMIN_TOKEN pro raciocínio completo.
 """
 import functools
 import hmac
+import secrets
+import time
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, abort, current_app, flash
 
@@ -15,6 +17,23 @@ from app.services.escritorio_service import EscritorioService
 bp = Blueprint("super_admin", __name__, url_prefix="/super-admin")
 
 _SESSION_KEY = "super_admin_ok"
+
+# Limite de tentativas do token por IP (em memória: basta para barrar adivinhação
+# em massa; o token em si deve ser longo e aleatório).
+_MAX_FALHAS = 5
+_JANELA_SEGUNDOS = 15 * 60
+_falhas: dict[str, list[float]] = {}
+
+
+def _ip_cliente() -> str:
+    return request.remote_addr or "?"
+
+
+def _bloqueado(ip: str) -> bool:
+    agora = time.time()
+    recentes = [t for t in _falhas.get(ip, []) if agora - t < _JANELA_SEGUNDOS]
+    _falhas[ip] = recentes
+    return len(recentes) >= _MAX_FALHAS
 
 
 def _token_configurado() -> str | None:
@@ -52,13 +71,16 @@ def entrar():
     erro = None
     if request.method == "POST":
         token = request.form.get("token", "")
-        # Comparação simples — este token não é uma senha de usuário
-        # (não há tentativas/bloqueio aqui), é um segredo de operador único
-        # que só Kauã tem, guardado como variável de ambiente.
-        if token and token == _token_configurado():
+        ip = _ip_cliente()
+        if _bloqueado(ip):
+            erro = "Muitas tentativas. Aguarde alguns minutos."
+        elif token and hmac.compare_digest(token.encode(), _token_configurado().encode()):
+            _falhas.pop(ip, None)
             session[_SESSION_KEY] = True
             return redirect(url_for("super_admin.escritorios"))
-        erro = "Token inválido."
+        else:
+            _falhas.setdefault(ip, []).append(time.time())
+            erro = "Token inválido."
 
     return render_template("super_admin/entrar.html", erro=erro)
 
@@ -79,20 +101,22 @@ def escritorios():
     if request.method == "POST":
         nome = request.form.get("nome", "").strip()
         slug_informado = request.form.get("slug", "").strip()
-        escritorio, msg = svc.criar(nome, slug_informado or None)
+        # Senha inicial aleatória: a "admin123" fixa ficaria valendo, para qualquer
+        # pessoa que soubesse o endereço, até o primeiro login do escritório.
+        senha_inicial = secrets.token_urlsafe(9)
+        escritorio, msg = svc.criar(nome, slug_informado or None, senha_admin=senha_inicial)
         if not escritorio:
             erro = msg
         else:
             flash(f"Escritório '{escritorio.nome}' criado com sucesso.")
-            # Credenciais iniciais — mesmas do bootstrap de qualquer
-            # escritório novo (ver AuthService.seed_admin): usuário "admin",
-            # senha temporária "admin123", troca obrigatória no 1º login.
+            # Credenciais iniciais: usuário "admin" com a senha aleatória acima
+            # (mostrada só agora), troca obrigatória no 1º login.
             credenciais_criadas = {
                 "nome": escritorio.nome,
                 "slug": escritorio.slug,
                 "url_login": url_for("auth.login_escritorio", slug=escritorio.slug, _external=True),
                 "usuario": "admin",
-                "senha": "admin123",
+                "senha": senha_inicial,
             }
 
     return render_template(

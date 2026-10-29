@@ -90,6 +90,12 @@ class Config:
     # desativada (a tela de escritórios continua funcionando normalmente).
     SUPER_ADMIN_DELETE_TOKEN = os.environ.get("SUPER_ADMIN_DELETE_TOKEN")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Cookie de sessão: inacessível ao JavaScript e não enviado em requisições
+    # que partem de outros sites (reforça a proteção contra CSRF).
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = "Lax"
     UPLOAD_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "documentos")
     LOGO_DIR = os.path.join(BASE_DIR, "app", "static", "uploads", "logo")
     BACKUP_DIR = os.path.join(BASE_DIR, "backups")
@@ -131,12 +137,28 @@ class DesktopConfig(Config):
 class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
+    # Só trafega o cookie por HTTPS (o Cloud Run já serve tudo em HTTPS)
+    SESSION_COOKIE_SECURE = True
+    REMEMBER_COOKIE_SECURE = True
+    PREFERRED_URL_SCHEME = "https"
+    # Conexões com o Postgres (Supabase) que ficam ociosas são derrubadas pelo
+    # servidor: pre_ping testa a conexão antes de usar e recycle a renova.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_size": 5,
+        "max_overflow": 5,
+    }
 
     @staticmethod
     def init_app(app):
         Config.init_app(app)
         if not ProductionConfig.SQLALCHEMY_DATABASE_URI:
             raise RuntimeError("DATABASE_URL não configurada para produção.")
+        if not os.environ.get("SECRET_KEY"):
+            # Sem SECRET_KEY fixa, cada instância/reinício gera uma chave nova e
+            # derruba as sessões de quem está logado. Defina no Cloud Run.
+            app.logger.warning("SECRET_KEY não definida: defina a variável de ambiente em produção.")
 
 
 config = {

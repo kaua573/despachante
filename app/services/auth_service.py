@@ -67,8 +67,10 @@ class AuthService(TenantService):
 
     def trocar_senha(self, usuario_id: int, nova_senha: str) -> tuple[bool, str]:
         """Troca a senha e limpa flags de senha temporária."""
-        if len(nova_senha) < 6:
-            return False, "A senha deve ter ao menos 6 caracteres."
+        if len(nova_senha) < 8:
+            return False, "A senha deve ter ao menos 8 caracteres."
+        if nova_senha.lower() in ("admin123", "12345678", "senha123", "password"):
+            return False, "Escolha uma senha menos óbvia."
         usuario = self._s.get(Usuario, usuario_id)
         if not usuario:
             return False, "Usuário não encontrado."
@@ -171,14 +173,19 @@ class AuthService(TenantService):
             if cod in CODIGOS_PERMISSAO:
                 self._s.add(PermissaoUsuario(usuario_id=usuario_id, permissao=cod))
 
-    def seed_admin(self, escritorio_id: int) -> None:
-        """Cria usuário admin padrão se o escritório ainda não tem nenhum usuário."""
+    def seed_admin(self, escritorio_id: int, senha: Optional[str] = None) -> None:
+        """Cria usuário admin se o escritório ainda não tem nenhum usuário.
+
+        Sem `senha`, usa a padrão de desenvolvimento ("admin123"). Escritórios
+        criados em produção recebem uma senha aleatória (ver super_admin).
+        """
+        senha = senha or "admin123"
         if self._s.query(Usuario).filter_by(escritorio_id=escritorio_id).count() == 0:
             self._s.add(Usuario(
                 escritorio_id=escritorio_id,
                 nome_usuario="admin",
                 nome_completo="Administrador",
-                senha_hash=generate_password_hash("admin123"),
+                senha_hash=generate_password_hash(senha),
                 perfil="administrador",
                 ativo=True,
                 senha_temporaria=True,

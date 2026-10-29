@@ -223,7 +223,8 @@ def test_super_admin_sem_token_configurado_eh_404(app):
     assert client.get("/super-admin/escritorios").status_code == 404
 
 
-def test_super_admin_cria_escritorio_funcional(app):
+def test_super_admin_cria_escritorio_funcional(app, monkeypatch):
+    monkeypatch.setattr("app.routes.super_admin.secrets.token_urlsafe", lambda n: "SenhaInicial-9x")
     app.config["SUPER_ADMIN_TOKEN"] = "segredo-de-teste"
     try:
         client = app.test_client()
@@ -236,9 +237,13 @@ def test_super_admin_cria_escritorio_funcional(app):
         assert r.status_code == 200
         assert b"escritorio-novo" in r.data
 
-        # O escritório recém-criado já tem login funcional com a credencial padrão.
+        # A senha inicial é aleatória e aparece na tela só nessa hora; a antiga
+        # "admin123" (pública no README) não pode abrir o escritório novo.
+        assert b"SenhaInicial-9x" in r.data
         novo_cliente = app.test_client()
         r = novo_cliente.post("/e/escritorio-novo/login", data={"nome_usuario": "admin", "senha": "admin123"})
+        assert r.status_code == 200, "admin123 não deve funcionar em escritório novo"
+        r = novo_cliente.post("/e/escritorio-novo/login", data={"nome_usuario": "admin", "senha": "SenhaInicial-9x"})
         assert r.status_code == 302 and "/trocar-senha" in r.headers["Location"]
     finally:
         app.config["SUPER_ADMIN_TOKEN"] = None
@@ -453,3 +458,142 @@ def test_pdf_descreve_cliente_e_veiculos_escolhidos(app, cliente_logado_a):
         texto = RelatorioService(db.session, 1)._descrever_filtros(
             {"filtros": {"cliente_id": cid, "veiculo_ids": [ids[0]]}})[0]
     assert "Cliente: Cliente Frota" in texto and "AAA1A11" in texto and "BBB2B22" not in texto
+
+
+
+# ── Segurança ────────────────────────────────────────────────────────────────
+
+def test_login_nao_redireciona_para_outro_site(app):
+    from app import db
+    from app.models.usuario import Usuario
+    with app.app_context():  # senha temporária redirecionaria antes de olhar o "next"
+        db.session.query(Usuario).filter_by(nome_usuario="admin").update({"senha_temporaria": False})
+        db.session.commit()
+    for next_url, esperado_externo in (("//evil.com/x", True), ("/\\evil.com", True),
+                                       ("https://evil.com", True), ("/clientes", False)):
+        c = app.test_client()
+        r = c.post(f"/e/escritorio-a/login?next={next_url}", data={"nome_usuario": "admin", "senha": "admin123"})
+        destino = r.headers["Location"]
+        if esperado_externo:
+            assert "evil.com" not in destino, (next_url, destino)
+        else:
+            assert destino.endswith(next_url), destino
+
+
+def test_requisicao_de_outro_site_e_recusada(cliente_logado_a):
+    ok = cliente_logado_a.post("/api/clientes", json={}, headers={"Origin": "http://localhost"})
+    assert ok.status_code != 403
+    for origem in ("https://evil.com", "null"):
+        r = cliente_logado_a.post("/api/clientes", json={}, headers={"Origin": origem})
+        assert r.status_code == 403, origem
+    r = cliente_logado_a.post("/api/clientes", json={}, headers={"Referer": "https://evil.com/pagina"})
+    assert r.status_code == 403
+
+
+def test_cabecalhos_de_seguranca(cliente_logado_a):
+    r = cliente_logado_a.get("/api/clientes")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert "frame-ancestors" in r.headers["Content-Security-Policy"]
+    assert r.headers["Cache-Control"] == "no-store"
+
+
+def test_documento_de_um_escritorio_nao_baixa_no_outro(app, cliente_logado_a, cliente_logado_b):
+    from app import db
+    from app.models.documento import Documento
+
+    assert _criar_cliente(cliente_logado_a, "Dono do Documento", CPF_A).status_code == 200
+    cid = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
+    nome = "a" * 32 + ".pdf"
+    with open(os.path.join(app.config["UPLOAD_DIR"], nome), "wb") as f:
+        f.write(b"%PDF-1.4 teste")
+    with app.app_context():
+        db.session.add(Documento(cliente_id=cid, nome="Doc", data_documento="2026-01-01",
+                                 categoria="outros", arquivo=nome))
+        db.session.commit()
+    try:
+        assert cliente_logado_a.get(f"/static/uploads/documentos/{nome}").status_code == 200
+        assert cliente_logado_b.get(f"/static/uploads/documentos/{nome}").status_code == 404
+    finally:
+        os.remove(os.path.join(app.config["UPLOAD_DIR"], nome))
+
+
+def test_logo_svg_nao_executa_script_quando_aberta_direto(app, cliente_logado_a):
+    nome = "logo_teste.svg"
+    with open(os.path.join(app.config["LOGO_DIR"], nome), "w") as f:
+        f.write("<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>")
+    try:
+        r = cliente_logado_a.get(f"/static/uploads/logo/{nome}")
+        assert "sandbox" in r.headers["Content-Security-Policy"]
+    finally:
+        os.remove(os.path.join(app.config["LOGO_DIR"], nome))
+
+
+def test_super_admin_bloqueia_tentativas_em_excesso(app):
+    from app.routes import super_admin
+    super_admin._falhas.clear()
+    app.config["SUPER_ADMIN_TOKEN"] = "token-certo-123456"
+    try:
+        c = app.test_client()
+        for _ in range(5):
+            assert b"Token inv" in c.post("/super-admin/", data={"token": "errado"}).data
+        # depois do limite, nem o token certo entra
+        r = c.post("/super-admin/", data={"token": "token-certo-123456"})
+        assert r.status_code == 200 and b"Muitas tentativas" in r.data
+    finally:
+        app.config["SUPER_ADMIN_TOKEN"] = None
+        super_admin._falhas.clear()
+
+
+def test_senha_nova_precisa_ter_oito_caracteres(app):
+    from app import db
+    from app.models.usuario import Usuario
+    from app.services.auth_service import AuthService
+    with app.app_context():
+        uid = db.session.query(Usuario).filter_by(nome_usuario="admin").first().id
+        svc = AuthService(db.session)
+        assert svc.trocar_senha(uid, "curta1")[0] is False
+        assert svc.trocar_senha(uid, "admin123")[0] is False
+        assert svc.trocar_senha(uid, "Senha-bem-melhor-1")[0] is True
+
+
+def test_excel_nao_transforma_nome_em_formula(app, cliente_logado_a):
+    import io
+    from openpyxl import load_workbook
+    assert _criar_cliente(cliente_logado_a, "=1+1", CPF_A).status_code == 200
+    cid = cliente_logado_a.get("/api/clientes").get_json()[0]["id"]
+    _montar_cliente_com_veiculos(app, cliente_logado_a, "+Cliente Teste", "52998224725", [("QQQ1Q11", "@x", 10)], 1)
+    r = cliente_logado_a.post("/api/relatorios/exportar/excel", json={
+        "config": {"tipos": ["ipva"], "filtros": {}},
+        "campos_visiveis": [{"id": "cliente_nome", "label": "Cliente"}, {"id": "proprietario", "label": "Prop"}]})
+    ws = load_workbook(io.BytesIO(r.data)).active
+    valores = [str(c.value) for row in ws.iter_rows(min_row=2) for c in row]
+    assert not any(v.startswith(("=", "+", "@")) for v in valores), valores
+
+
+def test_indices_de_chave_estrangeira_existem(app):
+    from sqlalchemy import inspect
+    from app import db
+    with app.app_context():
+        nomes = {i["name"] for t in ("ipva", "multas", "veiculos") for i in inspect(db.engine).get_indexes(t)}
+    assert {"ix_ipva_veiculo_id", "ix_multas_veiculo_id", "ix_veiculos_cliente_id"} <= nomes
+
+
+def test_dashboard_nao_faz_uma_consulta_por_ipva(app, cliente_logado_a):
+    """Regressão: to_dict() do IPVA lia as parcelas registro a registro (N+1)."""
+    from sqlalchemy import event
+    from app import db
+
+    veiculos = [(f"DD{i:02d}A00", "Prop", 10 + i) for i in range(25)]
+    _montar_cliente_com_veiculos(app, cliente_logado_a, "Cliente Dashboard", CPF_A, veiculos, 1)
+    total = {"n": 0}
+    with app.app_context():
+        def contar(*a, **k):
+            total["n"] += 1
+        event.listen(db.engine, "before_cursor_execute", contar)
+        try:
+            r = cliente_logado_a.get("/api/dashboard")
+        finally:
+            event.remove(db.engine, "before_cursor_execute", contar)
+    assert r.status_code == 200 and len(r.get_json()["ipva"]) == 25
+    assert total["n"] < 20, f"{total['n']} consultas para 25 IPVAs"

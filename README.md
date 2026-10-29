@@ -98,7 +98,8 @@ python run.py
 ```
 
 Acesse em: **http://localhost:5000**
-Login inicial: `admin` / `admin123` — o sistema força a troca de senha no primeiro acesso.
+Login inicial **apenas em desenvolvimento local**: `admin` / `admin123` — o sistema força a troca no primeiro acesso.
+Em produção, cada escritório criado em `/super-admin` recebe uma senha inicial aleatória, mostrada uma única vez na tela de criação.
 
 ---
 

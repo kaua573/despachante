@@ -2,7 +2,7 @@
 Serviço do dashboard: totais e vencimentos próximos.
 """
 from datetime import date, timedelta
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.ipva import Ipva
 from app.models.ipva_parcela import IpvaParcela
@@ -138,7 +138,7 @@ class DashboardService(TenantService):
         veículo desativado ou vendido não deve mais gerar notificação de
         vencimento, embora seu histórico continue disponível na tela dele.
         """
-        rows = (
+        consulta = (
             self._s.query(modelo, Veiculo, Cliente)
             .join(Veiculo, modelo.veiculo_id == Veiculo.id)
             .join(Cliente, Veiculo.cliente_id == Cliente.id)
@@ -150,8 +150,12 @@ class DashboardService(TenantService):
                 modelo.vencimento <= limite,
             )
             .order_by(modelo.vencimento.asc())
-            .all()
         )
+        if hasattr(modelo, "parcelas"):
+            # to_dict() do IPVA conta as parcelas: sem carregar todas de uma vez,
+            # o banco recebia uma consulta extra para CADA registro da lista.
+            consulta = consulta.options(selectinload(modelo.parcelas))
+        rows = consulta.all()
         resultado = []
         for registro, veiculo, cliente in rows:
             d = registro.to_dict()
