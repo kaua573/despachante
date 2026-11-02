@@ -1,0 +1,857 @@
+{% extends "base.html" %}
+{% block title %}Painel — {{ veiculo.placa }}{% endblock %}
+
+{% block breadcrumb %}
+  <a href="/clientes">Clientes</a><span class="sep">›</span>
+  <a href="/clientes/{{ veiculo.cliente_id }}/veiculos">{{ veiculo.cliente_nome }}</a>
+  <span class="sep">›</span><span>{{ veiculo.placa }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-body" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+    {{ icon('car','icon icon-xl') }}
+    <div style="flex:1;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:22px;font-weight:700;font-family:monospace;color:var(--azul);">{{ veiculo.placa }}</span>
+        {% if veiculo.situacao == 'ativo' %}<span class="badge badge-ativo">Ativo</span>{% endif %}
+        {% if veiculo.situacao == 'desativado' %}<span class="badge badge-inativo">Desativado</span>{% endif %}
+        {% if veiculo.situacao == 'vendido' %}<span class="badge badge-vencido">Vendido</span>{% endif %}
+      </div>
+      <div style="color:var(--sub);font-size:14px;margin-top:3px;">
+        {{ veiculo.marca_modelo or '—' }}
+        {% if veiculo.especie %} · {{ veiculo.especie.capitalize() }}{% endif %}
+        {% if veiculo.renavam %} · RENAVAM: {{ veiculo.renavam }}{% endif %}
+      </div>
+      <div style="color:var(--sub);font-size:13px;margin-top:2px;">
+        Responsável: <strong>{{ veiculo.cliente_nome }}</strong>
+        {% if veiculo.proprietario %} · Proprietário no documento: <strong>{{ veiculo.proprietario }}</strong>{% endif %}
+      </div>
+      {% if veiculo.observacao %}<div style="color:var(--sub);font-size:13px;margin-top:2px;">Obs: {{ veiculo.observacao }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn ativa" data-aba="ipva"          onclick="mudarAba('ipva')">{{ icon('calendar','icon icon-sm') }} IPVA</button>
+  <button class="tab-btn"       data-aba="licenciamento" onclick="mudarAba('licenciamento')">{{ icon('file','icon icon-sm') }} Licenciamento</button>
+  <button class="tab-btn"       data-aba="multas"        onclick="mudarAba('multas')">{{ icon('warning','icon icon-sm') }} Multas</button>
+</div>
+
+<!-- ── Painel IPVA ──────────────────────────────────────────────────────────── -->
+<div id="painel-ipva" class="card tab-panel">
+  <div class="card-header">
+    <h2>{{ icon('calendar') }} IPVA</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select id="filtro-ipva-status" onchange="carregarIpva()" class="select-filtro">
+        <option value="">Todos</option>
+        <option value="pago">Pagos</option>
+        <option value="pendente">Pendentes/Vencidos</option>
+      </select>
+      <button class="btn btn-primary" onclick="abrirModal('ipva')">+ Adicionar</button>
+    </div>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr>
+        <th>Ano</th><th>Valor</th><th>Vencimento</th><th>Status</th>
+        <th>Modo pgto.</th><th>Parcelas / Quitação</th><th>Obs.</th><th>Ações</th>
+      </tr></thead>
+      <tbody id="tbody-ipva"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Painel Licenciamento ───────────────────────────────────────────────── -->
+<div id="painel-licenciamento" class="card tab-panel" style="display:none;">
+  <div class="card-header">
+    <h2>{{ icon('file') }} Licenciamento</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select id="filtro-lic-status" onchange="carregarLicenciamento()" class="select-filtro">
+        <option value="">Todos</option>
+        <option value="pago">Pagos</option>
+        <option value="pendente">Pendentes/Vencidos</option>
+      </select>
+      <button class="btn btn-primary" onclick="abrirModal('licenciamento')">+ Adicionar</button>
+    </div>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr><th>Ano</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Pagamento</th><th>Obs.</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-licenciamento"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Painel Multas ──────────────────────────────────────────────────────── -->
+<div id="painel-multas" class="card tab-panel" style="display:none;">
+  <div class="card-header">
+    <h2>{{ icon('warning') }} Multas</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select id="filtro-multa-status" onchange="carregarMultas()" class="select-filtro">
+        <option value="">Todas</option>
+        <option value="pago">Pagas</option>
+        <option value="pendente">Pendentes/Vencidas</option>
+      </select>
+      <button class="btn btn-primary" onclick="abrirModal('multas')">+ Adicionar</button>
+    </div>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr><th>Auto</th><th>Data Infração</th><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Pagamento</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-multas"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Modal de parcelas ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-parcelas">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-header">
+      <h3>{{ icon('calendar') }} Parcelas do IPVA — <span id="parcelas-titulo"></span></h3>
+      <button class="btn-close" onclick="fecharModalParcelas()">✕</button>
+    </div>
+    <div class="modal-body" style="gap:16px;">
+      <div style="background:var(--cinza1);border:1px solid var(--cinza2);border-radius:8px;padding:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">Configurar parcelamento</div>
+        <div class="row2">
+          <div class="field">
+            <label>Número de parcelas</label>
+            <select id="parc-num">
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+              <option value="5">5×</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Vencimento da 1ª parcela</label>
+            <input id="parc-data" type="date">
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="gerarParcelas()">{{ icon('save','icon icon-sm') }} Gerar parcelas</button>
+          <button class="btn btn-ghost btn-sm" onclick="desfazerParcelamento()" id="btn-desfazer-parc" style="display:none;">↩ Voltar para à vista</button>
+          <span id="parc-aviso" style="font-size:12px;color:var(--sub);"></span>
+        </div>
+      </div>
+      <div id="area-parcelas">
+        <div class="empty-state"><p>Nenhuma parcela configurada.</p></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalParcelas()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal genérico ─────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-titulo">Adicionar</h3>
+      <button class="btn-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-modal-salvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const VID = {{ veiculo.id }};
+let abaAtual = 'ipva', modalTipo = '', editId = null;
+let parcelasIpvaId = null, parcelasIpvaAno = null;
+
+// ── Abas ──────────────────────────────────────────────────────────────────────
+function mudarAba(aba) {
+  abaAtual = aba;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
+  document.querySelector(`[data-aba="${aba}"]`).classList.add('ativa');
+  ['ipva','licenciamento','multas'].forEach(p =>
+    document.getElementById(`painel-${p}`).style.display = p === aba ? '' : 'none');
+  if (aba === 'ipva')          carregarIpva();
+  if (aba === 'licenciamento') carregarLicenciamento();
+  if (aba === 'multas')        carregarMultas();
+}
+
+function filtrarStatus(dados, filtro) {
+  if (!filtro) return dados;
+  return filtro === 'pago' ? dados.filter(r => r.pago) : dados.filter(r => !r.pago);
+}
+
+// ── IPVA ──────────────────────────────────────────────────────────────────────
+async function carregarIpva() {
+  modalTipo = 'ipva';
+  const all = await apiFetch(`/api/veiculos/${VID}/ipva`);
+  if (!all) return;
+  const dados = filtrarStatus(all, document.getElementById('filtro-ipva-status').value);
+  const tbody = document.getElementById('tbody-ipva');
+
+  if (!dados.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhum registro de IPVA</p></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = dados.map(r => {
+    const parcelado = r.tipo_pagamento === 'parcelado';
+    const modoLabel = parcelado
+      ? `<span class="badge badge-ativo">Parcelado</span>`
+      : `<span class="badge badge-inativo">À vista</span>`;
+
+    let acaoPgto;
+    if (parcelado) {
+      acaoPgto = r.num_parcelas > 0
+        ? `<button class="btn btn-ghost btn-sm" onclick="abrirModalParcelas(${r.id},${r.ano_referencia})">${r.num_parcelas}× parcela(s)</button>`
+        : `<button class="btn btn-outline btn-sm" onclick="abrirModalParcelas(${r.id},${r.ano_referencia})">Configurar parcelas</button>`;
+    } else {
+      acaoPgto = r.pago
+        ? `<span style="font-size:12px;color:var(--sub);">${fmtData(r.data_pagamento)}</span>`
+        : `<button class="btn btn-success btn-sm" onclick="quitarAvista(${r.id})">✓ Quitar</button>`;
+    }
+
+    return `<tr>
+      <td><strong>${r.ano_referencia}</strong></td>
+      <td>${fmtMoeda(r.valor)}</td>
+      <td>${fmtData(r.vencimento)}</td>
+      <td>${statusVencimento(r.vencimento, r.pago)}</td>
+      <td>${modoLabel}</td>
+      <td>${acaoPgto}</td>
+      <td title="${escapeHtml(r.observacao)}">${r.observacao ? escapeHtml(r.observacao.substring(0,30))+(r.observacao.length>30?'…':'') : '—'}</td>
+      <td><div style="display:flex;gap:5px;">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("ipva",${escapeHtml(JSON.stringify(r))})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("ipva",${escapeHtml(JSON.stringify(r))})'>{{ icon('edit','icon icon-sm') }}</button>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('ipva',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function quitarAvista(ipvaId) {
+  if (!confirm('Confirmar quitação do IPVA?')) return;
+  const data = await apiFetch(`/api/ipva/${ipvaId}/quitar`, { method: 'POST' });
+  if (!data) return;
+  toast('IPVA quitado!');
+  carregarIpva();
+}
+
+// ── Licenciamento ─────────────────────────────────────────────────────────────
+async function carregarLicenciamento() {
+  modalTipo = 'licenciamento';
+  const all = await apiFetch(`/api/veiculos/${VID}/licenciamento`);
+  if (!all) return;
+  const dados = filtrarStatus(all, document.getElementById('filtro-lic-status').value);
+  const tbody = document.getElementById('tbody-licenciamento');
+  if (!dados.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>Nenhum registro de licenciamento</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = dados.map(r => `<tr>
+    <td><strong>${r.ano_referencia}</strong></td>
+    <td>${fmtMoeda(r.valor)}</td>
+    <td>${fmtData(r.vencimento)}</td>
+    <td>${statusVencimento(r.vencimento, r.pago)}</td>
+    <td>${fmtData(r.data_pagamento)}</td>
+    <td title="${escapeHtml(r.observacao)}">${r.observacao ? escapeHtml(r.observacao.substring(0,30))+(r.observacao.length>30?'…':'') : '—'}</td>
+    <td><div style="display:flex;gap:5px;">
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("licenciamento",${escapeHtml(JSON.stringify(r))})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("licenciamento",${escapeHtml(JSON.stringify(r))})'>{{ icon('edit','icon icon-sm') }}</button>
+      <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('licenciamento',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+// ── Multas ────────────────────────────────────────────────────────────────────
+async function carregarMultas() {
+  modalTipo = 'multas';
+  const all = await apiFetch(`/api/veiculos/${VID}/multas`);
+  if (!all) return;
+  const dados = filtrarStatus(all, document.getElementById('filtro-multa-status').value);
+  const tbody = document.getElementById('tbody-multas');
+  if (!dados.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>Nenhuma multa cadastrada</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = dados.map(r => `<tr>
+    <td style="font-family:monospace;">${escapeHtml(r.auto_infracao)||'—'}</td>
+    <td>${fmtData(r.data_infracao)}</td>
+    <td>${escapeHtml(r.descricao)||'—'}</td>
+    <td>${fmtMoeda(r.valor)}</td>
+    <td>${fmtData(r.vencimento)}</td>
+    <td>${statusVencimento(r.vencimento, r.pago)}</td>
+    <td>${fmtData(r.data_pagamento)}</td>
+    <td><div style="display:flex;gap:5px;">
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='visualizarDetalhes("multas",${escapeHtml(JSON.stringify(r))})' title="Ver detalhes">{{ icon('view','icon icon-sm') }}</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick='editar("multas",${escapeHtml(JSON.stringify(r))})'>{{ icon('edit','icon icon-sm') }}</button>
+      <button class="btn btn-danger btn-sm btn-icon" onclick="excluir('multas',${r.id})">{{ icon('delete','icon icon-sm') }}</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+// ── Modal de parcelas ─────────────────────────────────────────────────────────
+async function abrirModalParcelas(ipvaId, ano) {
+  parcelasIpvaId = ipvaId;
+  parcelasIpvaAno = ano;
+  document.getElementById('parcelas-titulo').textContent = `Ano ${ano}`;
+  document.getElementById('parc-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('parc-aviso').textContent = '';
+  document.getElementById('modal-parcelas').classList.add('open');
+  await renderizarParcelas(ipvaId);
+}
+
+function fecharModalParcelas() {
+  document.getElementById('modal-parcelas').classList.remove('open');
+  parcelasIpvaId = null;
+  carregarIpva();
+}
+
+async function renderizarParcelas(ipvaId) {
+  const area = document.getElementById('area-parcelas');
+  const btnDesfazer = document.getElementById('btn-desfazer-parc');
+  const resultado = await apiFetch(`/api/ipva/${ipvaId}/parcelas`);
+
+  if (!resultado || !resultado.parcelas.length) {
+    area.innerHTML = '<div class="empty-state"><p>Nenhuma parcela configurada. Use o formulário acima.</p></div>';
+    btnDesfazer.style.display = 'none';
+    return;
+  }
+
+  btnDesfazer.style.display = '';
+
+  area.innerHTML = `<table>
+    <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Quitado em</th><th>Ação</th></tr></thead>
+    <tbody>${resultado.parcelas.map(p => `<tr>
+      <td><strong>${p.numero}ª</strong></td>
+      <td>${fmtData(p.vencimento)}</td>
+      <td>${fmtMoeda(p.valor)}</td>
+      <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
+      <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
+      <td>${p.status !== 'pago'
+        ? `<button class="btn btn-success btn-sm" onclick="quitarParcela(${p.id})">✓ Quitar</button>`
+        : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function gerarParcelas() {
+  const numParcelas = parseInt(document.getElementById('parc-num').value);
+  const dataPrimeira = document.getElementById('parc-data').value;
+  const aviso = document.getElementById('parc-aviso');
+
+  if (!dataPrimeira) { aviso.textContent = 'Informe a data da primeira parcela.'; return; }
+
+  const ipvas = await apiFetch(`/api/veiculos/${VID}/ipva`);
+  const ipva  = ipvas?.find(i => i.id === parcelasIpvaId);
+  if (!ipva?.valor) { aviso.textContent = 'O IPVA precisa ter um valor cadastrado para parcelar.'; return; }
+
+  aviso.textContent = 'Gerando...';
+  const data = await apiFetch(`/api/ipva/${parcelasIpvaId}/parcelas/gerar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ num_parcelas: numParcelas, valor_total: ipva.valor, data_primeira: dataPrimeira }),
+  });
+  if (!data) { aviso.textContent = ''; return; }
+  aviso.textContent = '';
+  toast('Parcelas geradas!');
+  await renderizarParcelas(parcelasIpvaId);
+}
+
+async function quitarParcela(parcelaId) {
+  const data = await apiFetch(`/api/ipva/parcelas/${parcelaId}/quitar`, { method: 'POST' });
+  if (!data) return;
+  toast('Parcela quitada!');
+  await renderizarParcelas(parcelasIpvaId);
+}
+
+async function desfazerParcelamento() {
+  if (!confirm('Remover todas as parcelas e voltar para pagamento à vista?')) return;
+  const data = await apiFetch(`/api/ipva/${parcelasIpvaId}/parcelas/desfazer`, { method: 'POST' });
+  if (!data) return;
+  toast('Parcelamento removido.');
+  fecharModalParcelas();
+}
+
+// ── Formulários dos modais ────────────────────────────────────────────────────
+// IPVA: formulário dinâmico com escolha de modo de pagamento + cálculo de desconto/parcelas
+function formIpva(r) {
+  const modo      = r?.tipo_pagamento || 'avista';
+  const anoAtual   = r?.ano_referencia || new Date().getFullYear();
+
+  // Registros cadastrados antes desta correção só têm o campo "valor" salvo
+  // (sem valor_integral/desconto_percentual) — nesse caso cai no comportamento
+  // antigo, mostrando o valor salvo como se fosse o integral, sem desconto.
+  const temDetalhamento    = r?.valor_integral != null && r.valor_integral !== '';
+  const valorIntegralAtual = temDetalhamento ? r.valor_integral : (r?.valor ?? '');
+  const descontoPctAtual   = temDetalhamento ? (r.desconto_percentual ?? '') : '';
+  const valorDescontoAtual = temDetalhamento ? (r?.valor ?? '') : '';
+  // Desconto em R$ não é salvo à parte — é sempre derivado do % na hora de exibir
+  const descontoRsAtual    = (temDetalhamento && r.desconto_percentual != null && valorIntegralAtual)
+    ? (valorIntegralAtual * (r.desconto_percentual / 100)).toFixed(2)
+    : '';
+
+  return `
+    <div class="row2">
+      <div class="field">
+        <label>Ano referência *</label>
+        <input id="f-ano" type="number" value="${anoAtual}" min="2000" max="2099">
+      </div>
+      <div class="field">
+        <label>Modo de pagamento</label>
+        <select id="f-tipo-pgto" onchange="onMudaModo()" ${r?.tipo_pagamento === 'parcelado' ? 'disabled title="Gerencie as parcelas pelo botão na tabela"' : ''}>
+          <option value="avista"   ${modo === 'avista'   ? 'selected' : ''}>À vista</option>
+          <option value="parcelado" ${modo === 'parcelado' ? 'selected' : ''}>Parcelado</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- ── Seção À vista ── -->
+    <div id="sec-avista" style="${modo === 'parcelado' ? 'display:none' : ''}">
+      <div class="row2">
+        <div class="field">
+          <label>Valor integral (R$)</label>
+          <input id="f-valor-integral" type="number" step="0.01" min="0"
+                 value="${valorIntegralAtual}"
+                 placeholder="0,00" oninput="calcularDesconto()">
+        </div>
+        <div class="field">
+          <label>Desconto (%)</label>
+          <input id="f-desconto-pct" type="number" step="0.01" min="0" max="100"
+                 value="${descontoPctAtual}"
+                 placeholder="0,00" oninput="calcularDescontoPct()">
+        </div>
+      </div>
+      <div class="row2" style="margin-top:12px;">
+        <div class="field">
+          <label>Desconto (R$)</label>
+          <input id="f-desconto-rs" type="number" step="0.01" min="0"
+                 value="${descontoRsAtual}"
+                 placeholder="0,00" oninput="calcularDescontoRs()">
+        </div>
+        <div class="field">
+          <label>Valor com desconto (R$)</label>
+          <input id="f-valor-desconto" type="number" step="0.01" min="0"
+                 value="${valorDescontoAtual}"
+                 placeholder="0,00" oninput="calcularDescontoInverso()">
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--sub);margin:8px 0 14px;">
+        Preencha o valor integral e mais um dos outros três — os demais são calculados automaticamente.
+      </p>
+      <div class="row2">
+        <div class="field">
+          <label>Vencimento</label>
+          <input id="f-venc" type="date" value="${r?.vencimento||''}">
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="f-pago">
+            <option value="0" ${!r?.pago?'selected':''}>Pendente</option>
+            <option value="1" ${r?.pago?'selected':''}>Pago</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Data de pagamento</label>
+        <input id="f-dtpag" type="date" value="${r?.data_pagamento||''}">
+      </div>
+    </div>
+
+    <!-- ── Seção Parcelado ── -->
+    <div id="sec-parcelado" style="${modo !== 'parcelado' ? 'display:none' : ''}">
+      ${r?.tipo_pagamento === 'parcelado'
+        ? `<div style="background:var(--cinza1);border:1px solid var(--cinza2);border-radius:8px;padding:12px;font-size:13px;color:var(--sub);">
+             Este IPVA está parcelado. Salve os dados básicos aqui e gerencie as parcelas pelo botão na tabela.
+           </div>`
+        : `<div class="row2">
+             <div class="field">
+               <label>Valor total (R$)</label>
+               <input id="f-valor-parc-total" type="number" step="0.01" min="0"
+                      placeholder="0,00" oninput="calcularParcelas()">
+             </div>
+             <div class="field">
+               <label>Número de parcelas</label>
+               <select id="f-num-parcelas" onchange="calcularParcelas()">
+                 <option value="2">2×</option>
+                 <option value="3">3×</option>
+                 <option value="4">4×</option>
+                 <option value="5">5×</option>
+               </select>
+             </div>
+           </div>
+           <div id="preview-parcelas" style="font-size:13px;color:var(--azul2);font-weight:600;min-height:20px;"></div>
+           <div class="field">
+             <label>Vencimento da 1ª parcela</label>
+             <input id="f-data-primeira" type="date" value="${new Date().toISOString().split('T')[0]}">
+           </div>`
+      }
+    </div>
+
+    <div class="field">
+      <label>Observação</label>
+      <textarea id="f-obs">${escapeHtml(r?.observacao)}</textarea>
+    </div>`;
+}
+
+function onMudaModo() {
+  const modo = document.getElementById('f-tipo-pgto').value;
+  document.getElementById('sec-avista').style.display    = modo === 'avista'    ? '' : 'none';
+  document.getElementById('sec-parcelado').style.display = modo === 'parcelado' ? '' : 'none';
+}
+
+// Desconto: integral → calcula com desconto dado o %
+// Valor integral digitado → recalcula a partir do que já estiver preenchido (% tem prioridade sobre R$)
+function calcularDesconto() {
+  const integral = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
+  const pct      = parseFloat(document.getElementById('f-desconto-pct')?.value)   || 0;
+  const rs       = parseFloat(document.getElementById('f-desconto-rs')?.value)    || 0;
+  if (!integral) return;
+  if (pct > 0) {
+    calcularDescontoPct();
+  } else if (rs > 0) {
+    calcularDescontoRs();
+  }
+  // valor_integral e desconto_percentual são lidos direto dos campos na hora
+  // de montar o payload em salvar() — nada aqui precisa espelhar isso.
+}
+
+// Desconto %: recalcula desconto em R$ e valor com desconto
+function calcularDescontoPct() {
+  const integral = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
+  const pct      = parseFloat(document.getElementById('f-desconto-pct')?.value)   || 0;
+  if (!integral) return;
+  const descontoRs = integral * (pct / 100);
+  document.getElementById('f-desconto-rs').value    = descontoRs.toFixed(2);
+  document.getElementById('f-valor-desconto').value = (integral - descontoRs).toFixed(2);
+}
+
+// Desconto R$: recalcula % e valor com desconto
+function calcularDescontoRs() {
+  const integral   = parseFloat(document.getElementById('f-valor-integral')?.value) || 0;
+  const descontoRs = parseFloat(document.getElementById('f-desconto-rs')?.value)    || 0;
+  if (!integral) return;
+  const pct = (descontoRs / integral) * 100;
+  document.getElementById('f-desconto-pct').value    = pct.toFixed(2);
+  document.getElementById('f-valor-desconto').value  = (integral - descontoRs).toFixed(2);
+}
+
+// Desconto: valor com desconto digitado → calcula % e R$ de volta
+function calcularDescontoInverso() {
+  const integral    = parseFloat(document.getElementById('f-valor-integral')?.value)  || 0;
+  const comDesconto = parseFloat(document.getElementById('f-valor-desconto')?.value)  || 0;
+  if (!integral) return;
+  const descontoRs = integral - comDesconto;
+  document.getElementById('f-desconto-pct').value = ((descontoRs / integral) * 100).toFixed(2);
+  document.getElementById('f-desconto-rs').value   = descontoRs.toFixed(2);
+}
+
+// Parcelas: exibe preview do valor por parcela
+function calcularParcelas() {
+  const total = parseFloat(document.getElementById('f-valor-parc-total')?.value) || 0;
+  const n     = parseInt(document.getElementById('f-num-parcelas')?.value)       || 2;
+  const prev  = document.getElementById('preview-parcelas');
+  if (!prev) return;
+  if (!total) { prev.textContent = ''; return; }
+  const valorParc = (total / n).toFixed(2);
+  prev.textContent = `→ ${n}× de R$ ${Number(valorParc).toLocaleString('pt-BR', {minimumFractionDigits:2})}`;
+}
+
+const FORMS = {
+  ipva: formIpva,
+
+  licenciamento: r => `
+    <div class="row2">
+      <div class="field"><label>Ano referência *</label>
+        <input id="f-ano" type="number" value="${r?.ano_referencia||new Date().getFullYear()}" min="2000" max="2099">
+      </div>
+      <div class="field"><label>Valor (R$)</label>
+        <input id="f-valor" type="number" step="0.01" value="${r?.valor||''}" placeholder="0,00">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-pago">
+          <option value="0" ${!r?.pago?'selected':''}>Pendente</option>
+          <option value="1" ${r?.pago?'selected':''}>Pago</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
+    <div class="field"><label>Observação</label><textarea id="f-obs">${escapeHtml(r?.observacao)}</textarea></div>`,
+
+  multas: r => `
+    <div class="row2">
+      <div class="field"><label>Auto de Infração</label><input id="f-auto" value="${escapeHtml(r?.auto_infracao)}" placeholder="Nº do auto"></div>
+      <div class="field"><label>Data da Infração</label><input id="f-dtinf" type="date" value="${r?.data_infracao||''}"></div>
+    </div>
+    <div class="field"><label>Descrição</label><input id="f-desc" value="${escapeHtml(r?.descricao)}" placeholder="Ex: Excesso de velocidade"></div>
+    <div class="row2">
+      <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" value="${r?.valor||''}" placeholder="0,00"></div>
+      <div class="field"><label>Vencimento</label><input id="f-venc" type="date" value="${r?.vencimento||''}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Status</label>
+        <select id="f-pago">
+          <option value="0" ${!r?.pago?'selected':''}>Pendente</option>
+          <option value="1" ${r?.pago?'selected':''}>Pago</option>
+        </select>
+      </div>
+      <div class="field"><label>Data de pagamento</label><input id="f-dtpag" type="date" value="${r?.data_pagamento||''}"></div>
+    </div>
+    <div class="field"><label>Observação</label><textarea id="f-obs">${escapeHtml(r?.observacao)}</textarea></div>`,
+};
+
+const TITULOS = { ipva: 'IPVA', licenciamento: 'Licenciamento', multas: 'Multa' };
+
+function abrirModal(tipo, dados = null) {
+  modalTipo = tipo;
+  editId    = dados?.id || null;
+  document.getElementById('modal-titulo').textContent = (editId ? 'Editar ' : 'Adicionar ') + TITULOS[tipo];
+  document.getElementById('modal-body').innerHTML = FORMS[tipo](dados);
+  document.getElementById('btn-modal-salvar').style.display = '';
+  document.getElementById('modal').classList.add('open');
+}
+
+// ── Visualização somente leitura (IPVA / Licenciamento / Multas) ───────────────
+function linhaDetalhe(label, valor) {
+  const exibicao = (valor === null || valor === undefined || valor === '') ? '—' : escapeHtml(valor);
+  return `<div class="detalhe-linha"><span class="detalhe-label">${escapeHtml(label)}</span><span class="detalhe-valor">${exibicao}</span></div>`;
+}
+
+const STATUS_BADGE_PARCELA = {
+  pendente: '<span class="badge badge-pendente">Pendente</span>',
+  vencido:  '<span class="badge badge-vencido">Vencido</span>',
+  pago:     '<span class="badge badge-pago">Pago</span>',
+};
+
+function tabelaParcelasDetalhe(parcelas) {
+  if (!parcelas || !parcelas.length) {
+    return '<p style="font-size:13px;color:var(--sub);">Parcelas ainda não configuradas.</p>';
+  }
+  return `<table style="margin-top:6px;">
+    <thead><tr><th>#</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Pago em</th></tr></thead>
+    <tbody>${parcelas.map(p => `<tr>
+      <td><strong>${p.numero}ª</strong></td>
+      <td>${fmtData(p.vencimento)}</td>
+      <td>${fmtMoeda(p.valor)}</td>
+      <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
+      <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+const DETALHES = {
+  ipva: (r, parcelas) => {
+    const parcelado = r.tipo_pagamento === 'parcelado';
+    let corpo = `<div class="detalhes-grid">`
+      + linhaDetalhe('Ano referência', r.ano_referencia)
+      + linhaDetalhe('Modo de pagamento', parcelado ? 'Parcelado' : 'À vista');
+
+    if (parcelado) {
+      corpo += linhaDetalhe('Valor total', fmtMoeda(r.valor))
+        + linhaDetalhe('Observação', r.observacao || '—')
+        + `</div>`
+        + tabelaParcelasDetalhe(parcelas);
+      return corpo;
+    }
+
+    const temDetalhamento = r.valor_integral != null;
+    const descontoRs = (temDetalhamento && r.desconto_percentual != null)
+      ? (r.valor_integral * (r.desconto_percentual / 100))
+      : null;
+    corpo += linhaDetalhe('Valor integral', temDetalhamento ? fmtMoeda(r.valor_integral) : fmtMoeda(r.valor))
+      + linhaDetalhe('Desconto', temDetalhamento && r.desconto_percentual != null ? `${r.desconto_percentual}%` : '—')
+      + linhaDetalhe('Desconto (R$)', descontoRs != null ? fmtMoeda(descontoRs) : '—')
+      + linhaDetalhe('Valor a pagar', fmtMoeda(r.valor))
+      + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+      + linhaDetalhe('Status', statusVencimentoTexto(r.vencimento, r.pago))
+      + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
+      + linhaDetalhe('Observação', r.observacao || '—') + `</div>`;
+    return corpo;
+  },
+
+  licenciamento: (r) => `<div class="detalhes-grid">`
+    + linhaDetalhe('Ano referência', r.ano_referencia)
+    + linhaDetalhe('Valor', fmtMoeda(r.valor))
+    + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+    + linhaDetalhe('Status', statusVencimentoTexto(r.vencimento, r.pago))
+    + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
+    + linhaDetalhe('Observação', r.observacao || '—')
+    + `</div>`,
+
+  multas: (r) => `<div class="detalhes-grid">`
+    + linhaDetalhe('Auto de infração', r.auto_infracao || '—')
+    + linhaDetalhe('Data da infração', fmtData(r.data_infracao))
+    + linhaDetalhe('Descrição', r.descricao || '—')
+    + linhaDetalhe('Valor', fmtMoeda(r.valor))
+    + linhaDetalhe('Vencimento', fmtData(r.vencimento))
+    + linhaDetalhe('Status', statusVencimentoTexto(r.vencimento, r.pago))
+    + linhaDetalhe('Data de pagamento', r.data_pagamento ? fmtData(r.data_pagamento) : '—')
+    + `</div>`,
+};
+
+async function visualizarDetalhes(tipo, dados) {
+  document.getElementById('modal-titulo').textContent = 'Detalhes — ' + TITULOS[tipo];
+  document.getElementById('btn-modal-salvar').style.display = 'none';
+  document.getElementById('modal').classList.add('open');
+
+  if (tipo === 'ipva' && dados.tipo_pagamento === 'parcelado') {
+    document.getElementById('modal-body').innerHTML = '<p style="color:var(--sub);font-size:13px;">Carregando parcelas...</p>';
+    const resultado = await apiFetch(`/api/ipva/${dados.id}/parcelas`);
+    document.getElementById('modal-body').innerHTML = DETALHES.ipva(dados, resultado?.parcelas || []);
+  } else {
+    document.getElementById('modal-body').innerHTML = DETALHES[tipo](dados);
+  }
+}
+
+function editar(tipo, dados) { abrirModal(tipo, dados); }
+function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+
+// ESC fecha o modal que estiver aberto (edição/visualização ou parcelas)
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Escape') return;
+  if (document.getElementById('modal').classList.contains('open')) {
+    fecharModal();
+  } else if (document.getElementById('modal-parcelas').classList.contains('open')) {
+    fecharModalParcelas();
+  }
+});
+
+function getVal(id) {
+  const el = document.getElementById(id);
+  return el ? el.value : '';
+}
+
+async function salvar() {
+  const tipo = modalTipo;
+
+  // ── IPVA: monta payload conforme modo ───────────────────────────────────
+  if (tipo === 'ipva') {
+    const ano  = getVal('f-ano');
+    if (!ano) { toast('Informe o ano de referência.', 'err'); return; }
+
+    const modoPgto = getVal('f-tipo-pgto') || 'avista';
+
+    let valor, payload;
+
+    if (modoPgto === 'parcelado') {
+      // Novo IPVA parcelado: salva primeiro com o valor total, depois abre modal de parcelas
+      const totalEl = document.getElementById('f-valor-parc-total');
+      valor = totalEl ? parseFloat(totalEl.value) || null : null;
+      const dataPrimeira = getVal('f-data-primeira');
+      const numParcelas  = parseInt(getVal('f-num-parcelas') || '2');
+
+      payload = {
+        veiculo_id: VID, ano_referencia: ano, valor,
+        vencimento: null, pago: 0, data_pagamento: null,
+        observacao: getVal('f-obs'), tipo_pagamento: 'parcelado',
+      };
+
+      const data = await apiFetch(editId ? `/api/ipva/${editId}` : '/api/ipva', {
+        method: editId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!data) return;
+
+      // Se for novo e tiver valor + data, gera as parcelas imediatamente
+      if (!editId && valor && dataPrimeira) {
+        // Busca o ID do registro recém-criado
+        const ipvas = await apiFetch(`/api/veiculos/${VID}/ipva`);
+        const novo  = ipvas?.find(i => i.ano_referencia == ano && i.tipo_pagamento === 'parcelado' && !i.num_parcelas);
+        if (novo) {
+          await apiFetch(`/api/ipva/${novo.id}/parcelas/gerar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ num_parcelas: numParcelas, valor_total: valor, data_primeira: dataPrimeira }),
+          });
+        }
+      }
+
+      fecharModal();
+      carregarIpva();
+      toast(editId ? 'IPVA atualizado!' : 'IPVA parcelado criado!');
+      return;
+    }
+
+    // À vista: usa o valor integral; se houver desconto, salva o valor com desconto
+    const valorIntegral  = parseFloat(getVal('f-valor-integral'))  || null;
+    const descontoPct    = parseFloat(getVal('f-desconto-pct'))    || null;
+    const valorDesconto  = parseFloat(getVal('f-valor-desconto'))  || null;
+    valor = valorDesconto || valorIntegral;   // prioriza o valor com desconto se preenchido
+
+    payload = {
+      veiculo_id: VID, ano_referencia: ano, valor,
+      valor_integral: valorIntegral,
+      desconto_percentual: descontoPct,
+      vencimento: getVal('f-venc') || null,
+      pago: parseInt(getVal('f-pago') || '0'),
+      data_pagamento: getVal('f-dtpag') || null,
+      observacao: getVal('f-obs'),
+      tipo_pagamento: 'avista',
+    };
+
+    const data = await apiFetch(editId ? `/api/ipva/${editId}` : '/api/ipva', {
+      method: editId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!data) return;
+    fecharModal();
+    carregarIpva();
+    toast(editId ? 'IPVA atualizado!' : 'IPVA cadastrado!');
+    return;
+  }
+
+  // ── Licenciamento e Multas ───────────────────────────────────────────────
+  const payload = {
+    veiculo_id:     VID,
+    valor:          getVal('f-valor') || null,
+    vencimento:     getVal('f-venc') || null,
+    pago:           parseInt(getVal('f-pago') || '0'),
+    data_pagamento: getVal('f-dtpag') || null,
+    observacao:     getVal('f-obs'),
+  };
+
+  if (tipo === 'multas') {
+    payload.auto_infracao = getVal('f-auto');
+    payload.data_infracao = getVal('f-dtinf') || null;
+    payload.descricao     = getVal('f-desc');
+  } else {
+    const ano = getVal('f-ano');
+    if (!ano) { toast('Informe o ano de referência.', 'err'); return; }
+    payload.ano_referencia = ano;
+  }
+
+  const url    = editId ? `/api/${tipo}/${editId}` : `/api/${tipo}`;
+  const method = editId ? 'PUT' : 'POST';
+  const data   = await apiFetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!data) return;
+  fecharModal();
+  if (tipo === 'licenciamento') carregarLicenciamento();
+  if (tipo === 'multas')        carregarMultas();
+  toast(editId ? 'Registro atualizado!' : 'Registro adicionado!');
+}
+
+async function excluir(tipo, id) {
+  confirmarExclusao('Excluir este registro?', async () => {
+    const data = await apiFetch(`/api/${tipo}/${id}`, { method: 'DELETE' });
+    if (!data) return;
+    if (tipo === 'ipva')          carregarIpva();
+    if (tipo === 'licenciamento') carregarLicenciamento();
+    if (tipo === 'multas')        carregarMultas();
+    toast('Registro excluído.');
+  });
+}
+
+carregarIpva();
+</script>
+{% endblock %}

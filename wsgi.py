@@ -1,17 +1,17 @@
 """
 Ponto de entrada da aplicacao quando rodando em container (Cloud Run).
 
-Diferente de run.py (dev) e launcher.py (executavel Windows), este script:
+Diferente de run.py (dev), este script:
   - Nao abre navegador nem MessageBox (nao faz sentido em um container).
   - Usa FLASK_ENV=production por padrao, que exige DATABASE_URL definida
     (ver ProductionConfig em config.py).
   - Expoe `app` para o Waitress servir via `waitress-serve --call wsgi:app`.
 
 O `db.create_all()` roda a cada start do container: e idempotente (so cria
-tabelas que ainda nao existem), igual ja acontece em run.py e launcher.py.
+tabelas que ainda nao existem), igual ja acontece em run.py.
 
 `aplicar_migracoes_leves()` roda logo em seguida pelo mesmo motivo que roda
-em run.py/launcher.py: cobre colunas novas em tabelas que ja existiam antes
+em run.py: cobre colunas novas em tabelas que ja existiam antes
 do deploy (create_all() nao altera tabelas existentes). E segura em
 SQLite e Postgres.
 """

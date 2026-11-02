@@ -1,0 +1,529 @@
+{% extends "base.html" %}
+{% block title %}Clientes{% endblock %}
+{% block breadcrumb %}<span>Clientes</span>{% endblock %}
+
+{% block content %}
+<!-- Inputmask para máscaras de CPF, CNPJ e telefone -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/inputmask.min.js"></script>
+<style>
+  /* Página de clientes: tabela ocupa a viewport inteira (largura e altura) */
+  .clientes-full {
+    width: 100vw;
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+    box-sizing: border-box;
+  }
+  .clientes-full .card {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 104px);
+  }
+  .clientes-full .card-header { flex: 0 0 auto; }
+  .clientes-full .tabela-wrap { flex: 1 1 auto; overflow-y: auto; }
+  .clientes-full thead th { position: sticky; top: 0; z-index: 1; }
+  .clientes-full .col-obs { white-space: normal; word-break: break-word; min-width: 260px; }
+</style>
+<div class="clientes-full">
+<div class="card">
+  <div class="card-header">
+    <h2>{{ icon('users') }} Clientes cadastrados</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="search-box">
+        {{ icon('find','icon icon-sm') }}
+        <input type="text" id="busca" placeholder="Buscar por nome, CPF ou CNPJ..." oninput="carregar()"
+          style="margin-left:4px;">
+      </div>
+      <div class="menu-acoes">
+        <button type="button" class="btn btn-outline btn-icon" onclick="toggleMenuAcoes(event,'dropdown-acoes-clientes')" title="Mais ações">{{ icon('more','icon icon-sm') }}</button>
+        <div id="dropdown-acoes-clientes" class="dropdown-acoes">
+          <a href="/api/clientes/exportar">{{ icon('dowload','icon icon-sm') }} Exportar</a>
+          <button type="button" onclick="document.getElementById('input-importar').click()">{{ icon('upload','icon icon-sm') }} Importar</button>
+          <a href="/api/clientes/modelo-importacao">{{ icon('file','icon icon-sm') }} Baixar modelo</a>
+        </div>
+      </div>
+      <input type="file" id="input-importar" accept=".xlsx" style="display:none;" onchange="iniciarImportacaoComPreview(this,'/api/clientes/pre-importar','/api/clientes/importar')">
+      <button class="btn btn-primary" onclick="abrirModal()">{{ icon('users') }} Novo cliente</button>
+    </div>
+  </div>
+  <div class="tabela-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Nome / Razão Social</th>
+          <th>CPF / CNPJ</th>
+          <th>Telefone</th>
+          <th>Email</th>
+          <th>Obs.</th>
+          <th style="min-width:150px;">Ações</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<!-- Modal cliente -->
+<div class="modal-overlay" id="modal">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header">
+      <h3 id="modal-titulo">Novo cliente</h3>
+      <button class="btn-close" onclick="fecharModal()">✕</button>
+    </div>
+    <div class="tabs" style="padding:0 20px;border-bottom:1px solid var(--cinza2);">
+      <button class="tab-btn ativa" data-tab="dados" onclick="mudarTabModal('dados')">{{ icon('users','icon icon-sm') }}
+        Dados</button>
+      <button class="tab-btn" id="tab-doc-btn" data-tab="docs" onclick="mudarTabModal('docs')" style="display:none;">{{
+        icon('folder','icon icon-sm') }} Documentos</button>
+    </div>
+    <div class="modal-body" id="painel-tab-dados">
+      <div class="field">
+        <label>Tipo de cliente *</label>
+        <select id="f-tipo-pessoa" onchange="alternarTipoPessoa()">
+          <option value="PF">Pessoa Física</option>
+          <option value="PJ">Pessoa Jurídica</option>
+        </select>
+      </div>
+      <div class="field"><label id="lbl-nome">Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+      <div class="row2">
+        <div class="field" id="grupo-cpf">
+          <label>CPF *</label>
+          <input id="f-cpf" placeholder="000.000.000-00" data-inputmask="'mask': '999.999.999-99'">
+          <span id="erro-cpf" style="color:var(--vermelho);font-size:12px;display:none;">CPF inválido.</span>
+        </div>
+        <div class="field" id="grupo-cnpj" style="display:none;">
+          <label>CNPJ *</label>
+          <input id="f-cnpj" placeholder="00.000.000/0000-00" data-inputmask="'mask': '99.999.999/9999-99'">
+          <span id="erro-cnpj" style="color:var(--vermelho);font-size:12px;display:none;">CNPJ inválido.</span>
+        </div>
+        <div class="field">
+          <label>Telefone *</label>
+          <input id="f-tel" placeholder="(00) 00000-0000" data-inputmask="'mask': ['(99) 9999-9999','(99) 99999-9999']">
+          <span id="erro-tel" style="color:var(--vermelho);font-size:12px;display:none;">Telefone inválido.</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Email *</label>
+        <input id="f-email" type="email" placeholder="email@exemplo.com">
+        <span id="erro-email" style="color:var(--vermelho);font-size:12px;display:none;">E-mail inválido.</span>
+      </div>
+      <div class="field"><label>Observação</label><textarea id="f-obs"
+          placeholder="Anotações sobre o cliente..."></textarea></div>
+    </div>
+    <div class="modal-body" id="painel-tab-docs" style="display:none;">
+      <div id="lista-docs" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <button class="btn btn-outline btn-sm" style="align-self:flex-start;" onclick="abrirModalDoc()">{{
+        icon('upload','icon icon-sm') }} Adicionar documento</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal documento -->
+<div class="modal-overlay" id="modal-doc">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Novo documento</h3>
+      <button class="btn-close" onclick="fecharModalDoc()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Nome *</label><input id="fd-nome" placeholder="Ex: CNH, Comprovante de residência...">
+      </div>
+      <div class="row2">
+        <div class="field"><label>Data *</label><input id="fd-data" type="date"></div>
+        <div class="field"><label>Categoria *</label>
+          <select id="fd-categoria">
+            <option value="documento_pessoal">Documento pessoal</option>
+            <option value="comprovante_residencia">Comprovante de residência</option>
+            <option value="contrato">Contrato</option>
+            <option value="procuracao">Procuração</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Arquivo</label>
+        <div class="file-drop" id="file-drop-area" onclick="document.getElementById('fd-arquivo').click()">
+          {{ icon('upload','icon icon-lg') }}
+          <div id="file-drop-texto">Clique para selecionar um arquivo</div>
+        </div>
+        <input type="file" id="fd-arquivo" style="display:none;" onchange="onArquivoSelecionado()">
+      </div>
+      <div class="field"><label>Observação</label><textarea id="fd-obs"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalDoc()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarDocumento()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal PDF -->
+<div class="modal-overlay" id="modal-pdf">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>{{ icon('file') }} Gerar Relatório PDF</h3>
+      <button class="btn-close" onclick="fecharModalPdf()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;color:var(--sub);margin-bottom:4px;">Selecione o que incluir no relatório de <strong
+          id="pdf-nome-cliente"></strong>:</p>
+      <div class="check-group">
+        <label class="check-item"><input type="checkbox" id="pdf-dados" checked> Dados do cliente</label>
+        <label class="check-item"><input type="checkbox" id="pdf-veiculos" checked> Informações dos veículos</label>
+        <label class="check-item"><input type="checkbox" id="pdf-ipva" checked> IPVA</label>
+        <label class="check-item"><input type="checkbox" id="pdf-licenciamento" checked> Licenciamento</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="fecharModalPdf()">Cancelar</button>
+      <button class="btn btn-success" onclick="gerarPdf()">{{ icon('dowload','icon icon-sm') }} Baixar PDF</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let editId = null;
+  let pdfClienteId = null;
+  let docClienteId = null;
+  const CATEGORIAS_DOC = {
+    documento_pessoal: 'Documento pessoal', comprovante_residencia: 'Comprovante de residência',
+    contrato: 'Contrato', procuracao: 'Procuração', outro: 'Outro'
+  };
+
+  // ── Máscaras e validação frontend ────────────────────────────────────────────
+  function iniciarMascaras() {
+    if (typeof Inputmask === 'undefined') return;
+    Inputmask({ mask: '999.999.999-99' }).mask(document.getElementById('f-cpf'));
+    Inputmask({ mask: '99.999.999/9999-99' }).mask(document.getElementById('f-cnpj'));
+    Inputmask({ mask: ['(99) 9999-9999', '(99) 99999-9999'], keepStatic: false })
+      .mask(document.getElementById('f-tel'));
+  }
+
+  // Alterna os campos do modal entre Pessoa Física e Pessoa Jurídica
+  function alternarTipoPessoa() {
+    const tipo = document.getElementById('f-tipo-pessoa').value;
+    const ehPJ = tipo === 'PJ';
+    document.getElementById('grupo-cpf').style.display = ehPJ ? 'none' : '';
+    document.getElementById('grupo-cnpj').style.display = ehPJ ? '' : 'none';
+    document.getElementById('lbl-nome').textContent = ehPJ ? 'Razão Social *' : 'Nome *';
+    document.getElementById('f-nome').placeholder = ehPJ ? 'Razão social da empresa' : 'Nome completo';
+    mostrarErro('erro-cpf', '', false);
+    mostrarErro('erro-cnpj', '', false);
+  }
+
+  // Valida CPF matematicamente no frontend (espelho do backend)
+  function validarCpfFrontend(cpf) {
+    const d = cpf.replace(/\D/g, '');
+    if (d.length !== 11 || /^(.)\1+$/.test(d)) return false;
+    const calc = (n) => {
+      let s = 0;
+      for (let i = 0; i < n - 1; i++) s += parseInt(d[i]) * (n - i);
+      const r = s % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    return parseInt(d[9]) === calc(10) && parseInt(d[10]) === calc(11);
+  }
+
+  // Valida CNPJ matematicamente no frontend (espelho do backend)
+  function validarCnpjFrontend(cnpj) {
+    const d = cnpj.replace(/\D/g, '');
+    if (d.length !== 14 || /^(.)\1+$/.test(d)) return false;
+    const calc = (pesos) => {
+      let s = 0;
+      for (let i = 0; i < pesos.length; i++) s += parseInt(d[i]) * pesos[i];
+      const r = s % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    const d1 = calc([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const d2 = calc([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return parseInt(d[12]) === d1 && parseInt(d[13]) === d2;
+  }
+
+  function validarEmailFrontend(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  }
+
+  function mostrarErro(id, msg, mostrar) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg;
+    el.style.display = mostrar ? '' : 'none';
+    const input = el.previousElementSibling;
+    if (input && input.tagName === 'INPUT') {
+      input.style.borderColor = mostrar ? 'var(--vermelho)' : '';
+    }
+  }
+
+  function abrirDocs(cid) {
+    docClienteId = cid;
+    carregarDocumentos();
+    mudarTabModal('docs');
+    document.getElementById('tab-doc-btn').style.display = '';
+    document.getElementById('modal-titulo').textContent = 'Documentos';
+    document.getElementById('modal').classList.add('open');
+  }
+
+  window.onImportacaoConcluida = function (r) {
+    const resumo = `${r.clientes_criados} cliente(s) novo(s), ${r.clientes_atualizados} atualizado(s), `
+      + `${r.veiculos_criados} veículo(s) novo(s), ${r.veiculos_atualizados} atualizado(s).`;
+
+    if (!r.erros || !r.erros.length) {
+      toast(`Importação concluída: ${resumo}`);
+    } else {
+      toast(`Importação concluída com ${r.erros.length} linha(s) com erro. Veja os detalhes na janela.`, 'err');
+      const detalhes = r.erros.map(e => `Linha ${e.linha}: ${e.erro}`).join('\n');
+      alert(`Importação concluída.\n\n${resumo}\n\n${r.erros.length} linha(s) não puderam ser importadas:\n${detalhes}`);
+    }
+    carregar();
+  };
+
+  async function carregar() {
+    const busca = document.getElementById('busca').value;
+    const dados = await apiFetch('/api/clientes?busca=' + encodeURIComponent(busca));
+    if (!dados) return;
+    const tbody = document.getElementById('tbody');
+    if (!dados.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><p>Nenhum cliente encontrado</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = dados.map(c => `
+    <tr>
+      <td><strong>${escapeHtml(c.nome)}</strong>${c.tipo_pessoa === 'PJ' ? ' <span class="badge badge-inativo">PJ</span>' : ''}</td>
+      <td>${c.tipo_pessoa === 'PJ' ? (escapeHtml(formatarCnpjExibicao(c.cnpj)) || '—') : (escapeHtml(formatarCpfExibicao(c.cpf)) || '—')}</td>
+      <td>${escapeHtml(c.telefone) || '—'}</td>
+      <td>${escapeHtml(c.email) || '—'}</td>
+      <td class="col-obs" title="${escapeHtml(c.observacao)}">${escapeHtml(c.observacao) || '—'}</td>
+      <td>
+        <div style="display:flex;gap:5px;flex-wrap:nowrap;align-items:center;">
+          <a class="btn btn-primary btn-sm btn-icon" title="Veículos" href="/clientes/${c.id}/veiculos">{{ icon('car','icon icon-sm') }}</a>
+          <a class="btn btn-outline btn-sm btn-icon" title="Pendências" href="/clientes/${c.id}/pendencias">{{ icon('warning','icon icon-sm') }}</a>
+          <button class="btn btn-outline btn-sm btn-icon" title="Documentos" onclick="abrirDocs(${c.id})">{{ icon('folder','icon icon-sm') }}</button>
+          <button class="btn btn-outline btn-sm btn-icon" title="Gerar PDF" onclick="abrirModalPdf(${c.id},'${escapeHtml(c.nome)}')">{{ icon('file','icon icon-sm') }}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Editar" onclick='editar(${escapeHtml(JSON.stringify(c))})'>{{ icon('edit','icon icon-sm') }}</button>
+          <button class="btn btn-danger btn-sm btn-icon" title="Excluir" onclick="excluir(${c.id},'${escapeHtml(c.nome)}')">{{ icon('delete','icon icon-sm') }}</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  }
+
+  function formatarCpfExibicao(cpf) {
+    return cpf ? cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
+  }
+
+  function formatarCnpjExibicao(cnpj) {
+    return cnpj ? cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : '';
+  }
+
+  function mudarTabModal(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('ativa'));
+    document.querySelector(`[data-tab="${tab}"]`).classList.add('ativa');
+    document.getElementById('painel-tab-dados').style.display = tab === 'dados' ? '' : 'none';
+    document.getElementById('painel-tab-docs').style.display = tab === 'docs' ? '' : 'none';
+  }
+
+  function abrirModal() {
+    editId = null;
+    document.getElementById('modal-titulo').textContent = 'Novo cliente';
+    ['f-nome', 'f-cpf', 'f-cnpj', 'f-tel', 'f-email', 'f-obs'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f-tipo-pessoa').value = 'PF';
+    alternarTipoPessoa();
+    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    document.getElementById('tab-doc-btn').style.display = 'none';
+    mudarTabModal('dados');
+    document.getElementById('modal').classList.add('open');
+    setTimeout(iniciarMascaras, 50);
+  }
+
+  async function editar(c) {
+    editId = c.id;
+    document.getElementById('modal-titulo').textContent = 'Editar cliente';
+    document.getElementById('f-tipo-pessoa').value = c.tipo_pessoa || 'PF';
+    alternarTipoPessoa();
+    document.getElementById('f-nome').value = c.nome || '';
+    // Exibe CPF/CNPJ e telefone formatados na edição
+    document.getElementById('f-cpf').value = formatarCpfExibicao(c.cpf);
+    document.getElementById('f-cnpj').value = formatarCnpjExibicao(c.cnpj);
+    document.getElementById('f-tel').value = c.telefone ? formatarTelExibicao(c.telefone) : '';
+    document.getElementById('f-email').value = c.email || '';
+    document.getElementById('f-obs').value = c.observacao || '';
+    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+    document.getElementById('tab-doc-btn').style.display = '';
+    docClienteId = c.id;
+    await carregarDocumentos();
+    mudarTabModal('dados');
+    document.getElementById('modal').classList.add('open');
+    setTimeout(iniciarMascaras, 50);
+  }
+
+  function formatarTelExibicao(tel) {
+    const d = tel.replace(/\D/g, '');
+    if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return tel;
+  }
+
+  function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+
+  async function salvar() {
+    const tipoPessoa = document.getElementById('f-tipo-pessoa').value;
+    const ehPJ = tipoPessoa === 'PJ';
+    const nome = document.getElementById('f-nome').value.trim();
+    const cpf = document.getElementById('f-cpf').value.trim();
+    const cnpj = document.getElementById('f-cnpj').value.trim();
+    const tel = document.getElementById('f-tel').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+
+    // Limpa erros anteriores
+    ['erro-cpf', 'erro-cnpj', 'erro-tel', 'erro-email'].forEach(id => mostrarErro(id, '', false));
+
+    let invalido = false;
+    if (!nome) { toast(ehPJ ? 'Razão social é obrigatória.' : 'Nome é obrigatório.', 'err'); return; }
+    if (ehPJ) {
+      if (!validarCnpjFrontend(cnpj)) {
+        mostrarErro('erro-cnpj', 'CNPJ inválido.', true);
+        invalido = true;
+      }
+    } else {
+      if (!validarCpfFrontend(cpf)) {
+        mostrarErro('erro-cpf', 'CPF inválido.', true);
+        invalido = true;
+      }
+    }
+    if (tel.replace(/\D/g, '').length < 10) {
+      mostrarErro('erro-tel', 'Telefone inválido. Use DDD + número.', true);
+      invalido = true;
+    }
+    if (email && !validarEmailFrontend(email)) {
+      mostrarErro('erro-email', 'E-mail inválido.', true);
+      invalido = true;
+    }
+    if (invalido) return;
+
+    const payload = {
+      nome, tipo_pessoa: tipoPessoa,
+      cpf: ehPJ ? '' : cpf, cnpj: ehPJ ? cnpj : '',
+      telefone: tel, email, observacao: document.getElementById('f-obs').value.trim()
+    };
+    const url = editId ? `/api/clientes/${editId}` : '/api/clientes';
+    const method = editId ? 'PUT' : 'POST';
+    const data = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!data) return;
+    fecharModal();
+    carregar();
+    toast(editId ? 'Cliente atualizado!' : 'Cliente cadastrado!');
+  }
+
+  async function excluir(id, nome) {
+    confirmarExclusao(`Excluir "${nome}" e todos os seus veículos/documentos?`, async () => {
+      const data = await apiFetch(`/api/clientes/${id}`, { method: 'DELETE' });
+      if (!data) return;
+      carregar();
+      toast('Cliente excluído.');
+    });
+  }
+
+  // ── Documentos ───────────────────────────────────────────────────────────────
+  async function carregarDocumentos() {
+    const docs = await apiFetch(`/api/clientes/${docClienteId}/documentos`);
+    if (!docs) return;
+    const lista = document.getElementById('lista-docs');
+    if (!docs.length) {
+      lista.innerHTML = `<div class="empty-state"><p>Nenhum documento anexado</p></div>`;
+      return;
+    }
+    lista.innerHTML = docs.map(d => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--cinza1);border-radius:8px;border:1px solid var(--cinza2);">
+      {{ icon('file','icon') }}
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:14px;">${escapeHtml(d.nome)}</div>
+        <div style="font-size:12px;color:var(--sub);">${escapeHtml(CATEGORIAS_DOC[d.categoria] || d.categoria)} · ${fmtData(d.data_documento)} · cadastrado em ${fmtDataHora(d.criado_em)}</div>
+        ${d.observacao ? `<div style="font-size:12px;color:var(--sub);margin-top:2px;">${escapeHtml(d.observacao)}</div>` : ''}
+      </div>
+      <div style="display:flex;gap:4px;">
+        ${d.arquivo ? `<a class="btn btn-ghost btn-sm btn-icon" href="/static/uploads/documentos/${d.arquivo}" title="Baixar arquivo">{{ icon('dowload','icon icon-sm') }}</a>` : ''}
+        <button class="btn btn-danger btn-sm btn-icon" onclick="excluirDocumento(${d.id})">{{ icon('delete','icon icon-sm') }}</button>
+      </div>
+    </div>
+  `).join('');
+  }
+
+  function abrirModalDoc() {
+    document.getElementById('fd-nome').value = '';
+    document.getElementById('fd-data').value = new Date().toISOString().split('T')[0];
+    document.getElementById('fd-categoria').value = 'documento_pessoal';
+    document.getElementById('fd-obs').value = '';
+    document.getElementById('fd-arquivo').value = '';
+    document.getElementById('file-drop-texto').textContent = 'Clique para selecionar um arquivo';
+    document.getElementById('modal-doc').classList.add('open');
+  }
+  function fecharModalDoc() { document.getElementById('modal-doc').classList.remove('open'); }
+
+  function onArquivoSelecionado() {
+    const f = document.getElementById('fd-arquivo').files[0];
+    document.getElementById('file-drop-texto').textContent = f ? f.name : 'Clique para selecionar um arquivo';
+  }
+
+  async function salvarDocumento() {
+    const nome = document.getElementById('fd-nome').value.trim();
+    const data = document.getElementById('fd-data').value;
+    const categoria = document.getElementById('fd-categoria').value;
+    if (!nome || !data || !categoria) { toast('Preencha nome, data e categoria', 'err'); return; }
+    const fd = new FormData();
+    fd.append('cliente_id', docClienteId);
+    fd.append('nome', nome);
+    fd.append('data_documento', data);
+    fd.append('categoria', categoria);
+    fd.append('observacao', document.getElementById('fd-obs').value.trim());
+    const arquivo = document.getElementById('fd-arquivo').files[0];
+    if (arquivo) fd.append('arquivo', arquivo);
+    try {
+      const res = await fetch('/api/documentos', { method: 'POST', body: fd });
+      const result = await res.json();
+      if (!res.ok) { toast(result.erro || 'Erro ao salvar', 'err'); return; }
+    } catch (e) { toast('Erro de conexão', 'err'); return; }
+    fecharModalDoc();
+    await carregarDocumentos();
+    toast('Documento adicionado!');
+  }
+
+  async function excluirDocumento(id) {
+    confirmarExclusao('Excluir este documento?', async () => {
+      const data = await apiFetch(`/api/documentos/${id}`, { method: 'DELETE' });
+      if (!data) return;
+      await carregarDocumentos();
+      toast('Documento excluído.');
+    });
+  }
+
+  // ── PDF ───────────────────────────────────────────────────────────────────────
+  function abrirModalPdf(id, nome) {
+    pdfClienteId = id;
+    document.getElementById('pdf-nome-cliente').textContent = nome;
+    document.getElementById('modal-pdf').classList.add('open');
+  }
+  function fecharModalPdf() { document.getElementById('modal-pdf').classList.remove('open'); }
+
+  function gerarPdf() {
+    const incluir = [];
+    if (document.getElementById('pdf-dados').checked) incluir.push('dados');
+    if (document.getElementById('pdf-veiculos').checked) incluir.push('veiculos');
+    if (document.getElementById('pdf-ipva').checked) incluir.push('ipva');
+    if (document.getElementById('pdf-licenciamento').checked) incluir.push('licenciamento');
+    if (!incluir.length) { toast('Selecione ao menos uma opção', 'err'); return; }
+    const params = incluir.map(i => 'incluir=' + i).join('&');
+    window.open(`/api/clientes/${pdfClienteId}/relatorio?${params}`, '_blank');
+    fecharModalPdf();
+    toast('PDF gerado!');
+  }
+
+  carregar();
+</script>
+{% endblock %}

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Trocar Senha — Despachante</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.10); padding: 40px 36px; width: 100%; max-width: 380px; }
+  h1 { font-size: 18px; font-weight: 700; color: #1a4f8a; margin-bottom: 6px; }
+  p.sub { font-size: 13px; color: #5a6680; margin-bottom: 24px; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
+  label { font-size: 12px; font-weight: 700; color: #5a6680; text-transform: uppercase; letter-spacing: .4px; }
+  input { border: 1px solid #c8d0dc; border-radius: 6px; padding: 9px 12px; font-size: 14px; outline: none; }
+  input:focus { border-color: #2563ae; box-shadow: 0 0 0 3px rgba(37,99,174,.12); }
+  .btn { width: 100%; padding: 10px; background: #1a4f8a; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+  .erro { background: #fee2e2; color: #991b1b; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+  .aviso { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🔑 Defina sua nova senha</h1>
+  <div class="aviso">Você está usando uma senha temporária. Defina uma nova senha para continuar.</div>
+
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+
+  <form method="POST">
+    <div class="field">
+      <label>Nova senha (mínimo 6 caracteres)</label>
+      <input type="password" name="nova_senha" autofocus required minlength="6">
+    </div>
+    <div class="field">
+      <label>Confirmar nova senha</label>
+      <input type="password" name="confirmar_senha" required minlength="6">
+    </div>
+    <button type="submit" class="btn">Salvar nova senha</button>
+  </form>
+</div>
+</body>
+</html>

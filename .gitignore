@@ -24,12 +24,6 @@ app/static/uploads/logo/*
 .env
 env.yaml
 
-# Build do executável
-build/
-dist/
-installer_output/
-*.spec.bak
-
 # Editor / SO
 .vscode/
 .idea/
