@@ -1,0 +1,12 @@
+[
+  {
+    "name": "manter-recentes",
+    "action": {"type": "Keep"},
+    "mostRecentVersions": {"keepCount": 2}
+  },
+  {
+    "name": "apagar-resto",
+    "action": {"type": "Delete"},
+    "condition": {"tagState": "any"}
+  }
+]

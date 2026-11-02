@@ -7,3 +7,6 @@ __pycache__/
 backups/
 .git/
 env.yaml
+infra/lifecycle.json
+infra/limpar-custos.ps1
+infra/policy.json
