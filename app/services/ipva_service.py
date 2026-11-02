@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -167,6 +167,36 @@ class IpvaService(TenantService):
         parcela.status = "vencido" if nova < date.today() else "pendente"
         self._s.commit()
         return True, "", {"de": antiga, "para": parcela.vencimento}
+
+    def editar_valor_parcela(self, parcela_id: int, valor) -> tuple[bool, str, Optional[dict]]:
+        """
+        Altera o valor de uma parcela (pendente, vencida ou já paga), por
+        exemplo para acrescentar juros/multa de atraso ao valor efetivamente
+        cobrado. O valor total do IPVA não é alterado.
+
+        Retorna (ok, mensagem_de_erro, {"de": valor_antigo, "para": valor_novo}).
+        """
+        parcela = self._parcela_escopada(parcela_id)
+        if not parcela:
+            return False, "Parcela não encontrada.", None
+
+        try:
+            texto = str(valor if valor is not None else "").strip().replace(",", ".")
+            novo = Decimal(texto).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            return False, "Valor inválido.", None
+        if novo <= 0:
+            return False, "O valor da parcela deve ser maior que zero.", None
+        if novo >= Decimal("100000000"):
+            return False, "Valor muito alto.", None
+
+        antigo = parcela.valor
+        parcela.valor = novo
+        self._s.commit()
+        return True, "", {
+            "de":   float(antigo) if antigo is not None else None,
+            "para": float(novo),
+        }
 
     def quitar_avista(self, ipva_id: int) -> tuple[bool, str]:
         """

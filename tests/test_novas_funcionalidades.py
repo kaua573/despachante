@@ -213,3 +213,41 @@ def test_exportar_excel_do_relatorio_combinado_inclui_multas(client):
     assert sorted(tipos) == ["LICENCIAMENTO", "MULTAS", "MULTAS"]
     r = client.post("/api/relatorios/exportar/pdf", json={"config": config, "campos_visiveis": campos})
     assert r.status_code == 200 and r.data[:4] == b"%PDF"
+
+
+# ── 3. Editar o valor das parcelas do IPVA ────────────────────────────────────
+
+def test_editar_valor_de_parcela_pendente_e_paga(client):
+    iid, parcelas = _ipva_parcelado(client)
+    p1, p2 = parcelas[0], parcelas[1]
+    r = client.put(f"/api/ipva/parcelas/{p1['id']}/valor", json={"valor": "123,45"})
+    assert r.status_code == 200, r.get_json()
+    # parcela já paga também pode ter o valor ajustado (juros de atraso)
+    client.post(f"/api/ipva/parcelas/{p2['id']}/quitar")
+    r = client.put(f"/api/ipva/parcelas/{p2['id']}/valor", json={"valor": 150.5})
+    assert r.status_code == 200, r.get_json()
+    atual = client.get(f"/api/ipva/{iid}/parcelas").get_json()["parcelas"]
+    assert atual[0]["valor"] == 123.45
+    assert atual[1]["valor"] == 150.5
+    assert atual[1]["status"] == "pago"          # status e data de pagamento intactos
+    assert atual[1]["pago_em"] == date.today().isoformat()
+    assert atual[2]["valor"] == parcelas[2]["valor"]  # as outras não mudam
+
+
+def test_editar_valor_invalido_e_rejeitado(client):
+    iid, parcelas = _ipva_parcelado(client)
+    pid = parcelas[0]["id"]
+    for ruim in ("", "abc", 0, -5, None, "1e99"):
+        r = client.put(f"/api/ipva/parcelas/{pid}/valor", json={"valor": ruim})
+        assert r.status_code == 400, ruim
+    assert client.get(f"/api/ipva/{iid}/parcelas").get_json()["parcelas"][0]["valor"] == parcelas[0]["valor"]
+
+
+def test_edicao_de_valor_fica_no_log(app, client):
+    from app import db
+    from app.models.log_acao import LogAcao
+    iid, parcelas = _ipva_parcelado(client)
+    client.put(f"/api/ipva/parcelas/{parcelas[0]['id']}/valor", json={"valor": 111})
+    with app.app_context():
+        log = db.session.query(LogAcao).filter_by(acao="editar_valor_parcela_ipva").first()
+        assert log is not None

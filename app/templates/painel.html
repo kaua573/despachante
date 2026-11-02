@@ -338,7 +338,7 @@ async function renderizarParcelas(ipvaId) {
       <td id="venc-cel-${p.id}">${fmtData(p.vencimento)}${p.status !== 'pago'
         ? ` <button class="btn btn-ghost btn-sm" title="Editar vencimento" onclick="editarVencimentoParcela(${p.id},'${p.vencimento}')">✎</button>`
         : ''}</td>
-      <td>${fmtMoeda(p.valor)}</td>
+      <td id="valor-cel-${p.id}">${fmtMoeda(p.valor)} <button class="btn btn-ghost btn-sm" title="Editar valor" onclick="editarValorParcela(${p.id},${p.valor})">✎</button></td>
       <td>${STATUS_BADGE_PARCELA[p.status] || p.status}</td>
       <td>${p.pago_em ? fmtData(p.pago_em) : '—'}</td>
       <td>${p.status !== 'pago'
@@ -389,6 +389,33 @@ async function salvarVencimentoParcela(parcelaId) {
   });
   if (!data) return;
   toast('Vencimento atualizado!');
+  await renderizarParcelas(parcelasIpvaId);
+}
+
+function editarValorParcela(parcelaId, atual) {
+  const cel = document.getElementById(`valor-cel-${parcelaId}`);
+  cel.innerHTML = `<input type="number" step="0.01" min="0.01" id="valor-input-${parcelaId}" value="${Number(atual).toFixed(2)}" style="width:110px;">
+    <button class="btn btn-success btn-sm" title="Salvar" onclick="salvarValorParcela(${parcelaId})">✓</button>
+    <button class="btn btn-ghost btn-sm" title="Cancelar" onclick="renderizarParcelas(parcelasIpvaId)">✕</button>`;
+  const input = document.getElementById(`valor-input-${parcelaId}`);
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') salvarValorParcela(parcelaId);
+    if (ev.key === 'Escape') renderizarParcelas(parcelasIpvaId);
+  });
+}
+
+async function salvarValorParcela(parcelaId) {
+  const valor = document.getElementById(`valor-input-${parcelaId}`).value;
+  if (!valor || Number(valor) <= 0) { toast('Informe um valor maior que zero.', 'err'); return; }
+  const data = await apiFetch(`/api/ipva/parcelas/${parcelaId}/valor`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valor }),
+  });
+  if (!data) return;
+  toast('Valor atualizado!');
   await renderizarParcelas(parcelasIpvaId);
 }
 

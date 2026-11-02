@@ -73,6 +73,18 @@ def api_editar_vencimento_parcela(parcela_id):
     return jsonify({"ok": True})
 
 
+@bp.route("/api/ipva/parcelas/<int:parcela_id>/valor", methods=["PUT"])
+@login_required
+@requer_permissao("gerenciar_ipva")
+def api_editar_valor_parcela(parcela_id):
+    dados = request.get_json(silent=True) or {}
+    ok, msg, alteracao = _svc().editar_valor_parcela(parcela_id, dados.get("valor"))
+    if not ok:
+        return jsonify({"ok": False, "erro": msg}), 400
+    _log().registrar("editar_valor_parcela_ipva", "ipva_parcela", parcela_id, alteracao)
+    return jsonify({"ok": True})
+
+
 @bp.route("/api/ipva/<int:ipva_id>/quitar", methods=["POST"])
 @login_required
 @requer_permissao("gerenciar_ipva")
